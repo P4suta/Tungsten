@@ -1,0 +1,23 @@
+services:
+  tungsten:
+    build: .
+    image: tungsten:local
+    command: ["--data-dir", "/data", "--listen", "0.0.0.0:8080", "--origin", "${TUNGSTEN_ORIGIN:?Set a dedicated HTTPS origin}"]
+    user: "${TUNGSTEN_UID:-1000}:${TUNGSTEN_GID:-1000}"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - type: bind
+        source: ./notes
+        target: /data
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp:size=268435456,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped

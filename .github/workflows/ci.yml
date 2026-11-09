@@ -1,0 +1,43 @@
+name: Checks
+on:
+  pull_request:
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    name: Check source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PROSE_SOURCE: ${{ github.workspace }}/target/shared-tools
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
+        with:
+          version: 2026.10.24
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.npm
+            target
+          key: checks-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'ui/package-lock.json', 'mise.toml', '.github/workflows/*.yml') }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: P4suta/dotfiles
+          ref: f912fad08fb356ba6c04c60cb7fe5e37d5c5ce36
+          path: target/shared-tools
+          persist-credentials: false
+      - run: cargo install --locked --path target/shared-tools/crates/prose --force
+      - run: cargo install --locked --path target/shared-tools/crates/dotfiles --bin dotfiles --force
+      - run: git config prose.standard true
+      - run: npm --prefix ui ci
+      - run: npm --prefix ui exec -- playwright install --with-deps chromium firefox webkit
+      - run: mise x -- just check

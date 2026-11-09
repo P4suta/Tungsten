@@ -1,0 +1,15 @@
+/target/
+/dist/
+/notes/
+/ui/node_modules/
+/ui/assurance/node_modules/
+/ui/dist/
+/ui/generated/
+/ui/test-results/
+/ui/playwright-report/
+/ui/reports/
+/ui/.stryker-tmp/
+/mutants.out/
+/fuzz/target/
+/proofs/target/
+.DS_Store

@@ -1,0 +1,10 @@
+pre-commit:
+  commands:
+    format:
+      run: mise x -- cargo fmt --all --check
+    ui:
+      run: mise x -- npm --prefix ui run lint
+pre-push:
+  commands:
+    check:
+      run: mise x -- just check

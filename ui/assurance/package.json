@@ -1,0 +1,17 @@
+{
+  "name": "tungsten-editing-assurance",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/typescript-checker": "10.1.1",
+    "lighthouse": "13.6.0",
+    "typescript": "6.0.3"
+  },
+  "overrides": {
+    "@stryker-mutator/core": {
+      "minimatch": "11.0.5"
+    },
+    "qs": "6.17.1"
+  }
+}

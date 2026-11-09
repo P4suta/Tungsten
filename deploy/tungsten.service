@@ -1,0 +1,21 @@
+[Unit]
+Description=Tungsten personal notes
+After=network.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=tungsten
+EnvironmentFile=/etc/tungsten.env
+ExecStart=/usr/local/bin/tungsten --data-dir /var/lib/tungsten --listen 127.0.0.1:8080 --origin ${TUNGSTEN_ORIGIN}
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

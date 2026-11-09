@@ -1,0 +1,36 @@
+{
+  "name": "tungsten-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json && esbuild src/app.ts src/vault-start.ts --bundle --splitting --minify --format=esm --platform=browser --target=es2024 --external:./pdf.mjs --outdir=dist --chunk-names=chunks/[name]-[hash]",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check --error-on-warnings .",
+    "test": "playwright test",
+    "test:demo": "playwright test --config playwright.demo.config.ts",
+    "test:unit": "node --test --experimental-test-coverage --test-coverage-include=src/input.ts --test-coverage-include=src/live-ranges.ts --test-coverage-lines=100 --test-coverage-branches=95 --test-coverage-functions=100 tests/*.test.ts",
+    "test:mutations": "node assurance/node_modules/@stryker-mutator/core/bin/stryker.js run"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@biomejs/biome": "2.6.6",
+    "@playwright/test": "1.65.0",
+    "@types/d3-force": "3.0.10",
+    "@types/node": "26.6.6",
+    "esbuild": "0.28.2",
+    "happy-dom": "21.0.4",
+    "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
+    "@lezer/markdown": "1.8.1",
+    "d3-force": "3.0.1",
+    "diff": "9.0.0",
+    "highlight.js": "11.12.0",
+    "pdfjs-dist": "6.5.438",
+    "prettier": "3.9.10"
+  }
+}

@@ -1,0 +1,6 @@
+name = "Tungsten"
+summary = "Personal Markdown notes with encrypted storage inside your tailnet"
+install = "mise trust\nmise install\nmise x -- just setup\nmise x -- just build"
+usage = "./target/release/tungsten --development --data-dir ./notes"
+copyright = "Yasunobu"
+license = "MIT OR Apache-2.0"

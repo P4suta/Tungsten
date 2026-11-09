@@ -1,0 +1,15 @@
+.git
+target/*
+!target/browser-proof.rs
+proofs/target
+fuzz/target
+dist
+notes
+ui/node_modules
+ui/generated
+ui/assurance/node_modules
+ui/test-results
+ui/playwright-report
+ui/reports
+ui/.stryker-tmp
+mutants.out

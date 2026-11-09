@@ -1,0 +1,16 @@
+{
+  "$schema": "./assurance/node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "plugins": ["./assurance/node_modules/@stryker-mutator/typescript-checker/dist/src/index.js"],
+  "mutate": ["src/input.ts", "src/live-ranges.ts"],
+  "testRunner": "command",
+  "commandRunner": { "command": "exec node --test --test-isolation=none tests/*.test.ts" },
+  "checkers": ["typescript"],
+  "tsconfigFile": "tsconfig.mutations.json",
+  "coverageAnalysis": "off",
+  "concurrency": 2,
+  "timeoutMS": 3000,
+  "timeoutFactor": 2,
+  "reporters": ["clear-text", "json"],
+  "jsonReporter": { "fileName": "reports/mutation.json" },
+  "thresholds": { "high": 100, "low": 100, "break": 100 }
+}
