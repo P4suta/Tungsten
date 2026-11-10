@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
+import { pressShortcut } from "./editor.js";
 import { openNavigation, showPaper } from "./interface.js";
 
 test("loads only the editor before secondary tools and bounds cold JavaScript", async ({
@@ -45,7 +46,7 @@ test("keeps typing responsive under CPU slowdown", async ({ page, request, brows
   await showPaper(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await editor.fill(`# Input latency\n\n${"A line connecting thoughts.\n\n".repeat(300)}`);
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   const session = await page.context().newCDPSession(page);
   await session.send("Emulation.setCPUThrottlingRate", { rate: 6 });
   const timings: number[] = [];

@@ -1,5 +1,5 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, test } from "./editor.js";
+import { expect, pressShortcut, test } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
 import { newEmptyNote, openNavigation } from "./interface.js";
 
@@ -20,7 +20,7 @@ test("renders list markers, quotes, and literal fenced code without replacing ed
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   const text =
     "# Blocks\n\n- Minus\n+ Plus\n* Star\n\n> Quoted text\n\n```ts\nconst value = '*literal*';\n- code, not a list\n```\n\nAfter";
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText(text);
   await expect(page.locator(".live-list-marker")).toHaveText(["•", "•", "•"]);
   await expect(page.locator(".live-quote")).toContainText("Quoted text");
@@ -44,7 +44,7 @@ test("renders list markers, quotes, and literal fenced code without replacing ed
   await list.click();
   await editor.press("Home");
   await expect(page.locator(".live-list-line").first()).toContainText("- Minus");
-  await editor.press("ControlOrMeta+Home");
+  await pressShortcut(editor, "Home");
   await expect(page.locator(".live-list-marker").first()).toHaveText("•");
   expect(
     await list.evaluate(
@@ -62,16 +62,16 @@ test("exits empty list and quote containers and preserves code as literal input"
   await newEmptyNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   for (const marker of ["-", "+", "*", "- ", "+ ", "* ", "1. ", "- [ ] ", ">", "> "]) {
-    await editor.press("ControlOrMeta+a");
+    await pressShortcut(editor, "a");
     await page.keyboard.insertText(`# Empty\n\n${marker}`);
     await editor.press("Enter");
     await expect(page.locator("#body")).toHaveValue("# Empty\n\n");
   }
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText("# Code\n\n```md\n- literal");
   await editor.press("Enter");
   await expect(page.locator("#body")).toHaveValue("# Code\n\n```md\n- literal\n");
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText("# Quote\n\n> - [x] Task");
   await editor.press("Enter");
   await expect(page.locator("#body")).toHaveValue("# Quote\n\n> - [x] Task\n> - [ ] ");
@@ -120,7 +120,7 @@ test("keeps formatting automatic without a format action in the note menu", asyn
   await page.goto("/");
   await newEmptyNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText("# Auto\n\n* item");
   const more = await openNavigation(page);
   await expect(more.getByRole("button", { name: "Format Markdown", exact: true })).toHaveCount(0);
@@ -149,7 +149,7 @@ test("suggests links in the editor without requiring a typing help preference", 
   await newEmptyNote(page);
   const editor = page.getByLabel("Note", { exact: true });
   await editor.fill("# Source\n\n");
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await editor.pressSequentially(`[${title}`);
   const suggestions = page.getByRole("listbox", { name: "Link to note", exact: true });
   await expect(suggestions.getByRole("option")).toHaveText([title]);
@@ -160,7 +160,7 @@ test("suggests links in the editor without requiring a typing help preference", 
   await expect(more.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
   await more.getByRole("button", { name: "Close navigation", exact: true }).click();
   await editor.fill("# Source\n\n");
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await editor.pressSequentially(`[${title}`);
   await expect(suggestions).toBeVisible();
   await expect(editor).toHaveMarkdown(`# Source\n\n[${title}]()`);

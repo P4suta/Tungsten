@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { pressShortcut } from "./editor.js";
 
 test("edits a near-limit note without creating thousands of preview elements", async ({
   page,
@@ -12,7 +13,7 @@ test("edits a near-limit note without creating thousands of preview elements", a
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await expect(editor).toBeEditable();
   expect(await editor.locator("*").count()).toBeLessThan(300);
-  await editor.press("ControlOrMeta+Home");
+  await pressShortcut(editor, "Home");
   await editor.press("End");
   await editor.pressSequentially(" edited");
   await expect(page.locator("#save-status")).toHaveText("Saved");

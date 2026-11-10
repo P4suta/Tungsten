@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, test } from "./editor.js";
+import { expect, pressShortcut, test } from "./editor.js";
 import { attachToNote, newNote, openTrash } from "./interface.js";
 
 test.beforeEach(async ({ page, request }) => {
@@ -37,7 +37,7 @@ test("keeps recordings and PDF pages in place during live editing", async ({ pag
     );
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   const audio = page.locator("#live-editor audio");
   await expect
     .poll(() => audio.evaluate((node: HTMLAudioElement) => node.readyState))
@@ -54,7 +54,7 @@ test("keeps recordings and PDF pages in place during live editing", async ({ pag
   await expect(pdf.getByText("Page 1 of 2", { exact: true })).toBeVisible();
   await pdf.getByRole("button", { name: "Next page", exact: true }).click();
   await expect(pdf.getByText("Page 2 of 2", { exact: true })).toBeVisible();
-  await editor.press("ControlOrMeta+Home");
+  await pressShortcut(editor, "Home");
   await editor.press("End");
   await editor.pressSequentially(" edited");
   await expect(audio).toHaveAttribute("data-continuity", "playing");
@@ -132,7 +132,7 @@ test("displays images, plays recordings, and renders PDF pages with working link
     },
   ]);
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/pixel\.png/);
-  await page.getByLabel("Note", { exact: true }).press("ControlOrMeta+Home");
+  await pressShortcut(page.getByLabel("Note", { exact: true }), "Home");
   await expect
     .poll(() =>
       page
@@ -271,7 +271,7 @@ test("keeps a PDF page selected while writing below its preview", async ({ page,
   const source = `[Report](.attachments/${file.id}) [Recording](.attachments/${recordingFile.id})\n\nNotes`;
   const editor = page.getByLabel("Note", { exact: true });
   await editor.fill(source);
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await expect(page.getByRole("status").filter({ hasText: /^Saved$/ })).toBeVisible();
   await expect(page.getByText("Page 1 of 2", { exact: true })).toBeVisible();
   await expect(page.locator(".file-preview > p:first-child")).toHaveText([
@@ -287,7 +287,7 @@ test("keeps a PDF page selected while writing below its preview", async ({ page,
     node.loop = true;
     await node.play();
   });
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await editor.press("Enter");
   await editor.press("Enter");
   await editor.pressSequentially("More notes");

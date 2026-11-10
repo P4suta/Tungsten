@@ -1,4 +1,4 @@
-import { expect, markdownValue, test } from "./editor.js";
+import { expect, markdownValue, pressShortcut, test } from "./editor.js";
 import { newEmptyNote, newNote, openNavigation } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
@@ -79,15 +79,15 @@ test("completes delimiters and wraps a selection without using a toolbar", async
   await note.press("[");
   await expect(note).toHaveMarkdown("[]()");
   await note.fill("selected text");
-  await note.press("ControlOrMeta+a");
+  await pressShortcut(note, "a");
   await note.press("*");
   await expect(note).toHaveMarkdown("**selected text**");
-  await note.press("ControlOrMeta+z");
+  await pressShortcut(note, "z");
   await expect(note).toHaveMarkdown("selected text");
-  await note.press("ControlOrMeta+a");
-  await note.press("ControlOrMeta+b");
+  await pressShortcut(note, "a");
+  await pressShortcut(note, "b");
   await expect(note).toHaveMarkdown("**selected text**");
-  await note.press("ControlOrMeta+b");
+  await pressShortcut(note, "b");
   await expect(note).toHaveMarkdown("selected text");
   await note.fill("");
   await note.pressSequentially("**bold**");
@@ -113,7 +113,7 @@ test("continues Markdown lists and lets Tab leave the editor after Escape", asyn
   await note.press("Enter");
   await expect(note).toHaveMarkdown("- [x] done\n");
   await note.fill("first\nsecond");
-  await note.press("ControlOrMeta+a");
+  await pressShortcut(note, "a");
   await note.press("Tab");
   await expect(note).toHaveMarkdown("    first\n    second");
   await note.press("Shift+Tab");
@@ -142,7 +142,7 @@ test("leaves composition unchanged with automatic typing assistance", async ({ p
   });
   expect(accepted).toBe(true);
   await expect(note).toHaveMarkdown("変換*");
-  await note.press("ControlOrMeta+a");
+  await pressShortcut(note, "a");
   await note.press("Backspace");
   await expect(note).toHaveMarkdown("");
   await note.press("*");
@@ -158,7 +158,7 @@ test("always opens an editable live note and ignores retired view preferences", 
   const note = page.getByRole("textbox", { name: "Note", exact: true });
   await expect(note).toBeEditable();
   await note.fill("# Next note");
-  await note.press("ControlOrMeta+Enter");
+  await pressShortcut(note, "Enter");
   await expect(note).toBeFocused();
   await expect(note).toBeEditable();
   const before = await markdownValue(note);

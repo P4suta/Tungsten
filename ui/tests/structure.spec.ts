@@ -1,4 +1,4 @@
-import { expect, selectMarkdown, test } from "./editor.js";
+import { expect, pressShortcut, selectMarkdown, test } from "./editor.js";
 import { newEmptyNote, openNavigation } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
@@ -19,7 +19,7 @@ test("normalizes heading ranks automatically as one undoable edit", async ({ pag
   await expect(editor).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   await expect(editor.getByRole("heading", { level: 2 })).toHaveCount(2);
-  await editor.press("ControlOrMeta+z");
+  await pressShortcut(editor, "z");
   await expect(editor).toHaveMarkdown(original);
 });
 
@@ -34,7 +34,7 @@ test("unwraps matched inline syntax while preserving contents and native undo", 
     await selectMarkdown(editor, 9, 9 + marker.length);
     await editor.press("Backspace");
     await expect(editor).toHaveMarkdown("# Pairs\n\n日本語 😀\n");
-    await editor.press("ControlOrMeta+z");
+    await pressShortcut(editor, "z");
     await expect(editor).toHaveMarkdown(original);
   }
 });
@@ -48,7 +48,7 @@ test("removes the matching fence when either fence is deleted", async ({ page })
     await selectMarkdown(editor, 9 + marker.length);
     await editor.press("Backspace");
     await expect(editor).toHaveMarkdown("# Fence\n\nimport package\n\nTail");
-    await editor.press("ControlOrMeta+z");
+    await pressShortcut(editor, "z");
     await expect(editor).toHaveMarkdown(original);
     await selectMarkdown(editor, original.lastIndexOf(marker));
     await editor.press("Delete");
@@ -63,7 +63,7 @@ test("highlights bundled languages and aliases without interpreting literal HTML
   await editor.fill(
     "# Code\n\n```js extra\nconst answer = 42;\n```\n\n```python\nimport package\n```\n\n```html\n<script>throw Error('literal')</script>\n```\n\n```hogepiyo lang\nconst literal = '*raw*';\n```\n\nEnd",
   );
-  await editor.press("ControlOrMeta+Home");
+  await pressShortcut(editor, "Home");
   await expect(page.locator(".live-code-block .hljs-keyword")).toHaveText([
     "const",
     "import",

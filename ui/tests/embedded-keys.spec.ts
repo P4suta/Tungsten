@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
+import { pressShortcut } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
 import { newEmptyNote } from "./interface.js";
 
@@ -12,7 +13,7 @@ test("keeps Enter available to a link embedded in the live editor", async ({
   await page.goto("/");
   await newEmptyNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText(`# Link\n\n[Destination](${target})\n\nAfter`);
   const link = page.locator(".live-block").getByRole("link", { name: "Destination", exact: true });
   await expect(link).toBeVisible();
@@ -23,7 +24,7 @@ test("keeps Enter available to a link embedded in the live editor", async ({
   await link.press("Enter");
   await expect(page.locator("#body")).toHaveValue("# Linked destination");
   await expect(editor).toBeFocused();
-  await page.keyboard.press("ControlOrMeta+End");
+  await pressShortcut(page, "End");
   await page.keyboard.insertText(" continued");
   await expect(page.locator("#body")).toHaveValue("# Linked destination continued");
 });
@@ -40,7 +41,7 @@ test("keeps generated image links keyboard accessible", async ({ page, request }
   await page.goto("/");
   await newEmptyNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText(`# Image\n\n![keyboard.png](${file.url})\n\nAfter`);
   const link = page.getByRole("link", { name: "Open keyboard.png", exact: true });
   await expect(link).toBeVisible();

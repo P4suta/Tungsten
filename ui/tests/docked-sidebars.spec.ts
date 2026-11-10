@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, test } from "./editor.js";
+import { expect, pressShortcut, test } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
 import { openContext } from "./interface.js";
 
@@ -42,7 +42,7 @@ async function paperPosition(page: Page): Promise<PaperPosition> {
 const stationarySource = `# A stationary page\n\n${"Keep a thought where it belongs. Sidebar controls leave the writing page in place. 日本語でも書き続ける。\n\n".repeat(80)}`;
 
 async function centerLastLine(page: Page): Promise<void> {
-  await page.locator(".cm-content").press("ControlOrMeta+End");
+  await pressShortcut(page.locator(".cm-content"), "End");
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -154,9 +154,9 @@ test("keeps navigation beside the paper through creation, note switching, and sc
   await sidebar.getByRole("button", { name: "New note", exact: true }).click();
   await expect(sidebar).toBeVisible();
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText(`# A long note\n\n${"A writing line.\n".repeat(100)}`);
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await expect.poll(() => paper.evaluate((node) => node.scrollTop)).toBeGreaterThan(500);
   expect(await sidebar.boundingBox()).toEqual(bounds);
   expect(await page.evaluate(() => scrollY)).toBe(0);

@@ -1,5 +1,5 @@
 import type { FileChooser, Locator, Page } from "@playwright/test";
-import { expect, markdownValue } from "./editor.js";
+import { expect, markdownValue, pressShortcut } from "./editor.js";
 
 export async function openNavigation(page: Page): Promise<Locator> {
   await expect
@@ -93,7 +93,7 @@ export async function attachToNote(
   files: Parameters<FileChooser["setFiles"]>[0],
 ): Promise<void> {
   const note = page.getByLabel("Note", { exact: true });
-  await note.press("ControlOrMeta+End");
+  await pressShortcut(note, "End");
   await note.press("Enter");
   await note.press("Enter");
   await note.pressSequentially("/file");
@@ -108,7 +108,7 @@ export async function newEmptyNote(page: Page): Promise<void> {
   await newNote(page);
   await closeNavigation(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await expect
     .poll(() =>
       page

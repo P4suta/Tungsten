@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { test as base, expect } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
+import { pressShortcut } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
 import { attachToNote, noteAction, openTrash } from "./interface.js";
 
@@ -93,7 +94,7 @@ test("opens without setup and reconnects after a server restart", async ({
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const address = page.url();
   await service.restart();
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await editor.pressSequentially(" continued");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await page.reload();

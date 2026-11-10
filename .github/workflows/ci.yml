@@ -41,3 +41,10 @@ jobs:
       - run: npm --prefix ui ci
       - run: npm --prefix ui exec -- playwright install --with-deps chromium firefox webkit
       - run: mise x -- just check
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: failure()
+        with:
+          name: browser-failure-traces
+          path: ui/test-results
+          retention-days: 7
+          if-no-files-found: ignore

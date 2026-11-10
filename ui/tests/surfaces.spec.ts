@@ -1,5 +1,5 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, test } from "./editor.js";
+import { expect, pressShortcut, test } from "./editor.js";
 import { clippedIcons } from "./icon-bounds.js";
 import { missingIcons } from "./icons-check.js";
 import { exploreNotes, openContext, openNavigation, openTrash } from "./interface.js";
@@ -133,7 +133,7 @@ test("keeps icons inside their view boxes and rejects a clipped fixture", async 
   });
   await page.goto(`/?note=${name}`);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await expect(page.locator("svg[data-icon=link]").first()).toBeVisible();
   expect(await page.evaluate(clippedIcons, null)).toEqual([]);
   expect(await page.evaluate(clippedIcons, "clipped" as const)).toContain("bounds-fixture");

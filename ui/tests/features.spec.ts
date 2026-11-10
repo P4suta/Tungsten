@@ -1,5 +1,5 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, selectMarkdown, test } from "./editor.js";
+import { expect, pressShortcut, selectMarkdown, test } from "./editor.js";
 import {
   attachToNote,
   exploreNotes,
@@ -126,7 +126,7 @@ test("opens original attachments directly without a bulk download action", async
   });
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/\.attachments\/.+\.txt/);
   await expect(page.locator("#save-status")).toHaveText("Saved");
-  await page.getByLabel("Note", { exact: true }).press("ControlOrMeta+Home");
+  await pressShortcut(page.getByLabel("Note", { exact: true }), "Home");
   const fileLink = page
     .locator("#live-editor")
     .getByRole("link", { name: "hello.txt", exact: true })
@@ -150,9 +150,9 @@ test("formats text, keeps undo history, and opens notes with the keyboard", asyn
   await selectMarkdown(textarea, 0, 4);
   await textarea.press("Control+b");
   await expect(textarea).toHaveMarkdown("**word**");
-  await textarea.press("ControlOrMeta+z");
+  await pressShortcut(textarea, "z");
   await expect(textarea).toHaveMarkdown("word");
-  await textarea.press("ControlOrMeta+Shift+z");
+  await pressShortcut(textarea, "Shift+Z");
   await expect(textarea).toHaveMarkdown("**word**");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await textarea.press("Control+p");
@@ -254,7 +254,7 @@ test("follows heading anchors without reopening the saved note", async ({ page }
   await nameNote(page, "Anchor");
   await page.getByLabel("Note", { exact: true }).fill("# Heading\n\n[jump](#heading)");
   await expect(page.locator("#save-status")).toHaveText("Saved");
-  await page.getByLabel("Note", { exact: true }).press("ControlOrMeta+Home");
+  await pressShortcut(page.getByLabel("Note", { exact: true }), "Home");
   const link = page.locator("#live-editor").getByRole("link", { name: "jump", exact: true });
   await expect(link).toBeVisible();
   let reads = 0;

@@ -1,5 +1,5 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, test } from "./editor.js";
+import { expect, pressShortcut, test } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
 import { exploreNotes, openContext, openNavigation, openTrash, showPaper } from "./interface.js";
 
@@ -118,7 +118,7 @@ test("scrolls the paper independently of navigation and note context", async ({
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   const source = `# A long note\n\n${"- A short line\n".repeat(80)}`;
   await editor.fill(source);
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   const paper = page.locator("#paper-scroll");
   await expect.poll(() => paper.evaluate((node) => node.scrollTop)).toBeGreaterThan(500);
   const scroll = await page.evaluate(() => ({

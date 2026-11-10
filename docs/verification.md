@@ -15,6 +15,9 @@ Install the shared `prose` and `dotfiles` commands from the pinned source revisi
 The same commands validate the decision records and generated repository files.
 
 The browser suite uses Chromium, Firefox, WebKit, and mobile device profiles.
+Shortcut fixtures choose Control or Meta from the browser's platform and device identity.
+Shifted letter shortcuts send uppercase characters under the [Playwright keyboard contract](https://playwright.dev/docs/api/class-keyboard#keyboard-press).
+CI stops after the first browser failure, names each test, and retains failure traces for seven days.
 Each run uses a separate data directory, and recovery fixtures use separate note identities for each profile.
 It checks note operations, draft recovery, delayed responses, stale tabs, and composition events.
 Concurrent editing fixtures cover conditional refresh, active draft ownership, hidden-page suspension, remote deletion, and separate browser profiles.

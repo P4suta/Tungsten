@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
+import { pressShortcut } from "./editor.js";
 import { exploreNotes, newEmptyNote, openNavigation } from "./interface.js";
 
 test("keeps appearance, counts, and retired tools outside the note", async ({ page }, info) => {
@@ -87,7 +88,7 @@ test("checks a changed file link before saving and repairs its destination witho
   page.on("request", (request) => {
     if (request.method() === "PUT") ++updates;
   });
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await editor.press("Backspace");
   await page.keyboard.insertText(`${source.replace(file.id, invalid)}\nExtra writing\n`);
   await expect(page.locator("#body")).toHaveValue(
@@ -104,7 +105,7 @@ test("checks a changed file link before saving and repairs its destination witho
   await expect(page.locator("#body")).toHaveValue(`${source}\nExtra writing\n`);
   await expect(warning).toBeHidden();
   expect(await (await request.get(`/.attachments/${file.id}`)).text()).toBe("original bytes");
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText("# Linked file\n\nExtra writing\n");
   await expect(warning).toBeHidden();
 });
@@ -119,7 +120,7 @@ test("copies Markdown source through rendered content and pastes it into a new n
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await expect(editor).toBeEditable();
   await expect(page.locator("#body")).toHaveValue(source);
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   const copied = await editor.evaluate((input) => {
     const transfer = new DataTransfer();
     const event = new ClipboardEvent("copy", { bubbles: true, cancelable: true });
@@ -146,7 +147,7 @@ test("preserves single line breaks in rendered paragraphs with links", async ({
   const source = "# Breaks\n\nOne [link](https://example.com)\nTwo\n\nAfter\n";
   await request.post("/api/notes", { data: { name: "Breaks.md", body: source } });
   await page.goto("/?note=Breaks.md");
-  await page.getByRole("textbox", { name: "Note", exact: true }).press("ControlOrMeta+End");
+  await pressShortcut(page.getByRole("textbox", { name: "Note", exact: true }), "End");
   await expect(page.locator(".live-block br")).toHaveCount(1);
   await expect(page.locator(".live-block")).toContainText("One link");
   await expect(page.locator(".live-block")).toContainText("Two");
@@ -164,7 +165,7 @@ test("retracts an accidental attachment with cancellation and permanent original
   const source = `# Retract\n\n[file](.attachments/${file.id})\n\nKeep writing\n`;
   await request.post("/api/notes", { data: { name: "Retract.md", body: source } });
   await page.goto("/?note=Retract.md");
-  await page.getByRole("textbox", { name: "Note", exact: true }).press("ControlOrMeta+End");
+  await pressShortcut(page.getByRole("textbox", { name: "Note", exact: true }), "End");
   await page.getByText("File options", { exact: true }).click();
   page.once("dialog", (dialog) => {
     void dialog.dismiss();

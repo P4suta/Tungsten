@@ -1,5 +1,5 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, markdownValue, test } from "./editor.js";
+import { expect, markdownValue, pressShortcut, test } from "./editor.js";
 import { newEmptyNote, openNavigation, openTrash, showPaper } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
@@ -29,7 +29,7 @@ test("keeps the last writing line centered through wrapping and narrow layouts",
   ]) {
     await page.setViewportSize(viewport);
     for (const text of ["A line\n".repeat(45), "長い文章を続けて書く。".repeat(130)]) {
-      await note.press("ControlOrMeta+a");
+      await pressShortcut(note, "a");
       await page.keyboard.insertText(text);
       await expect(note).toHaveMarkdown(text);
       await note.pressSequentially("typing");
@@ -74,7 +74,7 @@ test("filters slash commands and inserts a block with the keyboard", async ({ pa
   await note.press("Enter");
   await expect(note).toHaveMarkdown("## ");
   await expect(menu).not.toBeVisible();
-  await note.press("ControlOrMeta+z");
+  await pressShortcut(note, "z");
   await expect(note).toHaveMarkdown("/heading");
   await note.press("Escape");
   await expect(menu).not.toBeVisible();
@@ -135,7 +135,7 @@ test("browses Trash beside the current draft and accepts its previous URL", asyn
     return parent !== undefined && bounds.top < parent.top + 16 && bounds.right > parent.right - 16;
   });
   expect(positions).toBe(true);
-  await page.keyboard.press("ControlOrMeta+Enter");
+  await pressShortcut(page, "Enter");
   await expect(settings).toBeVisible();
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await close.click();
@@ -152,7 +152,7 @@ test("uses centered typing without a configuration switch", async ({ page }) => 
   await expect(page.locator("#settings-page")).toHaveCount(0);
   const note = page.getByLabel("Note", { exact: true });
   await note.fill("A line\n".repeat(45));
-  await note.press("ControlOrMeta+End");
+  await pressShortcut(note, "End");
   await note.pressSequentially("typing");
   await expect
     .poll(() =>

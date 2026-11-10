@@ -1,6 +1,6 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, test } from "./editor.js";
+import { expect, pressShortcut, test } from "./editor.js";
 import {
   closeNavigation,
   exploreNotes,
@@ -110,7 +110,7 @@ test("returns to the preceding note after deletion and replaces the deleted addr
   });
   await page.goto("/?note=Parent.md");
   const editor = page.getByLabel("Note", { exact: true });
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await page.locator("#live-editor").getByRole("link", { name: "Child", exact: true }).click();
   await expect(editor).toHaveMarkdown(/^# Child\n/);
   await noteAction(page, "Delete");
@@ -198,7 +198,7 @@ test("skips a previously visited note that has also moved to trash", async ({ pa
   });
   await page.goto("/?note=Parent.md");
   const editor = page.getByLabel("Note", { exact: true });
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await page.locator("#live-editor").getByRole("link", { name: "Child", exact: true }).click();
   await expect(editor).toHaveMarkdown(/^# Child\n/);
   const saved: { revision: string } = await (await request.get("/api/notes/Parent.md")).json();
@@ -304,7 +304,7 @@ test("preserves a pending browser navigation when deletion finishes late", async
   });
   await page.goto("/?note=Parent.md");
   const editor = page.getByLabel("Note", { exact: true });
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await page.locator("#live-editor").getByRole("link", { name: "Child", exact: true }).click();
   await expect(editor).toHaveMarkdown(/^# Child\n/);
   let deleted: () => void = () => {};
