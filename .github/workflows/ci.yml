@@ -11,7 +11,7 @@ jobs:
   check:
     name: Check source
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       PROSE_SOURCE: ${{ github.workspace }}/target/shared-tools
     steps:
@@ -38,6 +38,7 @@ jobs:
       - run: cargo install --locked --path target/shared-tools/crates/prose --force
       - run: cargo install --locked --path target/shared-tools/crates/dotfiles --bin dotfiles --force
       - run: git config prose.standard true
+      - run: mise x -- cargo xtask docs
       - run: npm --prefix ui ci
       - run: npm --prefix ui exec -- playwright install --with-deps chromium firefox webkit
       - run: mise x -- just check

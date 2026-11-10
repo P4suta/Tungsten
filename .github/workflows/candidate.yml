@@ -37,6 +37,7 @@ jobs:
       - run: cargo install --locked --path target/shared-tools/crates/prose --force
       - run: cargo install --locked --path target/shared-tools/crates/dotfiles --bin dotfiles --force
       - run: git config prose.standard true
+      - run: mise x -- cargo xtask docs
       - run: npm --prefix ui ci
       - run: npm --prefix ui exec -- playwright install --with-deps chromium firefox webkit
       - run: mise x -- just release-check
