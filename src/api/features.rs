@@ -1,5 +1,10 @@
 use super::{SharedStore, expected, note_response, storage};
-use crate::{Error, domain::NoteName, markdown, store::MAX_NOTE_BYTES};
+use crate::{
+    Error,
+    domain::NoteName,
+    markdown,
+    store::{MAX_ATTACHMENT_BYTES, MAX_NOTE_BYTES},
+};
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
@@ -27,8 +32,8 @@ pub(super) fn routes() -> Router<SharedStore> {
         .route(
             "/api/attachments",
             post(upload)
-                .layer::<_, std::convert::Infallible>(DefaultBodyLimit::max(90 * 1024 * 1024))
-                .layer(axum::Extension(std::sync::Arc::new(UploadSlots(
+                .layer::<_, std::convert::Infallible>(DefaultBodyLimit::max(1024 * 1024))
+                .layer(axum::Extension(UploadSlots(std::sync::Arc::new(
                     tokio::sync::Semaphore::new(1),
                 )))),
         )
@@ -265,15 +270,16 @@ struct UploadInput {
     data: String,
 }
 
-struct UploadSlots(tokio::sync::Semaphore);
+#[derive(Clone)]
+struct UploadSlots(std::sync::Arc<tokio::sync::Semaphore>);
 
 async fn upload(
     State(state): State<SharedStore>,
-    axum::Extension(slots): axum::Extension<std::sync::Arc<UploadSlots>>,
+    axum::Extension(slots): axum::Extension<UploadSlots>,
     request: axum::extract::Request,
 ) -> Result<Response, Error> {
     use axum::extract::FromRequest;
-    let _permit = slots.0.try_acquire().map_err(|_| Error::UploadBusy)?;
+    let permit = slots.0.try_acquire_owned().map_err(|_| Error::UploadBusy)?;
     if request
         .headers()
         .get(header::CONTENT_TYPE)
@@ -296,23 +302,51 @@ async fn upload(
             .decode_utf8()
             .map_err(|_| Error::InvalidData("The attachment name is invalid."))?
             .into_owned();
-        if request
+        let declared = request
             .headers()
             .get(header::CONTENT_LENGTH)
             .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok())
-            .is_some_and(|length| length > 64 * 1024 * 1024)
-        {
+            .map(str::parse::<u64>)
+            .transpose()
+            .map_err(|_| Error::InvalidData("The attachment length is invalid."))?;
+        if declared.is_some_and(|length| length > MAX_ATTACHMENT_BYTES as u64) {
             return Err(Error::Limit("Attachments must be at most 64 MiB."));
         }
-        let bytes = axum::body::to_bytes(request.into_body(), 64 * 1024 * 1024)
+        let selected = name.clone();
+        let staging = storage(state.clone(), move |store| store.stage_upload(&selected)).await?;
+        let mut staging = tokio::fs::File::from_std(staging);
+        staging.set_max_buf_size(64 * 1024);
+        use futures_util::TryStreamExt;
+        use tokio::io::AsyncWriteExt;
+        let mut stream = request.into_body().into_data_stream();
+        let mut length = 0;
+        while let Some(bytes) = stream
+            .try_next()
             .await
-            .map_err(|_| {
-                Error::InvalidData("The attachment could not be read within its 64 MiB limit.")
-            })?;
+            .map_err(|_| Error::InvalidData("The attachment stream was interrupted."))?
+        {
+            if bytes.len() > MAX_ATTACHMENT_BYTES - length {
+                return Err(Error::Limit("Attachments must be at most 64 MiB."));
+            }
+            length += bytes.len();
+            staging.write_all(&bytes).await?;
+        }
+        if declared.is_some_and(|declared| declared != length as u64) {
+            return Err(Error::InvalidData("The attachment length changed."));
+        }
+        staging.flush().await?;
+        let mut staging = staging.into_std().await;
         return Ok((
             StatusCode::CREATED,
-            Json(storage(state, move |store| store.upload(name, &bytes)).await?),
+            Json(
+                storage(state, move |store| {
+                    let _permit = permit;
+                    use std::io::Seek;
+                    staging.rewind()?;
+                    store.upload_from(name, length, staging)
+                })
+                .await?,
+            ),
         )
             .into_response());
     }
@@ -320,15 +354,18 @@ async fn upload(
         Ok(input) => input,
         Err(error) => return Ok(error.into_response()),
     };
-    if input.data.len() > 86 * 1024 * 1024 {
-        return Err(Error::Limit("Attachments must be at most 64 MiB."));
-    }
     let bytes = BASE64_STANDARD
         .decode(input.data)
         .map_err(|_| Error::InvalidData("The attachment is not valid base64."))?;
     Ok((
         StatusCode::CREATED,
-        Json(storage(state, move |store| store.upload(input.name, &bytes)).await?),
+        Json(
+            storage(state, move |store| {
+                let _permit = permit;
+                store.upload(input.name, &bytes)
+            })
+            .await?,
+        ),
     )
         .into_response())
 }

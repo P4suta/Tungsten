@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/state", "xtask"]
+members = ["xtask"]
 resolver = "3"
 
 [package]
@@ -28,9 +28,7 @@ storage = [
   "dep:rustix",
   "dep:serde_json",
   "dep:uuid",
-  "dep:zeroize",
-  "dep:hkdf",
-  "dep:hmac",
+  "dep:tempfile",
 ]
 
 [[bin]]
@@ -39,7 +37,6 @@ path = "src/main.rs"
 required-features = ["server"]
 
 [dependencies]
-tungsten-state = { version = "0.1.0", path = "crates/state" }
 base64 = { version = "0.22.1", optional = true }
 axum = { version = "0.8.9", optional = true, default-features = false, features = [
   "http1",
@@ -64,14 +61,14 @@ tokio = { version = "1.48", optional = true, features = [
   "signal",
   "time",
   "sync",
+  "fs",
+  "io-util",
 ] }
 uuid = { version = "1.18", optional = true, features = ["v4"] }
-zeroize = { version = "=1.9.1", optional = true }
-hkdf = { version = "=0.13.0", optional = true }
-hmac = { version = "=0.13.0", optional = true, features = ["zeroize"] }
+tempfile = { version = "3.27", optional = true }
 include_dir = { version = "=0.7.4", optional = true }
 rusqlite = { version = "=0.41.1", optional = true, default-features = false, features = [
-  "bundled-sqlcipher-vendored-openssl",
+  "bundled",
   "blob",
   "cache",
   "hooks",

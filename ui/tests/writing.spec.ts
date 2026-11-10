@@ -1,6 +1,6 @@
 import { accessibilityViolations } from "./accessibility.js";
 import { expect, markdownValue, test } from "./editor.js";
-import { newEmptyNote } from "./interface.js";
+import { newEmptyNote, openNavigation, openTrash, showPaper } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -29,8 +29,11 @@ test("keeps the last writing line centered through wrapping and narrow layouts",
   ]) {
     await page.setViewportSize(viewport);
     for (const text of ["A line\n".repeat(45), "長い文章を続けて書く。".repeat(130)]) {
-      await note.fill(text);
+      await note.press("ControlOrMeta+a");
+      await page.keyboard.insertText(text);
+      await expect(note).toHaveMarkdown(text);
       await note.pressSequentially("typing");
+      await expect(note).toHaveMarkdown(`${text}typing`);
       await expect
         .poll(() =>
           note.evaluate((input) => {
@@ -41,8 +44,9 @@ test("keeps the last writing line centered through wrapping and narrow layouts",
             range.collapse(true);
             const caret = range.getBoundingClientRect().top;
             const line = Number.parseFloat(getComputedStyle(input).lineHeight);
-            const center =
-              (visualViewport?.offsetTop ?? 0) + (visualViewport?.height ?? innerHeight) / 2;
+            const paper = document.querySelector("#paper-scroll")?.getBoundingClientRect();
+            if (!paper) return { within: false };
+            const center = (paper.top + paper.bottom) / 2;
             return {
               within: Math.abs(caret - center) < line,
               caret,
@@ -116,18 +120,14 @@ test("keeps the draft and command when a slash upload fails", async ({ page }) =
   await expect(note).toHaveMarkdown("/file");
 });
 
-test("opens Trash as a page and returns to the current draft with browser Back", async ({
-  page,
-}) => {
+test("browses Trash beside the current draft and accepts its previous URL", async ({ page }) => {
   const note = page.getByLabel("Note", { exact: true });
   await note.fill("# Current draft\n\nKeep writing here.\n");
-  await page.getByRole("button", { name: "More", exact: true }).click();
-  await page.getByRole("link", { name: "Trash", exact: true }).click();
-  await expect(page).toHaveURL(/\/trash/);
-  const settings = page.getByRole("main", { name: "Trash", exact: true });
+  const settings = await openTrash(page);
+  const address = page.url();
   await expect(settings.getByRole("button", { name: "Empty trash", exact: true })).toBeVisible();
   await expect(settings.locator("details")).toHaveCount(0);
-  const close = settings.getByRole("button", { name: "Close", exact: true });
+  const close = settings.getByRole("button", { name: "Back to notes", exact: true });
   await expect(close.locator("svg[aria-hidden=true]")).toBeVisible();
   const positions = await close.evaluate((button) => {
     const bounds = button.getBoundingClientRect();
@@ -138,11 +138,14 @@ test("opens Trash as a page and returns to the current draft with browser Back",
   await page.keyboard.press("ControlOrMeta+Enter");
   await expect(settings).toBeVisible();
   await expect(page.locator("#save-status")).toHaveText("Saved");
-  await page.goBack();
+  await close.click();
+  await showPaper(page);
+  expect(page.url()).toBe(address);
   await expect(note).toBeVisible();
   await expect(note).toHaveMarkdown("# Current draft\n\nKeep writing here.\n");
   await page.goto("/trash");
   await expect(settings).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe("/");
 });
 
 test("uses centered typing without a configuration switch", async ({ page }) => {
@@ -200,8 +203,8 @@ test("keeps text typed while a slash upload is pending", async ({ page }) => {
 });
 
 test("keeps standalone upload and file management outside the writing flow", async ({ page }) => {
-  await page.getByRole("button", { name: "More", exact: true }).click();
-  await expect(page.locator("#more-dialog")).not.toContainText("Upload files");
+  await openNavigation(page);
+  await expect(page.locator("#sidebar")).not.toContainText("Upload files");
   await expect(page.locator("#files-page, #attach-files, #import-files")).toHaveCount(0);
   expect((await page.request.get("/files")).status()).toBe(404);
 });

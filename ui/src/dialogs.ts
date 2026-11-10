@@ -31,11 +31,11 @@ export function openDialog(
       if (
         active instanceof HTMLElement &&
         active !== document.body &&
-        !active.closest("dialog:not([open])")
+        !active.closest("dialog:not([open]), [popover]:not(:popover-open), [hidden]")
       )
         return;
-      const target = trigger?.closest("dialog:not([open])")
-        ? document.getElementById("more")
+      const target = trigger?.closest("dialog:not([open]), [popover]:not(:popover-open), [hidden]")
+        ? document.getElementById("toggle-sidebar")
         : trigger;
       target?.focus({ preventScroll: true });
     },

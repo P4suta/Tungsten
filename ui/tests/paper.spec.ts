@@ -1,5 +1,5 @@
 import { expect, markdownValue, test } from "./editor.js";
-import { newEmptyNote, openMore } from "./interface.js";
+import { newEmptyNote, newNote, openNavigation } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -25,7 +25,11 @@ test("starts with a blank paper without scrolling or persistent tools", async ({
       .poll(() =>
         page.evaluate(() => ({
           width: document.documentElement.scrollWidth <= innerWidth,
-          height: document.documentElement.scrollHeight <= innerHeight + 1,
+          height:
+            document.documentElement.scrollHeight <= innerHeight + 1 &&
+            [...document.querySelectorAll<HTMLElement>("#paper-scroll")].every(
+              (paper) => paper.scrollHeight <= paper.clientHeight + 1,
+            ),
         })),
       )
       .toEqual({ width: true, height: true });
@@ -36,7 +40,11 @@ test("starts with a blank paper without scrolling or persistent tools", async ({
   await expect
     .poll(() =>
       page.evaluate(() => ({
-        within: document.documentElement.scrollHeight <= innerHeight + 1,
+        within:
+          document.documentElement.scrollHeight <= innerHeight + 1 &&
+          [...document.querySelectorAll<HTMLElement>("#paper-scroll")].every(
+            (paper) => paper.scrollHeight <= paper.clientHeight + 1,
+          ),
         viewport: innerHeight,
         height: document.documentElement.scrollHeight,
         elements: ["header", "#editor-pane", ".cm-content", ".cm-line", "#typing-space"].map(
@@ -112,7 +120,7 @@ test("continues Markdown lists and lets Tab leave the editor after Escape", asyn
   await expect(note).toHaveMarkdown("first\nsecond");
   await note.press("Escape");
   await note.press("Shift+Tab");
-  await expect(page.getByRole("button", { name: "More", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Note context", exact: true })).toBeFocused();
 });
 
 test("leaves composition unchanged with automatic typing assistance", async ({ page }) => {
@@ -146,7 +154,7 @@ test("always opens an editable live note and ignores retired view preferences", 
 }) => {
   await page.evaluate(() => localStorage.setItem("tungsten.view", "preview"));
   await page.reload();
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await newNote(page);
   const note = page.getByRole("textbox", { name: "Note", exact: true });
   await expect(note).toBeEditable();
   await note.fill("# Next note");
@@ -156,7 +164,7 @@ test("always opens an editable live note and ignores retired view preferences", 
   const before = await markdownValue(note);
   await note.pressSequentially("!");
   await expect(note).toHaveMarkdown(`${before}!`);
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect(more.getByLabel("View", { exact: true })).toHaveCount(0);
   await expect(more.getByRole("link", { name: "Download all files", exact: true })).toHaveCount(0);
   await expect(page.locator("#preview-pane, .writing-icon, .heading-fold")).toHaveCount(0);

@@ -6,7 +6,27 @@ Opening the service shows the last note or an unwritten page.
 Explore notes opens a graph of linked notes.
 New note starts with an editable local timestamp heading and space to write.
 The initial page fits the viewport without scrolling.
-The page has no brand heading, sidebar, or formatting toolbar.
+The paper has no brand heading or formatting toolbar.
+Navigation and current-note context occupy independently collapsible sidebars beside the paper.
+Navigation starts open on wide screens and keeps its position while opening or creating notes.
+Each pane scrolls independently, and the writing column keeps its usual width limit.
+Wide screens reserve equal sidebar spaces, so opening or closing navigation and context preserves the paper's centered position, width, and line wrapping.
+Narrow screens show one pane at a time, and opening a note returns to writing.
+The Navigation and Note context buttons and close icons control visibility without changing the draft.
+The header stays visible while scrolling the paper.
+Explore notes opens a separate graph dialog and returns focus to navigation when closed.
+Opening a search result or recovering a draft returns to writing.
+
+Named workspaces save collections of notes in the vault across devices and server restarts.
+A note can belong to more than one workspace without changing its Markdown links.
+Select a workspace to browse its notes, create a note inside it, or add the current note.
+Search all notes to add an existing note, or drag a note onto a workspace.
+Removing membership or deleting a workspace keeps the note.
+Each browser tab remembers its own selected workspace.
+Workspace and note lists fetch at most 50 records per page.
+Independent membership operations preserve concurrent additions, while metadata changes require a matching revision.
+The right sidebar follows the current note and shows its incoming links, outgoing links, and version history.
+Link lists bound the displayed neighborhood and report truncated results.
 
 Live preview is the only editor.
 Large notes display Markdown source automatically to keep editing responsive.
@@ -91,7 +111,6 @@ Inline link labels matching the preceding title update across notes, while expli
 Large updates continue in durable background batches without delaying the initiating save.
 Affected notes receive recovery checkpoints and fresh revisions.
 Notes can share a title.
-Existing files keep their paths and links without migration.
 The interface has no note filename, folder, tag, pin, or template controls.
 
 Explore notes shows real link directions without synthetic index notes.
@@ -124,14 +143,14 @@ Direct note URLs work inside the tailnet.
 Files attach through slash commands, image paste, and file drop while writing.
 The app has no separate upload or file management page.
 Each attachment can contain at most 64 MiB.
+Binary uploads and original downloads use bounded buffers instead of loading an entire file into server memory.
 The service keeps existing names, metadata, and original bytes readable.
 
 Changing an inline attachment destination checks the target before sending the note's save.
 An unavailable destination shows a warning and a repair action that preserves other edits.
 Removing a complete link expresses deletion and needs no warning.
 Original files remain available through retained history.
-Plaintext startup reconciles source files, recovery records, and attachment references.
-Encrypted storage keeps payloads and references in one SQLCipher database.
+SQLite transactions commit payloads and references together.
 Bounded background batches expire recovery records and check indexed live and recovery references before deleting eligible originals.
 An attachment becomes eligible for deletion after seven days without references.
 A reference returning during the grace period resets its timer.
@@ -145,7 +164,7 @@ Playback depends on installed codecs.
 PDF pages use bundled PDF.js with page selection, zoom, extracted text, passwords, and links.
 Editing an earlier paragraph preserves an unchanged media widget and its selected PDF page.
 Open and Download keep the original file available if decoding fails.
-Original files and compatible metadata remain inside encrypted storage or the legacy attachment directory.
+Original files and metadata stay in the same SQLite database as notes.
 
 Version history keeps at most 50 recovery points per note for up to seven days.
 Continuous edits keep the session's starting text without replacing its recovery identity.
@@ -161,17 +180,22 @@ Deleting the open note returns to a visited live note in the current tab or anot
 If none remain, the editor shows an unsaved new note.
 The deleted note leaves the active address and startup selection.
 Recovery preserves unsaved changes to a deleted note and skips browser drafts that only repeat its saved text.
-The next note receives focus after the menu closes, following [W3C dialog workflow guidance](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/#keyboard-interaction).
+Deleting from note context preserves sidebar focus while the paper changes to a live note.
+On narrow screens, deletion returns to the replacement note's paper.
 A later navigation or new draft takes precedence over a pending replacement.
-Trash opens a dedicated page with selectable rows, capture times, preview, and restore.
+Trash occupies navigation with selectable rows, capture times, inline preview, and restore.
+Previewing a deleted note leaves the active live note unchanged.
 Arrow keys move selection, Enter previews the selected note, and paging fetches 50 records using indexed cursors.
 Restoring a name collision creates a separate internal identity without replacing the existing note.
+Restored notes start without workspace membership.
 Empty trash removes every deleted note after confirmation.
 
-The app has no import, bulk export, individual Markdown download, printing, duplication, or find and replace operation.
+The browser has no import, bulk export, individual Markdown download, printing, duplication, or find and replace operation.
 The editor supports ordinary Markdown copy and paste.
 Long-term backups remain filesystem operations outside the app.
-Legacy plaintext installations also support external Git history.
+The data directory holds one ordinary SQLite database.
+It has no external Markdown reconciliation or app encryption.
+The [running guide](running.md) describes backup and access boundaries.
 
 ## Paper and controls
 

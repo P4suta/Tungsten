@@ -4,10 +4,9 @@ use anyhow::{Context, Result, ensure};
 use catalog::{DOMAINS, FACETS};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File, FileTimes, OpenOptions},
-    io::Write,
+    fs::{self, File},
     path::Path,
-    time::{Duration, Instant, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 const TOPICS: usize = 400;
@@ -39,19 +38,53 @@ pub(super) struct Written {
     pub(super) allocated: u64,
 }
 
-pub(super) fn write_notes(directory: &Path, corpus: &Corpus, deadline: Instant) -> Result<Written> {
+pub(super) fn write_notes(
+    directory: &Path,
+    corpus: &Corpus,
+    deadline: Instant,
+    allocation_gib: u64,
+) -> Result<Written> {
     use std::os::unix::fs::MetadataExt;
+    use tungsten::{
+        domain::{NoteName, Revision},
+        store::{Note, Store},
+    };
     let mut result = Written {
         links: 0,
         bytes: 0,
         allocated: 0,
     };
-    for index in 0..corpus.count {
+    let mut store = Store::open(directory)?;
+    let imported = store.note_count()?;
+    ensure!(
+        imported <= corpus.count,
+        "the partial fixture exceeds the selected corpus"
+    );
+    for index in [0, imported / 2, imported.saturating_sub(1)] {
+        if imported == 0 {
+            break;
+        }
+        let expected = corpus.note(index);
+        ensure!(
+            store.read(&NoteName::parse(expected.name)?)?.body == expected.body,
+            "the partial fixture belongs to another corpus"
+        );
+    }
+    store.import_notes((imported..corpus.count).map(|index| {
         if index.is_multiple_of(10_000) {
-            ensure!(
-                Instant::now() < deadline,
-                "inconclusive: dataset generation deadline exceeded"
-            );
+            if Instant::now() >= deadline {
+                return Err(tungsten::Error::Limit(
+                    "Dataset generation deadline exceeded.",
+                ));
+            }
+            let allocated = fs::read_dir(directory)?.try_fold(0_u64, |total, entry| {
+                Ok::<_, std::io::Error>(total + entry?.metadata()?.blocks() * 512)
+            })?;
+            if allocated > allocation_gib * 1024 * 1024 * 1024 {
+                return Err(tungsten::Error::Limit(
+                    "Dataset allocation exceeded its limit.",
+                ));
+            }
             eprintln!(
                 "operation=demo_notes phase=write pages={index} total={} profile={}",
                 corpus.count,
@@ -59,26 +92,24 @@ pub(super) fn write_notes(directory: &Path, corpus: &Corpus, deadline: Instant) 
             );
         }
         let note = corpus.note(index);
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(directory.join(&note.name))
-            .context("create sample note")?;
-        file.write_all(note.body.as_bytes())
-            .context("write sample note")?;
-        let modified = UNIX_EPOCH
-            + Duration::from_secs(
-                1_735_689_600 + choose(corpus.seed, index, 30, 365 * 86400) as u64,
-            );
-        file.set_times(FileTimes::new().set_modified(modified))?;
         result.links += note.links.len();
         result.bytes += note.body.len() as u64;
-        result.allocated += file.metadata()?.blocks() * 512;
-        ensure!(
-            result.allocated <= 8 * 1024 * 1024 * 1024,
-            "inconclusive: dataset allocation exceeded 8 GiB"
-        );
-    }
+        Ok(Note {
+            name: NoteName::parse(note.name)?,
+            revision: Revision::of(note.body.as_bytes()),
+            body: note.body,
+            modified: 1_735_689_600_000
+                + choose(corpus.seed, index, 30, 365 * 86400) as u128 * 1000,
+        })
+    }))?;
+    drop(store);
+    result.allocated = fs::read_dir(directory)?.try_fold(0_u64, |total, entry| {
+        Ok::<_, std::io::Error>(total + entry?.metadata()?.blocks() * 512)
+    })?;
+    ensure!(
+        result.allocated <= allocation_gib * 1024 * 1024 * 1024,
+        "dataset allocation exceeded its limit"
+    );
     Ok(result)
 }
 
@@ -368,6 +399,7 @@ pub fn create(output: &Path, count: usize, seed: u64) -> Result<Report> {
         staging.path(),
         &corpus,
         Instant::now() + Duration::from_secs(60),
+        8,
     )?;
     rustix::fs::renameat_with(
         rustix::fs::CWD,
@@ -390,6 +422,68 @@ mod tests {
     use super::*;
     use pulldown_cmark::{Event, Parser, Tag};
     use std::collections::BTreeSet;
+
+    #[test]
+    fn partial_notebooks_resume_without_replacing_committed_notes() {
+        use tungsten::{
+            domain::{NoteName, Revision},
+            store::{Note, Store},
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let corpus = Corpus::new(600, 42, Profile::Mixed).unwrap();
+        let mut store = Store::open(directory.path()).unwrap();
+        assert!(
+            store
+                .import_notes((0..502).map(|index| {
+                    if index == 501 {
+                        return Err(tungsten::Error::Worker);
+                    }
+                    let note = corpus.note(index);
+                    Ok(Note {
+                        name: NoteName::parse(note.name)?,
+                        revision: Revision::of(note.body.as_bytes()),
+                        body: note.body,
+                        modified: 1,
+                    })
+                }))
+                .is_err()
+        );
+        drop(store);
+        write_notes(
+            directory.path(),
+            &corpus,
+            Instant::now() + Duration::from_secs(20),
+            8,
+        )
+        .unwrap();
+        let store = Store::open(directory.path()).unwrap();
+        assert_eq!(store.search("", None, 1, false).unwrap().total, 600);
+        assert_eq!(
+            store
+                .read(&NoteName::parse(corpus.name(0)).unwrap())
+                .unwrap()
+                .modified,
+            1
+        );
+        assert_eq!(
+            store
+                .read(&NoteName::parse(corpus.name(599)).unwrap())
+                .unwrap()
+                .body,
+            corpus.note(599).body
+        );
+        drop(store);
+        let unrelated = Corpus::new(600, 43, Profile::Mixed).unwrap();
+        assert!(
+            write_notes(
+                directory.path(),
+                &unrelated,
+                Instant::now() + Duration::from_secs(20),
+                8
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn notebook_has_ten_thousand_distinct_pages_and_resolvable_semantic_links() {
@@ -466,11 +560,27 @@ mod tests {
         let destination = directory.path().join("notebook");
         let report = create(&destination, 500, 42).unwrap();
         assert_eq!(report.notes, 500);
-        assert_eq!(std::fs::read_dir(&destination).unwrap().count(), 500);
-        let entry = std::fs::read(destination.join(&report.entry)).unwrap();
+        assert_eq!(
+            tungsten::store::Store::open(&destination)
+                .unwrap()
+                .search("", None, 1, false)
+                .unwrap()
+                .total,
+            500
+        );
+        let name = tungsten::domain::NoteName::parse(report.entry.clone()).unwrap();
+        let entry = tungsten::store::Store::open(&destination)
+            .unwrap()
+            .read(&name)
+            .unwrap()
+            .body;
         assert!(create(&destination, 500, 43).is_err());
         assert_eq!(
-            std::fs::read(destination.join(&report.entry)).unwrap(),
+            tungsten::store::Store::open(&destination)
+                .unwrap()
+                .read(&name)
+                .unwrap()
+                .body,
             entry
         );
         let empty = directory.path().join("empty");

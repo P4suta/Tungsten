@@ -1,13 +1,20 @@
 import { expect, test } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
 import { missingIcons } from "./icons-check.js";
-import { newEmptyNote, openMore, openTrash } from "./interface.js";
+import {
+  exploreNotes,
+  newEmptyNote,
+  newNote,
+  openNavigation,
+  openTrash,
+  showPaper,
+} from "./interface.js";
 
 test("keeps an editable dated title and functional note exploration", async ({ page }, info) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await newNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await expect(page.getByRole("link", { name: "Explore notes", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeVisible();
   await expect(page.locator("header")).not.toContainText("Tungsten");
   await expect(page.locator(".title-cue,.body-cue")).toHaveCount(0);
   await page.screenshot({
@@ -28,7 +35,7 @@ test("keeps an editable dated title and functional note exploration", async ({ p
     path: `../target/screenshots/live-${info.project.name}.png`,
     fullPage: true,
   });
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   await expect(page.getByRole("dialog", { name: "Explore notes", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Explore A title", exact: true })).toBeVisible();
   await expect(
@@ -88,7 +95,7 @@ test("formats Markdown automatically after editing and supports a single undo", 
       async () => (await (await request.get(`/api/notes/${encodeURIComponent(name)}`)).json()).body,
     )
     .toBe(source);
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect(more.getByRole("button", { name: "Format Markdown", exact: true })).toHaveCount(0);
 });
 
@@ -117,7 +124,7 @@ test("keeps storage identities stable across title edits and duplicate titles", 
   expect(new URL(page.url()).searchParams.get("note")).toBe(identity);
   const saved = await request.get(`/api/notes/${encodeURIComponent(identity ?? "")}`);
   expect((await saved.json()).body).toContain("# Renamed title");
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect(more).not.toContainText(identity ?? "unreachable identifier");
 });
 
@@ -127,13 +134,13 @@ test("requires icons on controls throughout navigation and rejects missing icons
   await page.goto("/");
   await expect(page.getByRole("textbox", { name: "Note", exact: true })).toBeVisible();
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
-  await more.getByRole("button", { name: "Close", exact: true }).click();
+  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
   const settings = await openTrash(page);
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
-  await settings.getByRole("button", { name: "Close", exact: true }).click();
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await settings.getByRole("button", { name: "Back to notes", exact: true }).click();
+  await exploreNotes(page);
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
   expect(
     await page.evaluate<string[], "missing" | "valid" | null>(missingIcons, "missing"),
@@ -270,13 +277,13 @@ test("automatically formats after blur and refuses stale formatting results", as
   await editor.click();
   await editor.press("ControlOrMeta+End");
   await editor.pressSequentially(" item");
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect
     .poll(
       async () => (await (await request.get(`/api/notes/${encodeURIComponent(name)}`)).json()).body,
     )
     .toContain("- first item");
-  await more.getByRole("button", { name: "Close", exact: true }).click();
+  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
   await editor.fill("# Blur\n\n*   selected");
   await expect(page.locator("#body")).toHaveValue("# Blur\n\n*   selected");
   await editor.evaluate((node) => {
@@ -322,12 +329,13 @@ test("allows browser text enlargement without changing fixed writing behavior or
   await editor.pressSequentially("Body");
   await editor.press("Enter");
   await expect(page.locator("#save-status")).toHaveText("Saved");
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   await expect(page.locator(".graph-node svg").first()).toHaveAttribute("data-icon", "note");
   await page
     .getByRole("dialog", { name: "Explore notes", exact: true })
     .getByRole("button", { name: "Close", exact: true })
     .click();
+  await showPaper(page);
   await page.evaluate(() => {
     document.documentElement.style.fontSize = "225%";
   });

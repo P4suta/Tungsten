@@ -9,7 +9,6 @@ FROM rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db127
 ENV CARGO_BUILD_JOBS=2
 RUN cargo install --locked --version 0.68.0 kani-verifier && cargo kani setup
 WORKDIR /project
-COPY crates/state/ crates/state/
 COPY src/rules.rs src/rules.rs
 COPY proofs/Cargo.toml proofs/Cargo.lock proofs/
 COPY proofs/src/ proofs/src/

@@ -16,153 +16,17 @@ const REQUEST_SECONDS: u64 = 15;
 
 pub(super) struct Workload {
     pub(super) extremes: bool,
-    pub(super) encrypted: bool,
     pub(super) allocation_gib: u64,
 }
 
 impl Workload {
     fn validate(&self) -> Result<()> {
         ensure!(
-            !self.encrypted || !self.extremes,
-            "select encrypted note capacity separately from the plaintext extreme fixture"
-        );
-        ensure!(
             (8..=12).contains(&self.allocation_gib),
             "allocation must remain between 8 and 12 GiB"
         );
-        ensure!(
-            self.encrypted || self.allocation_gib == 8,
-            "custom allocation limits apply only to encrypted fixtures"
-        );
         Ok(())
     }
-}
-
-fn allocated_bytes(directory: &Path) -> Result<u64> {
-    use std::os::unix::fs::MetadataExt;
-    fs::read_dir(directory)?.try_fold(0_u64, |total, entry| {
-        total
-            .checked_add(entry?.metadata()?.blocks() * 512)
-            .context("fixture allocation overflow")
-    })
-}
-
-static SESSION: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
-
-fn encrypted_fixture(
-    directory: &Path,
-    corpus: &Corpus,
-    deadline: Instant,
-    allocation_gib: u64,
-) -> Result<()> {
-    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-    use tungsten::{
-        domain::{NoteName, Revision},
-        sealed::{RuntimeManifest, VaultManifest},
-        store::{Note, Store},
-    };
-    let started = Instant::now();
-    let seed = [113; 32];
-    let wrapped = |length| {
-        let mut bytes = vec![84, 86, 76, 84, 1];
-        bytes.resize(length, 0);
-        URL_SAFE_NO_PAD.encode(bytes)
-    };
-    let manifest = RuntimeManifest::create(
-        VaultManifest {
-            format: 1,
-            id: format!("{:032x}", corpus.seed),
-            key: "b".repeat(32),
-            root: wrapped(81),
-            check: wrapped(67),
-        },
-        &seed,
-    )?;
-    let key = manifest.database_key(&seed)?;
-    let mut store = Store::open_encrypted(directory, &key)?;
-    let imported = store.search("", None, 1, false)?.total;
-    ensure!(
-        imported <= corpus.count,
-        "the partial fixture exceeds the selected corpus"
-    );
-    for index in [0, imported / 2, imported.saturating_sub(1)] {
-        if imported == 0 {
-            break;
-        }
-        let expected = corpus.note(index);
-        ensure!(
-            store.read(&NoteName::parse(expected.name)?)?.body == expected.body,
-            "the partial fixture belongs to another corpus"
-        );
-    }
-    store.import_encrypted((imported..corpus.count).map(|index| {
-        if index.is_multiple_of(10_000) {
-            if Instant::now() >= deadline { return Err(tungsten::Error::Limit("encrypted fixture deadline exceeded")); }
-            let allocated = allocated_bytes(directory).map_err(std::io::Error::other)?;
-            if allocated > allocation_gib*1024*1024*1024 { return Err(tungsten::Error::Limit("encrypted fixture allocation exceeded its configured limit")); }
-            eprintln!("operation=scale phase=encrypted_import pages={index} allocated_bytes={allocated} elapsed_ms={}",started.elapsed().as_millis());
-        }
-        let note = corpus.note(index);
-        Ok(Note { name:NoteName::parse(note.name)?, revision:Revision::of(note.body.as_bytes()), body:note.body, modified:1_735_689_600_000+index as u128 })
-    }))?;
-    drop(store);
-    ensure!(
-        Instant::now() < deadline,
-        "encrypted fixture deadline exceeded"
-    );
-    ensure!(
-        allocated_bytes(directory)? <= allocation_gib * 1024 * 1024 * 1024,
-        "encrypted fixture allocation exceeded its configured limit"
-    );
-    fs::write(
-        directory.join(".vault.json"),
-        serde_json::to_vec(&manifest.ready(&seed)?)?,
-    )?;
-    println!(
-        "operation=scale phase=encrypted_ready pages={} elapsed_ms={}",
-        corpus.count,
-        started.elapsed().as_millis()
-    );
-    Ok(())
-}
-
-fn unlock_fixture(deadline: Instant) -> Result<()> {
-    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-    let body = serde_json::json!({"seed":URL_SAFE_NO_PAD.encode([113;32])}).to_string();
-    let mut stream = TcpStream::connect_timeout(
-        &SocketAddr::from(([127, 0, 0, 1], 18081)),
-        Duration::from_secs(1),
-    )?;
-    let timeout = deadline
-        .checked_duration_since(Instant::now())
-        .context("unlock deadline exceeded")?
-        .min(Duration::from_secs(15));
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
-    write!(
-        stream,
-        "POST /api/vault/unlock HTTP/1.1\r\nHost: 127.0.0.1:18081\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    )?;
-    let mut response = String::new();
-    stream.take(16384).read_to_string(&mut response)?;
-    ensure!(
-        response.starts_with("HTTP/1.1 204"),
-        "encrypted fixture did not unlock"
-    );
-    let cookie = response
-        .lines()
-        .find_map(|line| {
-            line.split_once(':')
-                .filter(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
-                .and_then(|(_, value)| value.trim().split(';').next())
-        })
-        .context("missing fixture session")?;
-    *SESSION
-        .lock()
-        .map_err(|_| anyhow::anyhow!("fixture session unavailable"))? =
-        format!("Cookie: {cookie}\r\n");
-    Ok(())
 }
 
 fn plan(counts: &[usize]) -> Result<()> {
@@ -254,13 +118,9 @@ fn request_at(
     };
     stream.set_write_timeout(Some(remaining()?))?;
     let mut writer = &stream;
-    let cookie = SESSION
-        .lock()
-        .map_err(|_| anyhow::anyhow!("fixture session unavailable"))?
-        .clone();
     write!(
         writer,
-        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:18081\r\n{cookie}Connection: close\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:18081\r\nConnection: close\r\n\r\n"
     )?;
     let mut reader = BufReader::new(stream);
     let mut lines = Vec::new();
@@ -352,6 +212,7 @@ fn target(destination: &str, seed: u64) -> Result<usize> {
 }
 
 fn audit(directory: &Path, corpus: &Corpus, deadline: Instant) -> Result<()> {
+    let store = tungsten::store::Store::open(directory)?;
     let mut incoming = vec![0usize; corpus.count];
     let mut outgoing = vec![0usize; corpus.count];
     let mut components = Components {
@@ -376,7 +237,9 @@ fn audit(directory: &Path, corpus: &Corpus, deadline: Instant) -> Result<()> {
                 corpus.count
             );
         }
-        let text = fs::read_to_string(directory.join(corpus.name(index)))?;
+        let text = store
+            .read(&tungsten::domain::NoteName::parse(corpus.name(index))?)?
+            .body;
         let heading = text
             .lines()
             .find_map(|line| line.strip_prefix("# "))
@@ -522,7 +385,6 @@ pub(super) fn native(
     workload.validate()?;
     let Workload {
         extremes,
-        encrypted,
         allocation_gib,
     } = workload;
     ensure!(
@@ -538,7 +400,6 @@ pub(super) fn native(
         );
     }
     let deadline = campaign + Duration::from_secs(870);
-    let mut allocated = 0;
     for &count in counts {
         ensure!(
             Instant::now() < deadline,
@@ -546,40 +407,40 @@ pub(super) fn native(
         );
         let directory = Path::new("/data").join(format!(
             "{}-{seed}-{count}",
-            if encrypted {
-                "encrypted"
-            } else if extremes {
-                "extremes"
-            } else {
-                profile.name()
-            }
+            if extremes { "extremes" } else { profile.name() }
         ));
         let corpus = Corpus::new(count, seed, profile)?;
-        if encrypted {
-            if !directory.exists() {
-                fs::create_dir(&directory)?;
-            } else {
+        if extremes {
+            crate::stress::prepare(&directory, &corpus, deadline, allocation_gib)?;
+        } else if reuse_data && directory.is_dir() {
+            let store = tungsten::store::Store::open(&directory)?;
+            let imported = store.note_count()?;
+            ensure!(
+                imported <= count,
+                "the retained fixture exceeds the selected corpus"
+            );
+            for index in [0, imported / 2, imported.saturating_sub(1)] {
+                if imported == 0 {
+                    break;
+                }
+                let note = corpus.note(index);
                 ensure!(
-                    reuse_data,
-                    "select reuse before reopening an encrypted fixture"
+                    store
+                        .read(&tungsten::domain::NoteName::parse(note.name)?)?
+                        .body
+                        == note.body,
+                    "the retained fixture belongs to another corpus"
                 );
             }
-            if !directory.join(".vault.json").exists() {
-                encrypted_fixture(&directory, &corpus, deadline, allocation_gib)?;
+            drop(store);
+            if imported < count {
+                crate::demo::write_notes(&directory, &corpus, deadline, allocation_gib)?;
             }
-        } else if extremes {
-            crate::stress::prepare(&directory, &corpus, deadline)?;
-        } else if reuse_data && directory.is_dir() {
             println!("operation=scale phase=reused pages={count}");
         } else {
             fs::create_dir(&directory).context("create fresh scale dataset")?;
             let started = Instant::now();
-            let written = crate::demo::write_notes(&directory, &corpus, deadline)?;
-            allocated += written.allocated;
-            ensure!(
-                allocated <= 8 * 1024 * 1024 * 1024,
-                "inconclusive: campaign allocation exceeded 8 GiB"
-            );
+            let written = crate::demo::write_notes(&directory, &corpus, deadline, allocation_gib)?;
             println!(
                 "operation=scale phase=generated pages={count} bytes={} allocated_bytes={} elapsed_ms={}",
                 written.bytes,
@@ -587,18 +448,13 @@ pub(super) fn native(
                 started.elapsed().as_millis()
             );
         }
-        if !extremes && !encrypted {
+        if !extremes {
             audit(&directory, &corpus, deadline)?;
         }
         let startup = Instant::now();
         let mut server = Server(
             Command::new("/tungsten")
                 .args([
-                    if encrypted {
-                        "--development"
-                    } else {
-                        "--plaintext"
-                    },
                     "--data-dir",
                     directory.to_str().context("UTF-8 dataset path")?,
                     "--listen",
@@ -633,9 +489,6 @@ pub(super) fn native(
             ready,
             "the server did not become ready within the startup budget"
         );
-        if encrypted {
-            unlock_fixture(deadline)?;
-        }
         if ready {
             observe(
                 &format!("/api/notes/{}", corpus.name(0)),
@@ -721,14 +574,13 @@ pub(super) fn run(
     workload.validate()?;
     let Workload {
         extremes,
-        encrypted,
         allocation_gib,
     } = workload;
     plan(counts)?;
     println!(
-        "operation=scale phase=plan counts={counts:?} profile={} seed={seed} cpus=2 memory_mib=2048 swap_mib=0 pids=256 seconds=900 allocation_limit_gib={} response_limit_mib=4 request_seconds=15 extremes={extremes} encrypted={encrypted} reuse_volume={reuse_volume:?}",
+        "operation=scale phase=plan counts={counts:?} profile={} seed={seed} cpus=2 memory_mib=2048 swap_mib=0 pids=256 seconds=900 allocation_limit_gib={} response_limit_mib=4 request_seconds=15 extremes={extremes} reuse_volume={reuse_volume:?}",
         profile.name(),
-        if extremes { 12 } else { allocation_gib }
+        allocation_gib
     );
     if dry_run {
         return Ok(());
@@ -815,7 +667,6 @@ pub(super) fn run(
     let mount = format!("type=volume,source={volume},target=/data");
     let reuse_data = reuse_volume.is_some().to_string();
     let extremes = extremes.to_string();
-    let encrypted = encrypted.to_string();
     let allocation_gib = allocation_gib.to_string();
     println!("operation=scale phase=retained_data volume={volume}");
     crate::run(
@@ -848,8 +699,6 @@ pub(super) fn run(
             &reuse_data,
             "--extremes",
             &extremes,
-            "--encrypted",
-            &encrypted,
             "--allocation-gib",
             &allocation_gib,
         ],
@@ -863,36 +712,25 @@ mod tests {
 
     #[test]
     fn workload_limits_reject_misreported_budgets() {
-        for (encrypted, extremes, allocation_gib) in [
-            (true, true, 8),
-            (false, false, 12),
-            (false, true, 12),
-            (true, false, 7),
-            (true, false, 13),
-        ] {
+        for allocation_gib in [0, 7, 13, u64::MAX] {
             assert!(
                 Workload {
-                    encrypted,
-                    extremes,
+                    extremes: false,
                     allocation_gib
                 }
                 .validate()
                 .is_err()
             );
         }
-        for (encrypted, extremes, allocation_gib) in [
-            (false, false, 8),
-            (false, true, 8),
-            (true, false, 8),
-            (true, false, 12),
-        ] {
-            Workload {
-                encrypted,
-                extremes,
-                allocation_gib,
+        for extremes in [false, true] {
+            for allocation_gib in [8, 12] {
+                Workload {
+                    extremes,
+                    allocation_gib,
+                }
+                .validate()
+                .unwrap();
             }
-            .validate()
-            .unwrap();
         }
     }
 
@@ -979,17 +817,23 @@ mod tests {
     }
 
     #[test]
-    fn filesystem_audits_reject_a_link_outside_the_declared_fixture() {
+    fn stored_body_audits_reject_a_link_outside_the_declared_fixture() {
         let directory = tempfile::tempdir().unwrap();
         let corpus = Corpus::new(500, 42, Profile::Mixed).unwrap();
         let deadline = Instant::now() + Duration::from_secs(10);
-        crate::demo::write_notes(directory.path(), &corpus, deadline).unwrap();
+        crate::demo::write_notes(directory.path(), &corpus, deadline, 8).unwrap();
         audit(directory.path(), &corpus, deadline).unwrap();
-        fs::write(
-            directory.path().join(corpus.name(0)),
-            format!("# Changed\n\n[Unexpected]({})\n", corpus.name(100_000)),
-        )
-        .unwrap();
+        let mut store = tungsten::store::Store::open(directory.path()).unwrap();
+        let name = tungsten::domain::NoteName::parse(corpus.name(0)).unwrap();
+        let note = store.read(&name).unwrap();
+        store
+            .update(
+                &name,
+                &format!("# Changed\n\n[Unexpected]({})\n", corpus.name(100_000)),
+                note.revision.as_str(),
+            )
+            .unwrap();
+        drop(store);
         assert!(audit(directory.path(), &corpus, deadline).is_err());
     }
 }

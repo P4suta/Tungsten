@@ -20,23 +20,13 @@ type SharedStore = Arc<Mutex<Store>>;
 mod features;
 mod maintenance;
 mod origin;
-mod sealed;
-#[derive(Clone)]
-struct SealedBrowser;
 mod vendor;
+mod workspaces;
 
 pub use origin::ServerOrigin;
 
-pub fn sealed_app(data_dir: &Path, origin: ServerOrigin) -> Result<Router, Error> {
-    sealed::app(data_dir, origin, None)
-}
-
-pub fn migration_app(
-    data_dir: &Path,
-    source: &Path,
-    origin: ServerOrigin,
-) -> Result<Router, Error> {
-    sealed::app(data_dir, origin, Some(source.to_owned()))
+pub fn app_with_origin(data_dir: &Path, origin: ServerOrigin) -> Result<Router, Error> {
+    Ok(app(data_dir)?.layer(Extension(origin)))
 }
 
 pub fn app(data_dir: &Path) -> Result<Router, Error> {
@@ -57,6 +47,7 @@ fn with_store(store: Store, nonce: String) -> Result<Router, Error> {
         .route("/healthz", get(|| async { StatusCode::NO_CONTENT }))
         .route("/vendor/pdf/{*path}", get(vendor::pdf))
         .merge(features::routes())
+        .merge(workspaces::routes())
         .route("/api/notes", get(list).post(create))
         .route(
             "/api/notes/{name}",
@@ -70,16 +61,8 @@ fn with_store(store: Store, nonce: String) -> Result<Router, Error> {
         .with_state(state))
 }
 
-async fn index(
-    Extension(nonce): Extension<String>,
-    sealed: Option<Extension<SealedBrowser>>,
-) -> Html<String> {
-    let mut html = include_str!("../ui/index.html").replace("__STYLE_NONCE__", &nonce);
-    if sealed.is_some() {
-        html = html.replace("/assets/app.js", "/assets/vault-start.js");
-        html = html.replace("<body>", "<body class=\"vault-locked\">");
-    }
-    Html(html)
+async fn index(Extension(nonce): Extension<String>) -> Html<String> {
+    Html(include_str!("../ui/index.html").replace("__STYLE_NONCE__", &nonce))
 }
 
 static CHUNKS: include_dir::Dir<'_> =
@@ -97,10 +80,6 @@ async fn browser_asset(UrlPath(path): UrlPath<String>, headers: HeaderMap) -> Re
         ),
         "app.js" => (
             include_bytes!("../ui/dist/app.js").as_slice(),
-            "text/javascript; charset=utf-8",
-        ),
-        "vault-start.js" => (
-            include_bytes!("../ui/dist/vault-start.js").as_slice(),
             "text/javascript; charset=utf-8",
         ),
         path if path.starts_with("chunks/") && path.ends_with(".js") => {
@@ -389,13 +368,12 @@ impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let status = match self {
             Self::InvalidName | Self::InvalidFile | Self::InvalidData(_) => StatusCode::BAD_REQUEST,
-            Self::Exists => StatusCode::CONFLICT,
-            Self::NotFound => StatusCode::NOT_FOUND,
-            Self::Conflict => StatusCode::PRECONDITION_FAILED,
+            Self::Exists | Self::WorkspaceExists => StatusCode::CONFLICT,
+            Self::NotFound | Self::WorkspaceMissing => StatusCode::NOT_FOUND,
+            Self::Conflict | Self::WorkspaceChanged => StatusCode::PRECONDITION_FAILED,
             Self::Precondition => StatusCode::PRECONDITION_REQUIRED,
             Self::TooLarge | Self::Limit(_) => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Origin => StatusCode::FORBIDDEN,
-            Self::VaultKey => StatusCode::UNAUTHORIZED,
             Self::SearchLimit | Self::UploadBusy => StatusCode::SERVICE_UNAVAILABLE,
             Self::Locked | Self::Io(_) | Self::Catalog(_) | Self::Worker => {
                 StatusCode::INTERNAL_SERVER_ERROR

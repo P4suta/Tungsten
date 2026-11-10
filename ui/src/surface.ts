@@ -9,6 +9,12 @@ export interface WritingSurface {
 
 let surface: WritingSurface | null = null;
 
+export function writingScrollContainer(): HTMLDivElement {
+  const container = document.getElementById("paper-scroll");
+  if (!(container instanceof HTMLDivElement)) throw new Error("Missing writing scroll container.");
+  return container;
+}
+
 export function registerSurface(value: WritingSurface | null): void {
   surface = value;
 }

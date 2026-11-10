@@ -11,13 +11,47 @@
   </head>
   <body>
     <a class="skip" href="#body">Skip to note</a>
-    <header><a id="show-notes" href="/" aria-label="Explore notes">Explore notes</a><div id="paper-actions" class="actions"><button id="new-note" type="button">New note</button><button id="more" type="button">More</button></div><p id="save-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">Loading</p></header>
+    <header><button id="toggle-sidebar" class="icon-button" type="button" aria-label="Navigation" title="Toggle notes sidebar" aria-controls="sidebar" aria-expanded="false" disabled></button><button id="show-paper" type="button" hidden>Write note</button><button id="toggle-context" class="icon-button" type="button" aria-label="Note context" title="Toggle note context" aria-controls="note-sidebar" aria-expanded="false" disabled></button><p id="save-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">Loading</p></header>
     <div id="recovery" hidden><p id="error" role="alert" hidden></p><div class="actions"><button id="retry" type="button" hidden>Retry</button><button id="reload" type="button" hidden>Reload saved</button><button id="copy" type="button" hidden>Save a copy</button></div></div>
-    <p id="feature-status" class="visually-hidden" role="status" hidden></p>
+    <div id="app-shell">
+    <aside id="sidebar" class="side-panel" aria-label="Navigation" hidden>
+      <div class="sidebar-heading"><h2>Notes</h2><button id="close-sidebar" class="icon-button" type="button" aria-label="Close navigation" title="Close navigation"></button></div>
+      <div class="sidebar-actions"><button id="new-note" type="button">New note</button><button id="show-notes" type="button">Explore notes</button></div>
+      <fieldset class="sidebar-switch"><legend class="visually-hidden">Browse notes</legend><button id="library-notes" type="button" aria-pressed="true" aria-controls="library-pane">Notes</button><button id="trash" type="button" aria-pressed="false" aria-controls="trash-pane">Trash</button></fieldset>
+      <section id="library-pane" aria-label="Notes library">
+        <div class="sidebar-heading"><h3>Workspaces</h3><button id="create-workspace" class="icon-button" type="button" aria-label="New workspace" title="New workspace"></button></div>
+        <form id="workspace-form" hidden><h4 id="workspace-form-heading">New workspace</h4><label for="workspace-title">Workspace name</label><input id="workspace-title" maxlength="120" autocomplete="off" required><p id="workspace-form-status" role="alert"></p><div class="actions"><button type="submit" id="save-workspace">Save workspace</button><button type="button" id="cancel-workspace">Cancel</button></div></form>
+        <button id="all-notes" type="button" aria-pressed="true">All notes</button><ul id="workspace-list" class="sidebar-rows"></ul>
+        <div id="workspace-pages" class="sidebar-switch" hidden><button id="workspace-previous" type="button" disabled>Previous workspaces</button><button id="workspace-next" type="button" disabled>Next workspaces</button></div>
+        <div class="sidebar-heading"><h3 id="library-title">All notes</h3><button id="rename-workspace" class="icon-button" type="button" aria-label="Rename workspace" title="Rename workspace" hidden></button><button id="remove-workspace" class="icon-button" type="button" aria-label="Remove workspace" title="Remove workspace" hidden></button></div>
+        <button id="add-current-note" type="button" hidden>Add current note</button>
+        <label for="sidebar-search">Search all notes</label><input id="sidebar-search" type="search" autocomplete="off">
+        <p id="library-status" role="status"></p><button id="library-retry" type="button" hidden>Retry</button><ul id="sidebar-notes" class="sidebar-rows" aria-label="Notes"></ul>
+        <div id="sidebar-pages" class="sidebar-switch" hidden><button id="sidebar-previous" type="button" disabled>Previous notes</button><button id="sidebar-next" type="button" disabled>Next notes</button></div>
+      </section>
+      <section id="trash-pane" aria-label="Trash" hidden>
+        <div class="sidebar-heading"><h3>Trash</h3><button id="trash-back" class="icon-button" type="button" aria-label="Back to notes" title="Back to notes"></button></div>
+        <p>Deleted notes remain here for seven days.</p><p id="trash-status" role="status"></p><div class="actions"><button id="restore-trashed" type="button" disabled>Restore</button><button id="preview-trashed" type="button" disabled>Preview</button><button id="empty-trash" type="button">Empty trash</button></div><div id="trash-list" class="file-rows" role="listbox" aria-label="Deleted notes"></div><div class="actions"><button id="trash-previous" type="button">Previous page</button><button id="trash-next" type="button">Next page</button></div>
+        <section id="deleted-note" aria-label="Deleted note" hidden><div class="sidebar-heading"><h3 id="deleted-title">Deleted note</h3><button id="close-deleted-preview" type="button" class="icon-button" aria-label="Close deleted note preview" title="Close preview"></button></div><label for="deleted-content">Deleted content</label><textarea id="deleted-content" readonly></textarea></section>
+      </section>
+      <p id="sidebar-status" role="status"></p>
+    </aside>
+    <div id="paper-scroll">
     <div id="file-link-warning" hidden><p id="file-link-message" role="status"></p><button id="repair-file-links" type="button">Repair file link</button></div>
     <main id="editor-pane" aria-label="Note editor">
       <div id="writing" class="writing"><section id="source-pane" aria-label="Writing"><label for="body" class="visually-hidden">Note</label><p id="writing-help" class="visually-hidden">Write a Markdown note. Type / at the start of a line to insert a block or file. Use arrow keys and Enter to choose a command, or Escape to dismiss it.</p><div id="live-editor"></div><textarea id="body" spellcheck="true" wrap="soft" aria-describedby="writing-help" disabled hidden></textarea><p id="preview-status" class="visually-hidden" role="status"></p></section></div><div id="typing-space" aria-hidden="true"></div>
     </main>
+    </div>
+    <aside id="note-sidebar" class="side-panel" aria-label="Current note" hidden>
+      <div class="sidebar-heading"><h2>Current note</h2><button id="close-context" class="icon-button" type="button" aria-label="Close note context" title="Close note context"></button></div>
+      <fieldset class="sidebar-switch"><legend class="visually-hidden">Note context</legend><button id="context-links-tab" type="button" aria-pressed="true" aria-controls="context-links">Links</button><button id="history" type="button" aria-pressed="false" aria-controls="history-panel">Version history</button></fieldset>
+      <button id="context-retry" type="button" hidden>Retry</button>
+      <section id="context-links" aria-label="Note links"><p id="context-status" role="status"></p><h3>Links from this note</h3><ul id="outgoing-notes" class="sidebar-rows"></ul><h3>Links to this note</h3><ul id="incoming-notes" class="sidebar-rows"></ul></section>
+      <section id="history-panel" aria-label="Version history" hidden><h3>Version history</h3><p id="history-status" role="status"></p><ul id="history-list" class="records"></ul><h3>Changes if restored</h3><section id="version-diff" aria-label="Changes if restored"></section><label for="saved-content">Saved content</label><textarea id="saved-content" readonly></textarea><button id="restore-version" type="button" disabled>Restore version</button></section>
+      <section id="note-tools" aria-label="Note actions"><h3>Note actions</h3><button id="delete" type="button" disabled>Delete</button></section>
+    </aside>
+    </div>
+    <p id="feature-status" class="visually-hidden" role="status" hidden></p>
     <div id="slash-menu" role="listbox" aria-label="Insert into note" hidden></div><input id="slash-files" type="file" multiple hidden>
     <dialog id="notes-dialog" aria-label="Explore notes">
       <h2>Explore notes</h2><button type="button" data-close>Close</button>
@@ -28,17 +62,6 @@
       <section id="home-graph" aria-label="Note graph" aria-describedby="graph-help"><svg id="graph-edges" aria-hidden="true"><defs><marker id="home-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" /></marker></defs></svg><div id="graph-nodes"></div></section><div id="graph-selection"></div>
       <section id="drafts-pane" hidden aria-label="Unsaved drafts"><h3>Unsaved drafts</h3><ul id="drafts" class="records"></ul></section>
     </dialog>
-    <dialog id="more-dialog" aria-label="More">
-      <h2>More</h2><button type="button" data-close>Close</button><p id="more-status" role="status"></p>
-      <a id="trash" class="control" href="/trash" data-page="trash">Trash</a>
-      <section id="note-tools"><h3>Note</h3><div class="actions"><button id="history" type="button">Version history</button><button id="delete" type="button" disabled>Delete</button></div></section>
-    </dialog>
-    <main id="trash-page" class="app-page" aria-label="Trash" hidden>
-      <div class="page-heading"><h1 tabindex="-1">Trash</h1><button type="button" class="icon-button" data-close-page aria-label="Close" title="Back to note"><span aria-hidden="true">×</span></button></div>
-      <p>Deleted notes remain here for seven days.</p><p id="trash-status" role="status"></p><div class="actions"><button id="restore-trashed" type="button" disabled>Restore</button><button id="empty-trash" type="button">Empty trash</button></div><div id="trash-list" class="file-rows" role="listbox" aria-label="Deleted notes"></div><div class="actions"><button id="trash-previous" type="button">Previous page</button><button id="trash-next" type="button">Next page</button></div>
-    </main>
-    <dialog id="deleted-note" aria-label="Deleted note"><h2 id="deleted-title">Deleted note</h2><button type="button" data-close>Close</button><label for="deleted-content">Deleted content</label><textarea id="deleted-content" readonly></textarea></dialog>
-    <dialog id="history-dialog" aria-label="Version history"><h2>Version history</h2><button type="button" data-close>Close</button><p id="history-status" role="status"></p><ul id="history-list" class="records"></ul><h3>Changes if restored</h3><section id="version-diff" aria-label="Changes if restored"></section><label for="saved-content">Saved content</label><textarea id="saved-content" readonly></textarea><button id="restore-version" type="button" disabled>Restore version</button></dialog>
     <dialog id="switcher-dialog" aria-label="Open note"><h2>Open note</h2><button type="button" data-close>Close</button><label for="quick-search">Find a note</label><input id="quick-search" type="search" autocomplete="off"><ul id="quick-results" class="records"></ul></dialog>
     <noscript>Enable JavaScript to edit notes.</noscript>
   </body>

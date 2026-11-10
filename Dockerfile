@@ -9,9 +9,7 @@ FROM rust:1.99.0-alpine@sha256:0cce0a5e0e8ba67b455257a3a02a1d99005f382748789d646
 WORKDIR /app
 ARG TARGETARCH
 ENV CARGO_BUILD_JOBS=2
-RUN apk add --no-cache make=4.4.1-r4 perl=5.42.3-r0
 COPY Cargo.toml Cargo.lock ./
-COPY crates/ crates/
 COPY xtask/ xtask/
 COPY src/ src/
 COPY ui/ ui/
@@ -21,12 +19,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,targe
 
 FROM scratch AS binaries
 COPY --from=build /artifact/tungsten /tungsten
-COPY LICENSE-MIT LICENSE-APACHE deploy/SQLCipher-LICENSE.txt /licenses/
+COPY LICENSE-MIT LICENSE-APACHE /licenses/
 
 FROM build AS scale-build
 RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/app/target,id=tungsten-target-${TARGETARCH} cargo build --release --locked --package xtask && cp target/release/xtask /artifact/xtask
 
 FROM ui AS scale
+ENV SQLITE_TMPDIR=/data
 COPY --from=scale-build /artifact/tungsten /tungsten
 COPY --from=scale-build /artifact/xtask /xtask
 RUN mkdir -p /data && chown 65532:65532 /data
@@ -41,9 +40,16 @@ ENV CHROME_PATH=/usr/bin/chromium XDG_CONFIG_HOME=/tmp/chromium-config XDG_CACHE
 USER 65532:65532
 ENTRYPOINT ["/bin/busybox", "timeout", "-s", "TERM", "-k", "10", "590", "/xtask", "browser-performance-native"]
 
+FROM scale AS memory-profile
+ENTRYPOINT ["/bin/busybox", "timeout", "-s", "TERM", "-k", "5", "180", "/xtask", "memory-profile-native"]
+
+FROM scale AS storage-profile
+ENTRYPOINT ["/bin/busybox", "timeout", "-s", "TERM", "-k", "10", "890", "/xtask", "storage-profile-native", "--request", "/request.json"]
+
 FROM scratch AS runtime
+ENV SQLITE_TMPDIR=/data
 COPY --from=build /artifact/tungsten /tungsten
-COPY LICENSE-MIT LICENSE-APACHE deploy/SQLCipher-LICENSE.txt /licenses/
+COPY LICENSE-MIT LICENSE-APACHE /licenses/
 COPY --from=build --chown=65532:65532 /data /data
 USER 65532:65532
 EXPOSE 8080

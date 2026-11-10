@@ -1,120 +1,138 @@
 use crate::demo::Corpus;
 use anyhow::{Context, Result, ensure};
+use rusqlite::{OptionalExtension, params};
 use std::{
-    fs::{self, OpenOptions},
-    io::Write,
-    os::unix::fs::MetadataExt,
+    fs,
     path::Path,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tungsten::{
     domain::{NoteName, Revision},
-    store::Store,
+    store::{Note, SavedNote, Store},
 };
 
-fn write_once(path: &Path, bytes: &[u8]) -> Result<()> {
-    match OpenOptions::new().write(true).create_new(true).open(path) {
-        Ok(mut file) => file.write_all(bytes)?,
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            ensure!(fs::read(path)? == bytes, "existing stress fixture differs")
-        }
-        Err(error) => return Err(error.into()),
-    }
-    Ok(())
-}
-
-fn link_once(source: &Path, target: &Path) -> Result<()> {
-    match fs::hard_link(source, target) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            ensure!(
-                fs::metadata(source)?.ino() == fs::metadata(target)?.ino(),
-                "existing recovery fixture differs"
-            );
-            Ok(())
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
-pub(super) fn prepare(directory: &Path, corpus: &Corpus, deadline: Instant) -> Result<()> {
+pub(super) fn prepare(
+    directory: &Path,
+    corpus: &Corpus,
+    deadline: Instant,
+    allocation_gib: u64,
+) -> Result<()> {
     fs::create_dir_all(directory)?;
-    let clock = directory.join(".tungsten-stress-clock");
-    let captured = match fs::read_to_string(&clock) {
-        Ok(text) => text.parse::<u128>()?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
-            write_once(&clock, now.to_string().as_bytes())?;
-            now
-        }
-        Err(error) => return Err(error.into()),
-    };
-    let history = directory.join(".history");
-    fs::create_dir_all(&history)?;
+    let mut store = Store::open(directory)?;
+    let imported = store.search("", None, 1, false)?.total;
+    ensure!(
+        imported <= corpus.count,
+        "stress fixture has unexpected notes"
+    );
     let hub = corpus.name(0);
-    let variants = corpus.count.min(4096);
-    let mut allocated = 0;
-    for index in 0..corpus.count {
-        if index.is_multiple_of(10_000) {
-            ensure!(
-                Instant::now() < deadline,
-                "inconclusive: stress generation deadline exceeded"
-            );
-            eprintln!(
-                "operation=stress phase=generate records={index} total={}",
-                corpus.count
-            );
+    store.import_notes((imported..corpus.count).map(|index| {
+        if index.is_multiple_of(10_000) && Instant::now() >= deadline {
+            return Err(tungsten::Error::Limit(
+                "Stress generation deadline exceeded.",
+            ));
         }
-        let path = directory.join(corpus.name(index));
         let body = if index == 0 {
             corpus.note(0).body
         } else {
             format!("# Stress note {index}\n\nUnicode 日本語.\n\n[Scale hub]({hub})\n")
         };
-        write_once(&path, body.as_bytes())?;
-        allocated += fs::metadata(&path)?.blocks() * 512;
-        let record = history.join(format!("{index:032x}"));
-        fs::create_dir_all(&record)?;
-        if index < variants {
+        Ok(Note {
+            name: NoteName::parse(corpus.name(index))?,
+            revision: Revision::of(body.as_bytes()),
+            body,
+            modified: 1_735_689_600_000 + index as u128,
+        })
+    }))?;
+    drop(store);
+    let mut database = rusqlite::Connection::open(directory.join("notes.sqlite"))?;
+    database.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
+    let captured = database
+        .query_row(
+            "SELECT value FROM state WHERE key='stress-captured'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .unwrap_or(i64::try_from(
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
+        )?);
+    database.execute(
+        "INSERT OR IGNORE INTO state VALUES('stress-captured',?)",
+        [captured],
+    )?;
+    let count: i64 =
+        database.query_row("SELECT count(*) FROM records WHERE trash=0", [], |row| {
+            row.get(0)
+        })?;
+    for start in (usize::try_from(count)?..corpus.count).step_by(500) {
+        ensure!(
+            Instant::now() < deadline,
+            "stress recovery generation deadline exceeded"
+        );
+        let transaction = database.transaction()?;
+        for index in start..(start + 500).min(corpus.count) {
+            let id = format!("{index:032x}");
             let body = format!("# Snapshot {index}\n\nSynthetic recovery record 日本語.\n");
             let revision = Revision::of(body.as_bytes());
-            let metadata = serde_json::to_vec(
-                &serde_json::json!({"name":hub,"modified":captured,"captured":captured.saturating_sub(index as u128),"revision":revision.as_str()}),
+            let timestamp = captured.saturating_sub(index as i64);
+            let summary = SavedNote {
+                id: id.clone(),
+                name: NoteName::parse(hub.clone())?,
+                modified: captured as u128,
+                revision: revision.clone(),
+                bytes: body.len(),
+                captured: timestamp as u128,
+                title: format!("Snapshot {index}"),
+            };
+            transaction.execute(
+                "INSERT INTO snapshots VALUES(0,?,?,?,?,?,?)",
+                params![id, hub, body, revision.as_str(), captured, timestamp],
             )?;
-            write_once(&record.join("body.md"), body.as_bytes())?;
-            write_once(&record.join("metadata.json"), &metadata)?;
-            allocated += fs::metadata(record.join("body.md"))?.blocks() * 512;
-            allocated += fs::metadata(record.join("metadata.json"))?.blocks() * 512;
-        } else {
-            let template = history.join(format!("{:032x}", index % variants));
-            for name in ["body.md", "metadata.json"] {
-                link_once(&template.join(name), &record.join(name))?;
-            }
+            transaction.execute(
+                "INSERT INTO records VALUES(0,?,?,?,?,?,?)",
+                params![
+                    id,
+                    hub,
+                    timestamp,
+                    serde_json::to_string(&summary)?,
+                    revision.as_str(),
+                    (index + 1) as i64
+                ],
+            )?;
         }
-        allocated += fs::metadata(&record)?.blocks() * 512;
-        ensure!(
-            allocated <= 12 * 1024 * 1024 * 1024,
-            "inconclusive: stress allocation exceeded 12 GiB"
-        );
+        transaction.execute(
+            "UPDATE state SET value=? WHERE key='record-sequence'",
+            [(start + 500).min(corpus.count) as i64],
+        )?;
+        transaction.execute("INSERT OR IGNORE INTO retention_queue VALUES(?)", [&hub])?;
+        transaction.commit()?;
+        if start.is_multiple_of(10_000) {
+            use std::os::unix::fs::MetadataExt;
+            let allocated = fs::read_dir(directory)?.try_fold(0_u64, |total, entry| {
+                Ok::<_, std::io::Error>(total + entry?.metadata()?.blocks() * 512)
+            })?;
+            ensure!(
+                allocated <= allocation_gib * 1024 * 1024 * 1024,
+                "stress allocation exceeded its budget"
+            );
+            eprintln!(
+                "operation=stress phase=generate records={start} total={} allocated_bytes={allocated}",
+                corpus.count
+            );
+        }
     }
-    let generated = fs::read_dir(&history)?
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            u128::from_str_radix(&entry.file_name().to_string_lossy(), 16)
-                .is_ok_and(|id| id < corpus.count as u128)
-        })
-        .count();
-    ensure!(generated == corpus.count, "unexpected stress history count");
-    write_once(
-        &directory.join(".tungsten-extremes"),
-        corpus.count.to_string().as_bytes(),
-    )
-    .context("publish the stress fixture")?;
+    let count: i64 =
+        database.query_row("SELECT count(*) FROM records WHERE trash=0", [], |row| {
+            row.get(0)
+        })?;
+    ensure!(
+        usize::try_from(count)? == corpus.count,
+        "unexpected stress recovery count"
+    );
     println!(
-        "operation=stress phase=data_verified notes={} hub_incoming={} recovery_records={} body_variants={variants} allocated_bytes={allocated}",
+        "operation=stress phase=data_verified notes={} hub_incoming={} recovery_records={count}",
         corpus.count,
-        corpus.count - 1,
-        corpus.count
+        corpus.count - 1
     );
     Ok(())
 }
@@ -240,11 +258,20 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let corpus = Corpus::new(500, 42, Profile::Mixed).unwrap();
         let deadline = Instant::now() + Duration::from_secs(30);
-        prepare(directory.path(), &corpus, deadline).unwrap();
-        let before = fs::read(directory.path().join(corpus.name(1))).unwrap();
-        prepare(directory.path(), &corpus, deadline).unwrap();
+        prepare(directory.path(), &corpus, deadline, 8).unwrap();
+        let name = NoteName::parse(corpus.name(1)).unwrap();
+        let before = Store::open(directory.path())
+            .unwrap()
+            .read(&name)
+            .unwrap()
+            .body;
+        prepare(directory.path(), &corpus, deadline, 8).unwrap();
         assert_eq!(
-            fs::read(directory.path().join(corpus.name(1))).unwrap(),
+            Store::open(directory.path())
+                .unwrap()
+                .read(&name)
+                .unwrap()
+                .body,
             before
         );
         storage_checks(directory.path(), &corpus.name(0), deadline).unwrap();

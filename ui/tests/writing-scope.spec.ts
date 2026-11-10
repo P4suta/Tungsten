@@ -1,12 +1,15 @@
 import { expect, test } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
-import { newEmptyNote, openMore } from "./interface.js";
+import { exploreNotes, newEmptyNote, openNavigation } from "./interface.js";
 
 test("keeps appearance, counts, and retired tools outside the note", async ({ page }, info) => {
   await page.goto("/");
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect(more.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
-  await expect(more.locator("select, input, #note-details, #import-files")).toHaveCount(0);
+  await expect(more.locator("select, #note-details, #import-files")).toHaveCount(0);
+  await expect(
+    more.getByRole("searchbox", { name: "Search all notes", exact: true }),
+  ).toBeVisible();
   await expect(page.locator("#note-stats, #relations-dialog, #settings-page")).toHaveCount(0);
   for (const name of [
     "Find and replace",
@@ -48,7 +51,7 @@ test("explores incoming and outgoing links in one graph", async ({ page, request
   ])
     await request.post("/api/notes", { data: { name, body } });
   await page.goto("/?note=Center.md");
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   const graph = page.getByRole("region", { name: "Note graph", exact: true });
   await expect(graph.getByRole("button", { name: "Explore Incoming", exact: true })).toBeVisible();
   await graph.getByRole("button", { name: "Explore Outgoing", exact: true }).click();

@@ -168,21 +168,21 @@ async fn retired_file_management_preserves_reading_existing_attachment_metadata(
             .status(),
         StatusCode::METHOD_NOT_ALLOWED
     );
-    std::fs::write(
-        directory.path().join(format!(".attachments/{id}.json")),
-        br#"{"name":"Renamed.txt","folder":"Projects/Research","description":"A transcript"}"#,
-    )
-    .unwrap();
-
+    let database = rusqlite::Connection::open(directory.path().join("notes.sqlite")).unwrap();
+    database.execute("UPDATE files SET meta=? WHERE id=?",rusqlite::params![br#"{"name":"Renamed.txt","folder":"Projects/Research","description":"A transcript"}"#.as_slice(),id]).unwrap();
+    drop(database);
     drop(app);
     let app = tungsten::api::app(directory.path()).unwrap();
     let restored = json(request(&app, "GET", &path, Value::Null, &[]).await).await;
     assert_eq!(restored["name"], "Renamed.txt");
-    std::fs::write(
-        directory.path().join(format!(".attachments/{id}.json")),
-        b"\"Legacy.txt\"",
-    )
-    .unwrap();
+    let database = rusqlite::Connection::open(directory.path().join("notes.sqlite")).unwrap();
+    database
+        .execute(
+            "UPDATE files SET meta=? WHERE id=?",
+            rusqlite::params![br#""Legacy.txt""#.as_slice(), id],
+        )
+        .unwrap();
+    drop(database);
     let legacy = json(request(&app, "GET", &path, Value::Null, &[]).await).await;
     assert_eq!(legacy["name"], "Legacy.txt");
     assert_eq!(legacy["folder"], "");
@@ -277,4 +277,178 @@ async fn uploads_original_bytes_without_base64_and_validates_the_file_transport_
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
+}
+
+#[tokio::test]
+async fn compatibility_uploads_reject_file_sized_json_bodies() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = tungsten::api::app(directory.path()).unwrap();
+    let response = request(
+        &app,
+        "POST",
+        "/api/attachments",
+        json!({"name":"buffered.bin","data":"eHh4".repeat(270_000)}),
+        &[],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn invalid_upload_names_are_rejected_before_reading_the_body() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let app = tungsten::api::app(directory.path()).unwrap();
+    let polled = Arc::new(AtomicBool::new(false));
+    let observed = polled.clone();
+    let stream = futures_util::stream::once(async move {
+        observed.store(true, Ordering::SeqCst);
+        Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"not accepted"))
+    });
+    let response = app
+        .oneshot(
+            Request::post("/api/attachments")
+                .header("host", "localhost")
+                .header("content-type", "application/octet-stream")
+                .header("x-attachment-name", "..%2Foutside")
+                .body(Body::from_stream(stream))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(!polled.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn interrupted_or_misreported_streams_leave_no_visible_or_staged_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = tungsten::api::app(directory.path()).unwrap();
+    for declared in [None, Some("10"), Some("67108865")] {
+        let stream = futures_util::stream::iter([
+            Ok(axum::body::Bytes::from_static(b"first bytes")),
+            Err(std::io::Error::other("fixture interruption")),
+        ]);
+        let mut builder = Request::post("/api/attachments")
+            .header("host", "localhost")
+            .header("content-type", "application/octet-stream")
+            .header("x-attachment-name", "interrupted.bin");
+        if let Some(length) = declared {
+            builder = builder.header("content-length", length);
+        }
+        let response = app
+            .clone()
+            .oneshot(builder.body(Body::from_stream(stream)).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            if declared == Some("67108865") {
+                StatusCode::PAYLOAD_TOO_LARGE
+            } else {
+                StatusCode::BAD_REQUEST
+            }
+        );
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/attachments")
+                .header("host", "localhost")
+                .header("content-type", "application/octet-stream")
+                .header("x-attachment-name", "short.bin")
+                .header("content-length", "10")
+                .body(Body::from("short"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let db = rusqlite::Connection::open(directory.path().join("notes.sqlite")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM files", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    for entry in std::fs::read_dir(directory.path()).unwrap() {
+        let name = entry.unwrap().file_name();
+        assert!(
+            [
+                "notes.sqlite",
+                "notes.sqlite-wal",
+                "notes.sqlite-shm",
+                ".tungsten.lock"
+            ]
+            .contains(&name.to_str().unwrap())
+        );
+    }
+}
+
+#[tokio::test]
+async fn slow_uploads_do_not_lock_notes_and_cancelled_uploads_release_the_slot() {
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+    let directory = tempfile::tempdir().unwrap();
+    let app = tungsten::api::app(directory.path()).unwrap();
+    let (started, receive) = oneshot::channel();
+    let stream = futures_util::stream::once(async move {
+        started.send(()).unwrap();
+        std::future::pending::<Result<axum::body::Bytes, std::io::Error>>().await
+    });
+    let task = tokio::spawn(
+        app.clone().oneshot(
+            Request::post("/api/attachments")
+                .header("host", "localhost")
+                .header("content-type", "application/octet-stream")
+                .header("x-attachment-name", "slow.bin")
+                .body(Body::from_stream(stream))
+                .unwrap(),
+        ),
+    );
+    tokio::time::timeout(Duration::from_secs(2), receive)
+        .await
+        .unwrap()
+        .unwrap();
+    let response = tokio::time::timeout(
+        Duration::from_secs(2),
+        request(
+            &app,
+            "POST",
+            "/api/notes",
+            json!({"name":"Writing.md","body":"# Write while uploading"}),
+            &[],
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            "/api/attachments",
+            json!({"name":"busy.txt","data":"eA=="}),
+            &[]
+        )
+        .await
+        .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            "/api/attachments",
+            json!({"name":"ready.txt","data":"eA=="}),
+            &[]
+        )
+        .await
+        .status(),
+        StatusCode::CREATED
+    );
 }

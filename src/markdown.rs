@@ -216,6 +216,69 @@ pub fn first_heading(body: &str) -> Option<String> {
     None
 }
 
+fn options() -> Options {
+    Options::ENABLE_TABLES
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_WIKILINKS
+        | Options::ENABLE_GFM
+}
+
+#[cfg(any(feature = "storage", test))]
+pub struct IndexMetadata {
+    pub title: Option<String>,
+    pub tags: Vec<String>,
+    pub links: Vec<String>,
+}
+
+#[cfg(any(feature = "storage", test))]
+pub fn index_metadata(name: &str, body: &str) -> IndexMetadata {
+    let mut title = None;
+    let mut heading = None;
+    let mut in_code = false;
+    let mut tags = BTreeSet::new();
+    let mut links = BTreeSet::new();
+    for event in Parser::new_ext(body, options()) {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => in_code = true,
+            Event::End(TagEnd::CodeBlock) => in_code = false,
+            Event::Start(Tag::Heading { .. }) if title.is_none() => heading = Some(String::new()),
+            Event::End(TagEnd::Heading(_)) if title.is_none() => title = heading.take(),
+            Event::Text(text) if !in_code => {
+                tags_in(&text, &mut tags);
+                if let Some(heading) = &mut heading {
+                    heading.push_str(&text);
+                }
+            }
+            Event::Code(text) => {
+                if let Some(heading) = &mut heading {
+                    heading.push_str(&text);
+                }
+            }
+            Event::Start(Tag::Link {
+                dest_url,
+                link_type,
+                ..
+            }) => {
+                if let Some(target) = resolve_note(
+                    name,
+                    &dest_url,
+                    matches!(link_type, LinkType::WikiLink { .. }),
+                ) {
+                    links.insert(target);
+                }
+            }
+            _ => {}
+        }
+    }
+    IndexMetadata {
+        title,
+        tags: tags.into_iter().collect(),
+        links: links.into_iter().collect(),
+    }
+}
+
 pub fn preview(name: &str, body: &str) -> Preview {
     let mut utf16 = vec![0; body.len() + 1];
     let mut units = 0;
@@ -224,13 +287,9 @@ pub fn preview(name: &str, body: &str) -> Preview {
         units += character.len_utf16();
     }
     utf16[body.len()] = units;
-    let options = Options::ENABLE_TABLES
-        | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_FOOTNOTES
-        | Options::ENABLE_WIKILINKS
-        | Options::ENABLE_GFM;
-    let events: Vec<_> = Parser::new_ext(body, options).into_offset_iter().collect();
+    let events: Vec<_> = Parser::new_ext(body, options())
+        .into_offset_iter()
+        .collect();
     let mut tags = BTreeSet::new();
     let mut links = BTreeSet::new();
     let mut outline: Vec<Heading> = Vec::new();
@@ -469,6 +528,32 @@ pub fn preview(name: &str, body: &str) -> Preview {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn index_metadata_matches_rendering_without_constructing_html_or_offsets() {
+        let file = "0123456789abcdef0123456789abcdef.png";
+        let fixtures = [
+            format!("# A **bold** `title` 日本語 😀\n\n#topic #Topic\n\n[Wiki]({file}) [[Other|Alias]] [Reference][ref]\n\n[ref]: ../Target.md\n\n![Image](../.attachments/{file})\n\n[File](.attachments/{file})"),
+            "Title *emphasis*\n===\n\n## Repeated\n## Repeated\n\n| A | B |\n| --- | --- |\n| #table | [Link](Target.md) |\n".into(),
+            "# First\n\n```md\n# Code\n#ignored [Hidden](Hidden.md)\n```\n\n# Later\n\n`#inline` #visible\n\n> - [ ] Task [Note](Note.md)\n".into(),
+            "\n#\n\n## Second\n\n<a>HTML</a> and <https://example.com>\n".into(),
+            "No heading\n\n![External](https://example.com/image.png)\n\n[Escaped](Target%20note.md)\n".into(),
+            "# Footnote[^id]\n\n[^id]: #inside [Related](Related.md)\n".into(),
+        ];
+        for body in fixtures {
+            let index = index_metadata("Folder/Source.md", &body);
+            let rendered = preview("Folder/Source.md", &body);
+            assert_eq!(
+                index.title.as_deref(),
+                rendered
+                    .outline
+                    .first()
+                    .map(|heading| heading.text.as_str())
+            );
+            assert_eq!(index.tags, rendered.tags);
+            assert_eq!(index.links, rendered.links);
+        }
+    }
 
     #[test]
     fn repeated_headings_and_tasks_keep_unique_ids_and_utf16_offsets() {

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { accessibilityViolations } from "./accessibility.js";
 import { expect, test } from "./editor.js";
-import { attachToNote, openTrash } from "./interface.js";
+import { attachToNote, newNote, openTrash } from "./interface.js";
 
 test.beforeEach(async ({ page, request }) => {
   const response = await request.get("/api/notes");
@@ -238,16 +238,17 @@ test("ignores retired appearance preferences and supports browser enlargement", 
   await page.evaluate(() => {
     document.documentElement.style.fontSize = "225%";
   });
+  await expect(page.locator("#sidebar")).not.toHaveAttribute("popover");
   const trash = await openTrash(page);
   expect(await trash.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
   expect(await accessibilityViolations(page)).toEqual([]);
   await page.keyboard.press("Escape");
-  await expect(page.getByLabel("Note", { exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeFocused();
 });
 
 test("creates internal note identities when randomUUID is unavailable", async ({ page }) => {
   await page.evaluate(() => Object.defineProperty(crypto, "randomUUID", { value: undefined }));
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await newNote(page);
   await page.getByLabel("Note", { exact: true }).fill("# First idea\n");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   expect(new URL(page.url()).searchParams.get("note")).toMatch(/^[a-f0-9]{32}\.md$/);

@@ -1,168 +1,182 @@
 # Run the service
 
 Build with the commands in the [README](../README.md).
-The executable includes the browser assets and SQLite and needs no separate database server or Node.js runtime.
-The default data directory contains an encrypted SQLCipher database and a public vault descriptor.
-Keep one service process per data directory on a local Unix filesystem.
-Each note can contain up to 1 MiB of text.
-Note names are visible relative paths ending in `.md`.
-A path supports at most 240 bytes across 16 components.
-The service rejects hidden components, parent components, empty components, backslashes, and ASCII control characters.
-The [feature guide](features.md) explains editing, organization, attachments, and recovery.
+The executable embeds browser assets and SQLite.
+Node.js and a separate database server are unnecessary at runtime.
+Start with `./target/release/tungsten --data-dir ./notes` and open [localhost](http://localhost:8080).
+The default listener is `127.0.0.1:8080`.
+Opening the app immediately shows the last note or a page ready for writing.
 
 ## Private access
 
-Run the executable with `--data-dir ./notes --origin https://notes.example` and the default localhost listener.
-Replace the example origin with the dedicated HTTPS hostname that serves the app.
-Use `tailscale serve --bg 8080` to expose the service inside the tailnet over HTTPS.
-The [Tailscale setup guide](https://tailscale.com/docs/solutions/host-private-server-docker) explains the certificate prerequisite.
-The existing tailnet policy determines access.
-The app has no user accounts.
-The first browser generates a vault key and an independent recovery key.
-Save the recovery key in a password manager before starting the vault.
-Browser enrollment remembers a non-extractable key in IndexedDB.
-New browsers need the recovery key.
-After a server restart, an enrolled browser supplies a derived runtime key automatically.
-The server writes no decryption key to its data directory.
-Every private request needs a process-lifetime device session, including original file requests after another browser unlocks the server.
-The HTTP boundary checks the configured Host and Origin, and rejects browser writes from another origin.
-Reserve the entire HTTPS hostname for the app because [cookies share ports](https://www.rfc-editor.org/rfc/rfc6265.html#section-8.5).
-Use the canonical lowercase origin without an explicit default port, path, query, or fragment.
-The trusted TLS proxy must preserve the configured Host.
-Proxy logs must omit private query strings, request bodies, and device cookies.
-Restrict first enrollment to the owner's device through the tailnet policy.
-
-For local testing, use `--development` with a loopback listener.
-Development mode uses HTTP and requires a trusted local machine and browser profile.
-The server refuses development mode on a non-loopback listener.
-Use `--plaintext` only for legacy installations and synthetic test collections.
-
-The selected threat model protects offline copies of app storage and backups, and rejects clients without a device session.
-Bodies, search indexes, recovery records, file metadata, and original bytes use [SQLCipher page encryption and authentication](https://www.zetetic.net/sqlcipher/design/).
-The running server, browser-code delivery, TLS proxy, operating systems, and enrolled browser profiles remain trusted.
-A runtime compromise can read unlocked notes and keys.
-A malicious browser-code distributor can steal access when a browser executes its code.
-Runtime compromise and code-distribution compromise grant different capabilities.
-The design makes no claim to conceal live search patterns from the running server or to prevent operating systems from persisting RAM through swap or crash dumps.
-Temporary database stores use memory.
-The client keeps no corpus-sized search index and performs no idle index synchronization.
-The browser keeps plaintext unsaved drafts inside the trusted browser profile.
-Losing every enrolled browser and the recovery key makes the vault unreadable.
-
-## Migrate a plaintext installation
-
-Keep the running installation unchanged while preparing the new executable.
-Stop the source service before copying its data.
-Run the new executable with a separate empty `--data-dir`, `--migrate-from` pointing to the source directory, and the chosen origin.
-Enroll the browser and save its recovery key.
-The server locks the source, copies its catalog and payloads in the background, and keeps private routes locked until verification succeeds.
-The copy preserves note identities, timestamps, links, pins, history, Trash visibility, and original file metadata and bytes.
-An interrupted copy requires the same source directory and recovery key when restarting with `--migrate-from`.
-A changed source stops the copy instead of publishing inconsistent notes.
-Source notes, recovery records, and original files remain available.
-Opening a legacy source can update its catalog and migrate its earlier Trash layout.
-Verify the encrypted copy before changing the service's data directory and removing plaintext sources.
-External backups, Git repositories, filesystem snapshots, and storage-device remnants keep their own copies.
+The app has no accounts, unlock screen, recovery keys, or device registration.
+Use the operating system and the tailnet policy to restrict access.
+Anyone with network access to the service can read and change notes.
+Keep the listener on loopback and expose it through a private HTTPS proxy.
+[Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) can publish a local service within the tailnet.
+Use `--origin https://notes.example` to require an exact Host and Origin behind a proxy.
+The proxy must preserve the configured Host.
+Omit request bodies and private query strings from proxy logs.
+Read the [security boundaries](security.md) before exposing the service.
 
 ## Container
 
-Create a `notes` directory owned by the account that runs the container.
-Set `TUNGSTEN_UID` and `TUNGSTEN_GID` to that account's numeric identifiers when they differ from 1000.
-Set `TUNGSTEN_ORIGIN` to the dedicated HTTPS origin.
-Start with `docker compose up --build -d`.
-Compose binds the host port to localhost and mounts the notes directory into the container.
-The image runs without root privileges and needs no writable root filesystem.
-Compose provides a bounded temporary filesystem for database operations.
+Create a private `notes` directory for the container's numeric user.
+Set `TUNGSTEN_UID` and `TUNGSTEN_GID` when the account differs from 1000.
+Run `docker compose up --build -d`.
+Compose binds the host port to loopback and mounts the data directory.
+The process runs without root privileges, a writable root filesystem, or added capabilities.
+The temporary filesystem, CPU, memory, swap, and process counts have explicit limits.
+Container isolation doesn't hide notes from the note process.
+
+## Memory use
+
+The server keeps one SQLite connection with a suggested 2 MiB page cache and memory mapping turned off.
+Saving a note extracts index metadata without rendering HTML or constructing preview offsets.
+Note pages, graph neighborhoods, recovery lists, and background jobs use bounded batches.
+
+Binary uploads stream through an unnamed file beside the database and 64 KiB database buffers.
+The OS removes the staging file when its final handle closes, including interrupted uploads.
+Staging needs up to 64 MiB of disk space while the existing upload slot remains occupied.
+JSON attachment requests remain available for small clients with a 1 MiB request limit.
+The browser sends original binary files through the full 64 MiB attachment path.
+
+SQLite temporary storage can spill to files instead of forcing temporary tables into memory.
+The container and systemd examples set `SQLITE_TMPDIR` to the data directory to avoid a memory-backed temporary filesystem.
+Override `SQLITE_TMPDIR` when changing the container's data path.
+Reading and navigating saved notes doesn't load the Markdown formatter.
+Formatting loads after editing or an explicit keyboard command.
+Run the bounded [memory checks](verification.md#memory-footprint) to measure the production executable.
 
 ## Service management
 
-Install the executable as `/usr/local/bin/tungsten` and use [the service unit](../deploy/tungsten.service) for systemd.
+Install the executable as `/usr/local/bin/tungsten` and use [the systemd unit](../deploy/tungsten.service).
 The unit owns `/var/lib/tungsten` through a dynamic service account.
-Set `TUNGSTEN_ORIGIN` in `/etc/tungsten.env` before starting the unit.
-Stop the unit before restoring its data directory.
+The unit listens on loopback without requiring an environment file.
+Configure the origin in a unit override when using a canonical proxy hostname.
 
-## Sample notebook
+## Storage and recovery
 
-Run `mise x -- just demo-notes` to generate a separate notebook under `target/demo-notes`.
-The default seed creates 10000 pages across 20 subjects and 400 topic maps, with 57996 internal links.
-The text is synthetic material for exploring the editor and graph.
-The command refuses an existing destination and publishes completed output without replacing another path.
-Use `--output`, `--count`, and `--seed` to choose another destination, 420 to 10000 pages, and a repeatable seed.
+Keep one service process per data directory on local Unix storage.
+The directory contains `notes.sqlite`, SQLite journal files when present, and the process lock.
+The database holds Markdown bodies, indexes, links, original attachments, history, Trash, workspaces, pins, and maintenance queues.
+New databases receive the complete current schema in one transaction, including workspace membership.
+Search indexes use distinct Unicode windows for normalized text larger than 16 KiB and text containing NUL.
+Ordinary text retains positional trigram indexes.
+Unreleased storage formats have no compatibility support or automatic conversion.
+Unsupported databases require recreation.
+It contains readable content.
+Configure disk and backup encryption outside the app.
 
-Run `target/release/tungsten --plaintext --data-dir target/demo-notes --listen 127.0.0.1:8081` to serve the sample notebook.
-Open the [Philosophy entry](http://localhost:8081/?note=000000000000002a0000000000000000.md) for the default seed and follow its links or open Explore notes.
-Run `mise x -- npm --prefix ui run test:demo` with the running sample service to exercise the full collection in desktop and mobile browsers.
-The optional `TUNGSTEN_DEMO_URL` environment variable selects another sample service.
-Set `TUNGSTEN_DEMO_COUNT` when testing a collection with a different page count.
+Stop the service before copying or restoring the complete data directory.
+Copying a running database requires a consistent copy of its write-ahead log.
+SQLite's [journal documentation](https://www.sqlite.org/wal.html) describes the journal files and the need for local storage.
+Unknown directories, unsupported schemas, and incomplete databases fail explicitly.
+The app doesn't scan or import external Markdown files.
+Export Markdown and original files before using another editor.
+Stop the service and run `tungsten --data-dir ./notes --export-to ./exported-notes` to write the current notes and referenced originals.
+Export preserves source text and identifiers, excludes Trash and history, and refuses an existing destination.
+It reads attachment chunks and publishes the directory only after completion.
+Use a complete database backup to keep recovery records.
+Use `tungsten --data-dir ./notes --backup-to ./backup` for a complete portable archive.
+Stop the service before restoring with `tungsten --data-dir ./restored --restore-from ./backup`.
+Choose an unused destination outside the source directory.
+Read the [archive format](storage-format.md) for retained metadata, validation, and retention behavior.
+The encrypted prototype requires its archived executable and source.
+The current app doesn't convert its data.
 
-## Scale profiling
-
-Run `mise x -- just scale-profile --dry-run` to inspect the workload before generating a larger collection.
-Run `mise x -- just scale-profile` to generate and inspect 10000, 100000, and 1000000 real Markdown files in a fresh Docker volume.
-The command uses OrbStack on macOS.
-The default `mixed` profile includes isolated notes, disconnected subjects, terminal notes, a popular hub, duplicate titles, missing headings, Unicode, longer entries, and intentional links to unwritten notes.
-Fenced Markdown examples contain literal links that the audit must ignore.
-The `clustered` profile keeps every destination present and uses the same subject structure as the sample notebook.
-Use `--seed`, `--profile`, and `--counts` to select repeatable variants.
-Use `--encrypted --counts 1000000` to build original note payloads and indexes directly inside SQLCipher and exercise the device-session HTTP boundary.
-The encrypted fixture uses public synthetic keys and checks allocated database blocks during generation and before publication, with a default budget of 8 GiB.
-The optional `--allocation-gib` argument selects a limit from 8 to 12 GiB after agreeing the machine's storage budget.
-An incomplete encrypted fixture can resume with `--reuse-volume` after checking its stored sample bodies.
-The fixture requires no plaintext source files and leaves the browser-enrollment cryptography to the browser suite.
-One campaign accepts at most 1200000 pages in increasing dataset sizes.
-
-The runtime has two CPUs, 2 GiB of memory, no swap, 256 processes, no network, and a time limit of 900 seconds.
-Generation writes one note at a time and limits allocated source file blocks to 8 GiB.
-SQLite indexes need extra disk space.
-The profiler reads every generated file and checks actual Markdown destinations before starting the service.
-It then measures startup, opening a note, searching, paginated listings, and bounded graph neighborhoods.
-Requests use a browser deadline of 15 seconds and a response budget of 4 MiB.
-Every interactive endpoint runs 20 times and must keep its ninety-fifth percentile within 500 milliseconds and every response within one second.
-Eight concurrent clients exercise mixed search and graph requests through the same latency gate.
-The dataset stays in the named volume printed by the command.
-Remove an unused dataset with `docker volume rm` and its printed volume name.
-
-Failed startup, HTTP errors, oversize responses, timeouts, and exceeded latency limits fail the command.
-A stopped generation or incomplete audit leaves the capacity result inconclusive.
-Passing results cover the generated workload and measured environment.
-
-Use `--reuse-volume` with a printed volume name to reuse an audited dataset and measure a warm index.
-Use `--counts 1000000 --extremes` to create a separate collection with 999999 links into one note and 1000000 recovery records for that note.
-The extreme fixture limits allocated source blocks to 12 GiB and shares immutable record bytes across 4096 variants while retaining a separate directory and metadata entry for every record.
-Checks read actual recovery sources, save the hub, preserve explicit aliases, restore deleted text, and perform bounded cleanup.
-Initial index construction has a separate startup budget of 600 seconds within the campaign deadline.
-
-## Recovery
-
-Stop the service before copying or restoring the complete data directory with ordinary filesystem tools.
-An encrypted backup needs both `.vault.json` and `.sealed.sqlite`.
-Copying a running database also requires a consistent copy of its write-ahead log.
-The app refuses incomplete backups instead of creating an empty replacement.
-Recovery points, Trash, pins, files, and indexes share the encrypted database.
-Bounded maintenance reclaims deleted database pages.
-Legacy plaintext installations use the following directory layout.
-Delete moves notes into records under `.trash`.
-Open More and Trash to restore notes within seven days through the dedicated Trash page.
-Each record contains `body.md` and `metadata.json`.
-The service migrates trash files from the earlier flat layout when opening the directory.
-Version history, pins, and attachments use `.history`, `.pins`, and `.attachments`.
-Search, link indexes, durable work queues, and cleanup clocks use `.index`.
-Keep the complete data directory in backups to preserve every record.
-The app expires recovery points and trash after seven days.
-Unreferenced attachments have a further seven-day grace period before bounded background cleanup deletes them.
-Permanent file deletion from an embedded viewer removes original bytes immediately after confirmation.
-Backups and external Git repositories keep their own copies independently.
-Opening a plaintext note reads its source file.
-Search and graph navigation use the local catalog.
-Restart after external edits, so the catalog can reconcile changed files.
-The service has no file watcher.
-Concurrent external editing is outside the save protocol.
+Recovery checkpoints group continuous edits and preserve structural or idle boundaries.
+History keeps at most 50 visible versions per note.
+History and Trash expire after seven days through bounded maintenance.
+Files remain while current notes or recovery records reference them.
+After the final reference disappears, files receive a further seven-day grace period.
+Explicit file deletion in an embedded viewer removes original bytes after confirmation.
+External backups keep independent copies.
 
 The browser keeps unsaved drafts in local storage.
-Tabs keep separate draft ownership and leave a living sibling's writing available for explicit recovery.
-The open note checks for remote changes on foreground transitions and every fifteen seconds while visible.
-Successful writes notify sibling tabs within the same browser origin.
-Clean notes adopt remote changes while local edits remain recoverable after a conflict.
-Retry a failed save, or save a separate copy when another tab has changed the saved revision.
-Reload saved discards a draft after confirmation.
-If browser storage is unavailable, an error asks you to keep the tab open until the server acknowledges the save.
+Tabs keep separate draft ownership.
+Clean open notes refresh on focus and every fifteen seconds while visible.
+Dirty notes preserve writing and report conflicting revisions.
+Saving requires the exact acknowledged revision.
+Another browser can open the same URL without registration.
+
+## Sample notebooks and capacity
+
+Run `mise x -- just demo-notes` to generate a separate synthetic database under `target/demo-notes`.
+The default seed creates 10000 pages across 20 subjects and 400 topic maps.
+The command refuses an existing destination.
+Use `--output`, `--count`, and `--seed` for repeatable collections.
+
+Serve a sample with `target/release/tungsten --data-dir target/demo-notes --listen 127.0.0.1:8081`.
+The default [Philosophy entry](http://localhost:8081/?note=000000000000002a0000000000000000.md) links into the sample.
+Use `mise x -- npm --prefix ui run test:demo` with the running sample.
+
+Inspect `mise x -- just scale-profile --dry-run` before starting a capacity campaign.
+The maintained runner uses two CPUs, 2 GiB of RAM, no swap, no network, and a 900-second deadline.
+A campaign generates at most 1200000 notes in ordinary SQLite and audits stored Markdown destinations.
+The mixed profile includes duplicate titles, disconnected notes, Unicode, long notes, and intentional unwritten destinations.
+Requests must stay within 4 MiB, with a ninety-fifth percentile of at most 500 milliseconds and no response exceeding one second.
+Eight clients exercise mixed requests concurrently.
+Use `--counts 1000000 --extremes` to test a million incoming links and a million recovery records.
+The default allocation budget is 8 GiB.
+The `--allocation-gib` argument accepts up to 12 GiB after agreeing the machine's budget.
+The runner prints the retained Docker volume.
+Remove only an unused campaign's named volume.
+
+## Storage comparisons
+
+Run `mise x -- just storage-profile --dry-run --engine all --case regression` before comparing engines.
+Run the same command without `--dry-run` to compare SQLite, redb, and Fjall in separate Linux containers.
+The `sqlite-kv` control uses the same app and index code as redb and Fjall with a SQLite key-value table.
+The `all` selection includes the production SQLite adapter and all three shared-index adapters.
+The app continues to use SQLite.
+The other engines are development prototypes with transactional source records, substring indexes, incoming links, recovery checkpoints, and chunked originals.
+Results cover the tested operations rather than establishing complete compatibility with every app workflow.
+
+Select `short-notes`, `long-edits`, `burst`, `hub`, `unicode`, `small-files`, `large-files`, `incompressible-files`, `shared-files`, `churn`, `recovery`, `crash`, or `capacity` through `--case`.
+Use `search-selectivity` for measurements of common terms, negative terms, and colliding search windows.
+Use `--case all` to run every case sequentially for each selected engine.
+Use `--count`, `--note-bytes`, `--file-bytes`, `--updates`, and `--seed` to change the workload.
+Use `--content varied` for seeded word combinations instead of repeated filler.
+Use `--content alphanumeric` for seeded lowercase letters and digits with many distinct search grams.
+Use `--repeats 4` for four fresh datasets with rotating engine order.
+Use `--load-fixture` to prepare large collections in durable batches and audit every original body before measuring operations.
+Fixture mode reports loading and auditing as setup phases and measures 128 individual durable creations after the initial search checks.
+Long-edit cases use at least 256 KiB, and large-file cases use at least 16 MiB.
+The existing 1 MiB note and 64 MiB file limits remain in effect.
+The capacity case checks transaction aborts and short transfers.
+Allocation limits reject oversize plans and runs.
+
+Each container has two CPUs, 2 GiB of memory, no swap, 256 processes, no network, and a 900-second safety deadline.
+The default storage allocation is 8 GiB, and `--allocation-gib` accepts a smaller limit.
+For small fixtures, use `--allocation-mib` with 16 to 8192 MiB instead of `--allocation-gib`.
+The free-space reserve remains 1 GiB with either unit.
+The runner rejects plans over the selected allocation and samples data allocation every 250 milliseconds during the workload.
+An observed allocation over the selected limit terminates the run.
+Each experiment requires free space for its allocation and a further 1 GiB reserve before loading data.
+Sampling can miss a transient allocation peak between observations.
+The default campaign budget is 3600 seconds after building the image.
+The `--max-seconds` argument accepts 900 to 7200 seconds within the agreed resource window.
+The runner stops admitting experiments when the remaining budget can't contain the 900-second experiment deadline.
+Docker removes anonymous data volumes when their containers exit.
+The runner retains requests, measurements, and failure diagnostics under a fresh `target/storage-profile-*` directory or an unused `--output` directory.
+Use `--baseline <measurement.json>` to compare matching workloads on the same Docker daemon and execution environment.
+Changing the seed, generated inputs, limits, or environment refuses the comparison.
+Search requests contribute to the input identity.
+Changes to input-signature construction require a fresh baseline, while historical timing reports remain readable.
+Incomplete measurements never become baselines.
+
+Format 2 measurements include operation counts, input byte counts, `p50_us`, `p95_us`, `p99_us`, and `max_us` latency, process memory, process I/O, storage allocation, reopening, and restoration.
+Shared-index adapters report preparation and transaction durations for long-note updates and the number of changed index entries.
+Search planning uses exact posting counts updated within each durable index transaction.
+The `allocated_bytes` field reports the largest observed allocation, and `logical_bytes` reports final file lengths.
+Every successful mutation is durable before its timing ends.
+Read, search, range, conflict, and recovery checks validate returned values.
+Process reopening starts a fresh store without claiming a cold operating-system cache.
+Timing changes are observations for investigation.
+The existing production performance and memory gates keep their own workloads and budgets.
+Run `mise x -- just storage-summary --input <campaign-directory> --repeats 4` to summarize four complete repetitions for every engine and workload present.
+Use `--engine sqlite` to summarize a production-only campaign with the same completeness checks.
+The summary rejects failed runs, missing repetitions, duplicate repetitions, changed source, mismatched generated inputs, and incompatible environments.
+It reports the median and range of each run's p95 alongside process and storage observations.
+Read the [evaluation method](storage-evaluation.md) before interpreting engine rankings.

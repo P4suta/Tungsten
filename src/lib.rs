@@ -1,11 +1,13 @@
 #[cfg(feature = "server")]
 pub mod api;
+#[cfg(feature = "storage")]
+pub mod backup;
 pub mod domain;
+#[cfg(feature = "storage")]
+pub mod export;
 pub mod markdown;
 pub mod media;
 pub mod rules;
-#[cfg(feature = "storage")]
-pub mod sealed;
 #[cfg(feature = "storage")]
 pub mod store;
 
@@ -21,6 +23,12 @@ pub enum Error {
     NotFound,
     #[error("The saved note changed. Reload it or save your draft as a copy.")]
     Conflict,
+    #[error("The workspace was removed or is unavailable.")]
+    WorkspaceMissing,
+    #[error("The workspace changed. Reload it and retry.")]
+    WorkspaceChanged,
+    #[error("A workspace with that name already exists.")]
+    WorkspaceExists,
     #[error("An If-Match revision is required.")]
     Precondition,
     #[error("The note exceeds the 1 MiB limit.")]
@@ -44,8 +52,6 @@ pub enum Error {
     Catalog(#[from] rusqlite::Error),
     #[error("The search is too expensive. Use a more specific query.")]
     SearchLimit,
-    #[error("Unlock the vault on this device.")]
-    VaultKey,
     #[error("Another file is uploading. Try again after it finishes.")]
     UploadBusy,
 }

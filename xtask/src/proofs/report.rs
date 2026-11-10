@@ -167,7 +167,7 @@ pub fn source_harnesses(source: &str) -> Result<BTreeSet<String>> {
 
 fn project_assertion(check: &Check) -> bool {
     check.category == "assertion"
-        && ["src/rules.rs", "src/browser.rs", "src/vault.rs"]
+        && ["src/rules.rs", "src/browser.rs"]
             .iter()
             .any(|path| check.location.file.ends_with(path))
 }
@@ -328,7 +328,7 @@ mod tests {
             check(&inventory, &serde_json::to_vec(&valid).unwrap(), &expected).unwrap(),
             1
         );
-        for path in ["src/browser.rs", "src/vault.rs", "src/../../src/rules.rs"] {
+        for path in ["src/browser.rs", "src/../../src/rules.rs"] {
             let mut relative = valid.clone();
             relative["verification_results"]["results"][0]["checks"][0]["location"]["file"] =
                 json!(path);

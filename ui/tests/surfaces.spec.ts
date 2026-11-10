@@ -2,7 +2,7 @@ import { accessibilityViolations } from "./accessibility.js";
 import { expect, test } from "./editor.js";
 import { clippedIcons } from "./icon-bounds.js";
 import { missingIcons } from "./icons-check.js";
-import { openMore, openTrash } from "./interface.js";
+import { exploreNotes, openContext, openNavigation, openTrash } from "./interface.js";
 
 test("reloads Trash after returning while an earlier request is pending", async ({
   page,
@@ -38,7 +38,7 @@ test("reloads Trash after returning while an earlier request is pending", async 
   ).toBeVisible();
 });
 
-test("selects, previews, pages, and restores deleted notes through a dedicated page", async ({
+test("selects, previews, pages, and restores deleted notes inside navigation", async ({
   page,
   request,
 }, info) => {
@@ -59,7 +59,7 @@ test("selects, previews, pages, and restores deleted notes through a dedicated p
   }
   await page.goto("/");
   const trash = await openTrash(page);
-  await expect(page).toHaveURL(/\/trash/);
+  expect(new URL(page.url()).pathname).toBe("/");
   await expect(trash.getByRole("button", { name: "Delete permanently", exact: true })).toHaveCount(
     0,
   );
@@ -71,12 +71,13 @@ test("selects, previews, pages, and restores deleted notes through a dedicated p
   await selected.click();
   await expect(selected).toHaveAttribute("aria-selected", "true");
   await selected.press("Enter");
-  const preview = page.getByRole("dialog", { name: "Deleted note", exact: true });
+  const preview = page.getByRole("region", { name: "Deleted note", exact: true });
   await expect(preview.getByLabel("Deleted content", { exact: true })).toHaveValue(
     "# Discarded 056\n\nBody\n",
   );
-  await preview.press("Escape");
-  await expect(selected).toBeFocused();
+  await preview.getByRole("button", { name: "Close deleted note preview", exact: true }).click();
+  await expect(trash.getByRole("button", { name: "Preview", exact: true })).toBeFocused();
+  await selected.focus();
   await selected.press("End");
   await expect(rows.last()).toBeFocused();
   await trash.getByRole("button", { name: "Next page", exact: true }).click();
@@ -93,8 +94,8 @@ test("selects, previews, pages, and restores deleted notes through a dedicated p
   await expect(page.getByRole("textbox", { name: "Note", exact: true })).toHaveMarkdown(
     "# Discarded 056\n\nBody\n",
   );
-  await page.goBack();
-  await expect(trash).toBeVisible();
+  await openTrash(page);
+  await expect(trash.getByRole("option", { name: "Discarded 056", exact: true })).toHaveCount(0);
 });
 
 test("shows the effect of restoring a writing session without interpreting its source", async ({
@@ -109,9 +110,9 @@ test("shows the effect of restoring a writing session without interpreting its s
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await editor.fill("# Session\n\nRevised text\n");
   await expect(page.locator("#save-status")).toHaveText("Saved");
-  const more = await openMore(page);
+  const more = await openContext(page);
   await more.getByRole("button", { name: "Version history", exact: true }).click();
-  const history = page.getByRole("dialog", { name: "Version history", exact: true });
+  const history = page.getByRole("region", { name: "Version history", exact: true });
   await history.getByRole("button", { name: "View version", exact: true }).first().click();
   await expect(history.locator("#version-diff")).toContainText(
     "+ Original <script>literal</script>",
@@ -137,7 +138,7 @@ test("keeps icons inside their view boxes and rejects a clipped fixture", async 
   expect(await page.evaluate(clippedIcons, null)).toEqual([]);
   expect(await page.evaluate(clippedIcons, "clipped" as const)).toContain("bounds-fixture");
   expect(await page.evaluate(clippedIcons, "padded" as const)).toEqual([]);
-  await openMore(page);
+  await openNavigation(page);
   expect(await page.evaluate(clippedIcons, null)).toEqual([]);
 });
 
@@ -152,7 +153,7 @@ test("keeps complete graph titles and stops simulation after closing or reduced 
   await request.post("/api/notes", { data: { name: "Neighbor.md", body: "# Neighbor\n" } });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/?note=Long-title.md");
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   const graph = page.getByRole("region", { name: "Note graph", exact: true });
   const node = graph.getByRole("button", { name: `Explore ${title}`, exact: true });
   await expect(node.locator("span")).toHaveText(title);

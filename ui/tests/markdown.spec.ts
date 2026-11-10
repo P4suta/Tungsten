@@ -1,11 +1,11 @@
 import { accessibilityViolations } from "./accessibility.js";
 import { expect, test } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
-import { newEmptyNote, openMore } from "./interface.js";
+import { newEmptyNote, openNavigation } from "./interface.js";
 
 test("keeps the note menu compact with icons and keyboard access", async ({ page }, info) => {
   await page.goto("/");
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect(more.getByRole("combobox")).toHaveCount(0);
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
   expect(await accessibilityViolations(page)).toEqual([]);
@@ -37,13 +37,22 @@ test("renders list markers, quotes, and literal fenced code without replacing ed
     fullPage: true,
   });
   const list = page.locator(".live-list-line").first();
-  const top = await list.evaluate((line) => line.getBoundingClientRect().top + scrollY);
+  const top = await list.evaluate(
+    (line) =>
+      line.getBoundingClientRect().top + (document.querySelector("#paper-scroll")?.scrollTop ?? 0),
+  );
   await list.click();
   await editor.press("Home");
   await expect(page.locator(".live-list-line").first()).toContainText("- Minus");
   await editor.press("ControlOrMeta+Home");
   await expect(page.locator(".live-list-marker").first()).toHaveText("•");
-  expect(await list.evaluate((line) => line.getBoundingClientRect().top + scrollY)).toBe(top);
+  expect(
+    await list.evaluate(
+      (line) =>
+        line.getBoundingClientRect().top +
+        (document.querySelector("#paper-scroll")?.scrollTop ?? 0),
+    ),
+  ).toBe(top);
 });
 
 test("exits empty list and quote containers and preserves code as literal input", async ({
@@ -113,7 +122,7 @@ test("keeps formatting automatic without a format action in the note menu", asyn
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await editor.press("ControlOrMeta+a");
   await page.keyboard.insertText("# Auto\n\n* item");
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect(more.getByRole("button", { name: "Format Markdown", exact: true })).toHaveCount(0);
   await expect(page.locator("#body")).toHaveValue("# Auto\n\n- item\n");
 });
@@ -147,9 +156,9 @@ test("suggests links in the editor without requiring a typing help preference", 
   expect(await accessibilityViolations(page)).toEqual([]);
   await editor.press("Enter");
   await expect(editor).toHaveMarkdown(`# Source\n\n[${title}](${encodeURIComponent(target)})`);
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect(more.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
-  await more.getByRole("button", { name: "Close", exact: true }).click();
+  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
   await editor.fill("# Source\n\n");
   await editor.press("ControlOrMeta+End");
   await editor.pressSequentially(`[${title}`);

@@ -6,8 +6,8 @@ After=network.target
 Type=simple
 DynamicUser=yes
 StateDirectory=tungsten
-EnvironmentFile=/etc/tungsten.env
-ExecStart=/usr/local/bin/tungsten --data-dir /var/lib/tungsten --listen 127.0.0.1:8080 --origin ${TUNGSTEN_ORIGIN}
+Environment=SQLITE_TMPDIR=/var/lib/tungsten
+ExecStart=/usr/local/bin/tungsten --data-dir /var/lib/tungsten --listen 127.0.0.1:8080
 Restart=on-failure
 RestartSec=5
 UMask=0077

@@ -75,7 +75,9 @@ test("keeps a list line at the same height while moving the caret", async ({ pag
     .locator(".cm-content")
     .evaluate((node) =>
       Array.from(node.querySelectorAll(".live-list-line")).map(
-        (line) => line.getBoundingClientRect().top + scrollY,
+        (line) =>
+          line.getBoundingClientRect().top +
+          (document.querySelector("#paper-scroll")?.scrollTop ?? 0),
       ),
     );
   expect(positions).toHaveLength(3);
@@ -87,7 +89,9 @@ test("keeps a list line at the same height while moving the caret", async ({ pag
           .locator(".cm-content")
           .evaluate((node) =>
             Array.from(node.querySelectorAll(".live-list-line")).map(
-              (line) => line.getBoundingClientRect().top + scrollY,
+              (line) =>
+                line.getBoundingClientRect().top +
+                (document.querySelector("#paper-scroll")?.scrollTop ?? 0),
             ),
           ),
       )

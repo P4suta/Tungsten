@@ -1,13 +1,13 @@
-import { openDialog } from "./dialogs.js";
 import { icon } from "./icons.js";
 import { identifier } from "./identity.js";
-import { currentPage } from "./pages.js";
 import { type Saved, savedEntries } from "./recovery.js";
+import type { SidebarController } from "./sidebar.js";
 
 interface TrashPort {
   api(path: string, method?: string, input?: unknown, revision?: string): Promise<unknown>;
   navigate(name: string): Promise<void>;
   refresh(): Promise<unknown>;
+  sidebar: SidebarController;
 }
 
 function control<T extends HTMLElement>(id: string, kind: { new (): T }): T {
@@ -23,7 +23,8 @@ export function initTrash(port: TrashPort): void {
   const empty = control("empty-trash", HTMLButtonElement);
   const previous = control("trash-previous", HTMLButtonElement);
   const next = control("trash-next", HTMLButtonElement);
-  const preview = control("deleted-note", HTMLDialogElement);
+  const preview = control("deleted-note", HTMLElement);
+  const previewButton = control("preview-trashed", HTMLButtonElement);
   let entries: Saved[] = [];
   let selected: Saved | null = null;
   let busy = false;
@@ -34,9 +35,15 @@ export function initTrash(port: TrashPort): void {
   let nextCursor: string | null = null;
   let typed = "";
   let typedAt = 0;
+  let wasVisible = false;
+
+  function visible(): boolean {
+    return port.sidebar.visible("navigation") && port.sidebar.libraryView() === "trash";
+  }
 
   function actions(): void {
     restore.disabled = busy || !selected;
+    previewButton.disabled = busy || !selected;
     empty.disabled = busy || !entries.length;
     previous.disabled = busy || index === 0;
     next.disabled = busy || nextCursor === null;
@@ -64,7 +71,7 @@ export function initTrash(port: TrashPort): void {
     } finally {
       busy = false;
       actions();
-      if (reloadPending && currentPage() === "trash") {
+      if (reloadPending && visible()) {
         reloadPending = false;
         void run(load);
       }
@@ -76,7 +83,7 @@ export function initTrash(port: TrashPort): void {
     const value = await port.api(
       `/api/trash?page=true&cursor=${encodeURIComponent(cursors[index] ?? "")}`,
     );
-    if (current !== generation || currentPage() !== "trash") return;
+    if (current !== generation || !visible()) return;
     if (
       typeof value !== "object" ||
       value === null ||
@@ -88,6 +95,7 @@ export function initTrash(port: TrashPort): void {
     entries = savedEntries(value.entries);
     nextCursor = value.next;
     selected = null;
+    preview.hidden = true;
     list.replaceChildren();
     for (const [offset, saved] of entries.entries()) {
       const row = document.createElement("div");
@@ -121,7 +129,9 @@ export function initTrash(port: TrashPort): void {
   async function openSelected(): Promise<void> {
     const saved = selected;
     if (!saved) return;
+    const current = generation;
     const value = await port.api(`/api/trash/${saved.id}`);
+    if (current !== generation || !visible() || selected?.id !== saved.id) return;
     if (
       typeof value !== "object" ||
       value === null ||
@@ -131,8 +141,16 @@ export function initTrash(port: TrashPort): void {
       throw new Error("The deleted note is invalid.");
     control("deleted-title", HTMLHeadingElement).textContent = saved.title;
     control("deleted-content", HTMLTextAreaElement).value = value.body;
-    openDialog(preview, list.querySelector<HTMLElement>("[aria-selected=true]") ?? list);
+    preview.hidden = false;
+    control("close-deleted-preview", HTMLButtonElement).focus();
   }
+  previewButton.addEventListener("click", () => {
+    void run(openSelected);
+  });
+  control("close-deleted-preview", HTMLButtonElement).addEventListener("click", () => {
+    preview.hidden = true;
+    previewButton.focus({ preventScroll: true });
+  });
   list.addEventListener("keydown", (event) => {
     if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey || busy) return;
     const position = entries.findIndex((entry) => entry.id === selected?.id);
@@ -190,6 +208,7 @@ export function initTrash(port: TrashPort): void {
         throw new Error("The restored note is invalid.");
       await port.navigate(value.name);
       await port.refresh();
+      document.dispatchEvent(new Event("tungsten:trash"));
     });
   });
   empty.addEventListener("click", () => {
@@ -213,24 +232,30 @@ export function initTrash(port: TrashPort): void {
       void run(load);
     }
   });
-  document.addEventListener("tungsten:page", () => {
-    if (currentPage() === "trash") {
+  port.sidebar.subscribe(() => {
+    const active = visible();
+    if (active && !wasVisible) {
       if (busy) reloadPending = true;
       else void run(load);
-    } else {
+    } else if (!active && wasVisible) {
       ++generation;
       reloadPending = false;
+      preview.hidden = true;
     }
+    wasVisible = active;
   });
   document.addEventListener("tungsten:trash", () => {
     index = 0;
     cursors.splice(1);
     ++generation;
-    if (currentPage() === "trash") {
+    if (visible()) {
       if (busy) reloadPending = true;
       else void run(load);
     }
   });
-  if (currentPage() === "trash") void run(load);
+  if (visible()) {
+    wasVisible = true;
+    void run(load);
+  }
   actions();
 }

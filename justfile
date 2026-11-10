@@ -33,3 +33,12 @@ scale-profile *args:
 
 browser-performance *args:
     mise x -- cargo xtask browser-performance {{ args }}
+
+memory-profile *args:
+    mise x -- cargo xtask memory-profile {{ args }}
+
+storage-profile *args:
+    mise x -- cargo xtask storage-profile {{ args }}
+
+storage-summary *args:
+    mise x -- cargo xtask storage-summary {{ args }}

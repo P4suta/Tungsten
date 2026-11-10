@@ -1,5 +1,5 @@
 import { expect, selectMarkdown, test } from "./editor.js";
-import { newEmptyNote, openMore } from "./interface.js";
+import { newEmptyNote, openNavigation } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -11,13 +11,14 @@ test("normalizes heading ranks automatically as one undoable edit", async ({ pag
   const original =
     "### Title\n\n###### First\n\n# Second\n\n##### Third\n\n```md\n# literal\n###### literal\n```";
   await editor.fill(original);
-  const more = await openMore(page);
-  await expect(editor).toHaveMarkdown(
+  const more = await openNavigation(page);
+  await expect(page.locator("#body")).toHaveValue(
     "# Title\n\n## First\n\n## Second\n\n### Third\n\n```md\n# literal\n###### literal\n```\n",
   );
+  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
+  await expect(editor).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   await expect(editor.getByRole("heading", { level: 2 })).toHaveCount(2);
-  await more.getByRole("button", { name: "Close", exact: true }).click();
   await editor.press("ControlOrMeta+z");
   await expect(editor).toHaveMarkdown(original);
 });

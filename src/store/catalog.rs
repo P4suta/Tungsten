@@ -14,6 +14,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+const DATABASE_FORMAT: i64 = 3;
+const APPLICATION_ID: i64 = 0x54534c54;
+
 #[derive(Serialize)]
 pub struct Page {
     pub notes: Vec<Summary>,
@@ -45,13 +48,11 @@ struct Cursor {
     pinned: bool,
     modified: i64,
     name: String,
-    #[serde(default)]
     exact: bool,
 }
 
 pub(super) struct Catalog {
     pub db: Connection,
-    encrypted: bool,
     clock: Instant,
     deadline: Arc<AtomicU64>,
 }
@@ -70,12 +71,16 @@ fn gram_key(chars: &[char]) -> u64 {
         .fold(0, |key, ch| (key << 21) | (*ch as u64 + 1))
 }
 
-fn grams(text: &str) -> String {
-    let chars: Vec<_> = text.chars().collect();
+fn grams(text: &str, trigrams: bool) -> String {
     let mut tokens = HashSet::new();
-    for size in 1..=2 {
-        for chunk in chars.windows(size) {
-            tokens.insert(gram_key(chunk));
+    let mut window = ['\0'; 3];
+    let mut length = 0;
+    for character in text.chars() {
+        window.rotate_left(1);
+        window[2] = character;
+        length = (length + 1).min(3);
+        for width in 1..=length.min(if trigrams { 3 } else { 2 }) {
+            tokens.insert(gram_key(&window[3 - width..]));
         }
     }
     let mut tokens = tokens.into_iter().collect::<Vec<_>>();
@@ -88,6 +93,39 @@ fn grams(text: &str) -> String {
     result
 }
 
+enum SearchField {
+    Body,
+    Title,
+}
+
+fn write_search_text(
+    db: &Connection,
+    id: i64,
+    field: SearchField,
+    text: &str,
+) -> Result<(), Error> {
+    let (positional, distinct) = match field {
+        SearchField::Body => ("fulltext", "shorttext"),
+        SearchField::Title => ("titletext", "shorttitle"),
+    };
+    let compact = text.len() > 16 * 1024 || text.contains('\0');
+    let mut tokens = grams(text, compact);
+    tokens.push_str(if compact { " set" } else { " pos" });
+    db.prepare_cached(&format!(
+        "INSERT OR REPLACE INTO {positional}(rowid,text,k) VALUES(?,?,?)"
+    ))?
+    .execute(params![
+        id,
+        if compact { "" } else { text },
+        if compact { "all set" } else { "all" }
+    ])?;
+    db.prepare_cached(&format!(
+        "INSERT OR REPLACE INTO {distinct}(rowid,grams) VALUES(?,?)"
+    ))?
+    .execute(params![id, tokens])?;
+    Ok(())
+}
+
 fn fts_expression(positive: &[String], negative: &[String], universe: &str) -> String {
     let base = if positive.is_empty() {
         universe.to_owned()
@@ -98,6 +136,21 @@ fn fts_expression(positive: &[String], negative: &[String], universe: &str) -> S
         base
     } else {
         format!("({base}) NOT ({})", negative.join(" OR "))
+    }
+}
+
+fn trigram_expression(term: &str) -> String {
+    let characters: Vec<_> = term.chars().collect();
+    if characters.len() <= 3 {
+        encoded(&characters)
+    } else {
+        characters
+            .windows(3)
+            .map(encoded)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(" AND ")
     }
 }
 
@@ -130,23 +183,13 @@ fn encode_cursor(cursor: Cursor) -> Result<String, Error> {
 
 impl Catalog {
     pub fn open(path: &Path) -> Result<Self, Error> {
-        Self::open_with_key(path, None, true)
-    }
-
-    pub(super) fn open_encrypted(
-        path: &Path,
-        key: &[u8; 32],
-        initialize: bool,
-    ) -> Result<Self, Error> {
-        Self::open_with_key(path, Some(key), initialize)
-    }
-
-    fn open_with_key(path: &Path, key: Option<&[u8; 32]>, initialize: bool) -> Result<Self, Error> {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let path = path
             .parent()
             .ok_or(Error::InvalidFile)?
             .canonicalize()?
             .join(path.file_name().ok_or(Error::InvalidFile)?);
+        let existed = path.try_exists()?;
         for suffix in ["", "-wal", "-shm", "-journal"] {
             let candidate = path.with_file_name(format!(
                 "{}{suffix}",
@@ -155,7 +198,11 @@ impl Catalog {
                     .to_string_lossy()
             ));
             match std::fs::symlink_metadata(candidate) {
-                Ok(meta) if !meta.is_file() => return Err(Error::InvalidFile),
+                Ok(meta)
+                    if !meta.is_file() || meta.nlink() != 1 || (!existed && !suffix.is_empty()) =>
+                {
+                    return Err(Error::InvalidFile);
+                }
                 Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
                     return Err(Error::Io(error));
                 }
@@ -165,74 +212,119 @@ impl Catalog {
         let db = Connection::open_with_flags(
             &path,
             OpenFlags::SQLITE_OPEN_READ_WRITE
-                | if initialize {
-                    OpenFlags::SQLITE_OPEN_CREATE
-                } else {
-                    OpenFlags::empty()
-                }
+                | OpenFlags::SQLITE_OPEN_CREATE
                 | OpenFlags::SQLITE_OPEN_NO_MUTEX
                 | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
-        if let Some(key) = key {
-            use std::fmt::Write;
-            let mut encoded = zeroize::Zeroizing::new(String::with_capacity(67));
-            encoded.push_str("x'");
-            for byte in key {
-                write!(&mut *encoded, "{byte:02x}").map_err(|_| Error::Worker)?;
-            }
-            encoded.push('\'');
-            db.pragma_update(None, "key", encoded.as_str())?;
-            let provider: String =
-                db.pragma_query_value(None, "cipher_version", |row| row.get(0))?;
-            if provider.is_empty() {
-                return Err(Error::InvalidData("SQLCipher encryption is unavailable."));
-            }
-        }
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
         db.busy_timeout(Duration::from_secs(2))?;
-        db.execute_batch("PRAGMA temp_store=MEMORY;")?;
         let format: i64 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if key.is_some() && !initialize {
-            let identity: i64 = db.pragma_query_value(None, "application_id", |row| row.get(0))?;
-            if format != 6 || identity != 0x54534c54 {
-                return Err(Error::InvalidData(
-                    "The encrypted catalog is incomplete or unsupported.",
-                ));
+        let identity: i64 = db.pragma_query_value(None, "application_id", |row| row.get(0))?;
+        let initialize = !existed
+            && format == 0
+            && identity == 0
+            && db.query_row("SELECT count(*) FROM sqlite_schema", [], |row| {
+                row.get::<_, i64>(0)
+            })? == 0;
+        if !initialize && (format != DATABASE_FORMAT || identity != APPLICATION_ID) {
+            return Err(Error::InvalidData(
+                "The notes database format is unsupported.",
+            ));
+        }
+        if initialize {
+            db.pragma_update(None, "auto_vacuum", 2)?;
+        }
+        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA cache_size=-2048; PRAGMA temp_store=FILE; PRAGMA foreign_keys=ON; PRAGMA mmap_size=0; PRAGMA wal_autocheckpoint=1000; PRAGMA journal_size_limit=8388608;")?;
+        if initialize {
+            let transaction = db.unchecked_transaction()?;
+            transaction.execute_batch("CREATE TABLE notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, summary TEXT NOT NULL,
+            stamp TEXT NOT NULL, title_search TEXT NOT NULL,
+            modified INTEGER NOT NULL, pinned INTEGER NOT NULL, open_task INTEGER NOT NULL,
+            tags TEXT NOT NULL, degree INTEGER NOT NULL DEFAULT 0, outgoing INTEGER NOT NULL DEFAULT 0);
+          CREATE INDEX recent_order ON notes(pinned DESC, modified DESC, name DESC);
+          CREATE INDEX titles ON notes(title_search);
+          CREATE INDEX hubs ON notes(degree DESC, name);
+          CREATE TABLE links(source INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE, target TEXT NOT NULL, PRIMARY KEY(source,target)) WITHOUT ROWID;
+          CREATE INDEX incoming ON links(target,source);
+          CREATE TABLE attachments(source INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE, target TEXT NOT NULL, PRIMARY KEY(source,target)) WITHOUT ROWID;
+          CREATE INDEX attachment_sources ON attachments(target,source);
+          CREATE TABLE records(trash INTEGER NOT NULL,id TEXT NOT NULL,name TEXT NOT NULL,captured INTEGER NOT NULL,summary TEXT NOT NULL,stamp TEXT NOT NULL,seq INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(trash,id)) WITHOUT ROWID;
+          CREATE INDEX record_name ON records(trash,name,captured DESC,id);
+          CREATE INDEX record_recent ON records(trash,captured DESC,id);
+          CREATE INDEX record_expiry ON records(captured,id);
+          CREATE INDEX record_sequence ON records(seq);
+          CREATE INDEX record_kind_sequence ON records(trash,seq);
+          CREATE UNIQUE INDEX record_unique_sequence ON records(seq);
+          CREATE TABLE record_attachments(trash INTEGER NOT NULL,record TEXT NOT NULL,target TEXT NOT NULL,PRIMARY KEY(trash,record,target),FOREIGN KEY(trash,record) REFERENCES records(trash,id) ON DELETE CASCADE) WITHOUT ROWID;
+          CREATE INDEX recovery_references ON record_attachments(target);
+          CREATE TABLE retention_queue(name TEXT PRIMARY KEY) WITHOUT ROWID;
+          CREATE TABLE gc_files(id TEXT PRIMARY KEY,stamp TEXT NOT NULL,unused INTEGER) WITHOUT ROWID;
+          CREATE INDEX gc_expiry ON gc_files(unused,id);
+          CREATE TABLE gc_dirty(id TEXT PRIMARY KEY) WITHOUT ROWID;
+          CREATE TABLE trash_visible(id TEXT PRIMARY KEY,seq INTEGER NOT NULL,captured INTEGER NOT NULL,summary TEXT NOT NULL) WITHOUT ROWID;
+          CREATE INDEX trash_recent ON trash_visible(captured DESC,id);
+          CREATE VIRTUAL TABLE fulltext USING fts5(text,k,tokenize='trigram case_sensitive 1',content='',contentless_delete=1);
+          CREATE VIRTUAL TABLE titletext USING fts5(text,k,tokenize='trigram case_sensitive 1',content='',contentless_delete=1);
+          CREATE VIRTUAL TABLE shorttext USING fts5(grams,content='',contentless_delete=1,detail=none);
+          CREATE VIRTUAL TABLE shorttitle USING fts5(grams,content='',contentless_delete=1,detail=none);
+          CREATE TABLE retitles(id INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL, previous TEXT NOT NULL, title TEXT NOT NULL, revision TEXT NOT NULL, after_id INTEGER NOT NULL DEFAULT 0, ready INTEGER NOT NULL DEFAULT 0);
+          CREATE TABLE state(key TEXT PRIMARY KEY, value INTEGER NOT NULL) WITHOUT ROWID;
+          INSERT INTO state VALUES('count',0),('record-sequence',0),('trash-purge',0);
+          CREATE TRIGGER count_insert AFTER INSERT ON notes BEGIN UPDATE state SET value=value+1 WHERE key='count'; END;
+          CREATE TRIGGER count_delete AFTER DELETE ON notes BEGIN UPDATE state SET value=value-1 WHERE key='count'; END;
+          CREATE TABLE documents(name TEXT PRIMARY KEY,body TEXT NOT NULL,modified INTEGER NOT NULL) WITHOUT ROWID;
+          CREATE TABLE pins(name TEXT PRIMARY KEY) WITHOUT ROWID;
+          CREATE TABLE snapshots(trash INTEGER NOT NULL,id TEXT NOT NULL,name TEXT NOT NULL,body TEXT NOT NULL,revision TEXT NOT NULL,modified INTEGER NOT NULL,captured INTEGER NOT NULL,PRIMARY KEY(trash,id)) WITHOUT ROWID;
+          CREATE TABLE files(id TEXT PRIMARY KEY,meta BLOB NOT NULL,head BLOB NOT NULL,revision TEXT NOT NULL,body_revision TEXT NOT NULL,modified INTEGER NOT NULL,bytes INTEGER NOT NULL) WITHOUT ROWID;
+          CREATE TABLE file_data(id TEXT NOT NULL UNIQUE REFERENCES files(id) ON DELETE CASCADE,data BLOB NOT NULL);")?;
+            super::workspaces::create_schema(&transaction)?;
+            transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
+            transaction.pragma_update(None, "user_version", DATABASE_FORMAT)?;
+            transaction.commit()?;
+        } else {
+            for table in [
+                "documents",
+                "pins",
+                "snapshots",
+                "files",
+                "file_data",
+                "notes",
+                "links",
+                "attachments",
+                "records",
+                "record_attachments",
+                "retention_queue",
+                "gc_files",
+                "gc_dirty",
+                "trash_visible",
+                "fulltext",
+                "titletext",
+                "shorttext",
+                "shorttitle",
+                "retitles",
+                "state",
+            ] {
+                let exists: bool = db.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?)",
+                    [table],
+                    |row| row.get(0),
+                )?;
+                if !exists {
+                    return Err(Error::InvalidData("The notes database is incomplete."));
+                }
             }
+            let building = db
+                .query_row("SELECT value FROM state WHERE key='building'", [], |row| {
+                    row.get::<_, bool>(0)
+                })
+                .optional()?
+                .unwrap_or(false);
             for (kind, names) in [
                 ("trigger", &["count_insert", "count_delete"][..]),
                 (
-                    "table",
-                    &[
-                        "notes",
-                        "links",
-                        "attachments",
-                        "records",
-                        "record_attachments",
-                        "retention_queue",
-                        "gc_files",
-                        "gc_dirty",
-                        "trash_visible",
-                        "fulltext",
-                        "titletext",
-                        "shorttext",
-                        "shorttitle",
-                        "pending",
-                        "retitles",
-                        "state",
-                        "vault_notes",
-                        "vault_pins",
-                        "vault_records",
-                        "vault_files",
-                        "vault_blobs",
-                    ][..],
-                ),
-                (
                     "index",
                     &[
-                        "recent_order",
-                        "titles",
-                        "hubs",
-                        "incoming",
                         "attachment_sources",
                         "record_name",
                         "record_recent",
@@ -247,160 +339,47 @@ impl Catalog {
                 ),
             ] {
                 for name in names {
-                    let exists: bool = db
-                        .prepare_cached(
-                            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type=? AND name=?)",
-                        )?
-                        .query_row(params![kind, name], |row| row.get(0))?;
-                    if !exists {
+                    if !db.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type=? AND name=?)",
+                        params![kind, name],
+                        |row| row.get::<_, bool>(0),
+                    )? {
                         return Err(Error::InvalidData(
-                            "The encrypted catalog schema is incomplete.",
+                            "The notes database schema is incomplete.",
                         ));
                     }
                 }
             }
-            db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA cache_size=-16384; PRAGMA temp_store=MEMORY; PRAGMA foreign_keys=ON; PRAGMA mmap_size=0; PRAGMA wal_autocheckpoint=1000; PRAGMA journal_size_limit=8388608;")?;
-            return Self::configured(db, true);
-        }
-        if key.is_some() {
-            let identity: i64 = db.pragma_query_value(None, "application_id", |row| row.get(0))?;
-            if !matches!(format, 0 | 6) || (identity != 0 && identity != 0x54534c54) {
-                return Err(Error::InvalidData(
-                    "The encrypted catalog format is unsupported.",
-                ));
-            }
-            if identity == 0 {
-                let tables: i64 =
-                    db.query_row("SELECT count(*) FROM sqlite_schema", [], |row| row.get(0))?;
-                if format != 0 || tables != 0 {
-                    return Err(Error::InvalidData(
-                        "The encrypted catalog identity is missing.",
-                    ));
-                }
-                db.pragma_update(None, "auto_vacuum", 2)?;
-                db.pragma_update(None, "application_id", 0x54534c54)?;
-            }
-        }
-        if format != 0 && !(3..=6).contains(&format) {
-            if !(1..3).contains(&format)
-                || db.query_row("SELECT count(*) FROM retitles", [], |row| {
-                    row.get::<_, i64>(0)
-                })? != 0
-            {
-                return Err(Error::InvalidData(
-                    "Finish pending link updates with the service that created this catalog before upgrading.",
-                ));
-            }
-            db.close().map_err(|(_, error)| Error::Catalog(error))?;
-            for suffix in ["", "-wal", "-shm", "-journal"] {
-                let candidate = path.with_file_name(format!(
-                    "{}{suffix}",
-                    path.file_name()
-                        .ok_or(Error::InvalidFile)?
-                        .to_string_lossy()
-                ));
-                match std::fs::remove_file(candidate) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(Error::Io(error)),
+            if !building {
+                for name in ["recent_order", "titles", "hubs", "incoming"] {
+                    if !db.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='index' AND name=?)",
+                        [name],
+                        |row| row.get::<_, bool>(0),
+                    )? {
+                        return Err(Error::InvalidData(
+                            "The notes database indexes are incomplete.",
+                        ));
+                    }
                 }
             }
-            return Self::open_with_key(&path, key, initialize);
         }
-        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA cache_size=-262144; PRAGMA temp_store=MEMORY; PRAGMA foreign_keys=ON;
-          CREATE TABLE IF NOT EXISTS notes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, summary TEXT NOT NULL,
-            stamp TEXT NOT NULL, search TEXT NOT NULL, title_search TEXT NOT NULL,
-            modified INTEGER NOT NULL, pinned INTEGER NOT NULL, open_task INTEGER NOT NULL,
-            tags TEXT NOT NULL, degree INTEGER NOT NULL DEFAULT 0, outgoing INTEGER NOT NULL DEFAULT 0);
-          CREATE INDEX IF NOT EXISTS recent_order ON notes(pinned DESC, modified DESC, name DESC);
-          CREATE INDEX IF NOT EXISTS titles ON notes(title_search);
-          CREATE INDEX IF NOT EXISTS hubs ON notes(degree DESC, name);
-          CREATE TABLE IF NOT EXISTS links(source INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE, target TEXT NOT NULL, PRIMARY KEY(source,target)) WITHOUT ROWID;
-          CREATE INDEX IF NOT EXISTS incoming ON links(target,source);
-          CREATE TABLE IF NOT EXISTS attachments(source INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE, target TEXT NOT NULL, PRIMARY KEY(source,target)) WITHOUT ROWID;
-          CREATE INDEX IF NOT EXISTS attachment_sources ON attachments(target,source);
-          CREATE TABLE IF NOT EXISTS records(trash INTEGER NOT NULL,id TEXT NOT NULL,name TEXT NOT NULL,captured INTEGER NOT NULL,summary TEXT NOT NULL,stamp TEXT NOT NULL,seq INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(trash,id)) WITHOUT ROWID;
-          CREATE INDEX IF NOT EXISTS record_name ON records(trash,name,captured DESC,id);
-          CREATE INDEX IF NOT EXISTS record_recent ON records(trash,captured DESC,id);
-          CREATE INDEX IF NOT EXISTS record_expiry ON records(captured,id);
-          CREATE TABLE IF NOT EXISTS record_attachments(trash INTEGER NOT NULL,record TEXT NOT NULL,target TEXT NOT NULL,PRIMARY KEY(trash,record,target),FOREIGN KEY(trash,record) REFERENCES records(trash,id) ON DELETE CASCADE) WITHOUT ROWID;
-          CREATE INDEX IF NOT EXISTS recovery_references ON record_attachments(target);
-          CREATE TABLE IF NOT EXISTS retention_queue(name TEXT PRIMARY KEY) WITHOUT ROWID;
-          CREATE TABLE IF NOT EXISTS gc_files(id TEXT PRIMARY KEY,stamp TEXT NOT NULL,unused INTEGER) WITHOUT ROWID;
-          CREATE INDEX IF NOT EXISTS gc_expiry ON gc_files(unused,id);
-          CREATE TABLE IF NOT EXISTS gc_dirty(id TEXT PRIMARY KEY) WITHOUT ROWID;
-          CREATE TABLE IF NOT EXISTS trash_visible(id TEXT PRIMARY KEY,seq INTEGER NOT NULL,captured INTEGER NOT NULL,summary TEXT NOT NULL) WITHOUT ROWID;
-          CREATE INDEX IF NOT EXISTS trash_recent ON trash_visible(captured DESC,id);
-          CREATE VIRTUAL TABLE IF NOT EXISTS fulltext USING fts5(text,k,tokenize='trigram case_sensitive 1',content='',contentless_delete=1);
-          CREATE VIRTUAL TABLE IF NOT EXISTS titletext USING fts5(text,k,tokenize='trigram case_sensitive 1',content='',contentless_delete=1);
-          CREATE VIRTUAL TABLE IF NOT EXISTS shorttext USING fts5(grams,content='',contentless_delete=1,detail=none);
-          CREATE VIRTUAL TABLE IF NOT EXISTS shorttitle USING fts5(grams,content='',contentless_delete=1,detail=none);
-          CREATE TABLE IF NOT EXISTS pending(name TEXT PRIMARY KEY) WITHOUT ROWID;
-          CREATE TABLE IF NOT EXISTS retitles(id INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL, previous TEXT NOT NULL, title TEXT NOT NULL, revision TEXT NOT NULL, after_id INTEGER NOT NULL DEFAULT 0, ready INTEGER NOT NULL DEFAULT 0);
-          CREATE TABLE IF NOT EXISTS state(key TEXT PRIMARY KEY, value INTEGER NOT NULL) WITHOUT ROWID;
-          INSERT OR IGNORE INTO state VALUES('count',0);
-          INSERT OR IGNORE INTO state VALUES('record-sequence',0),('trash-purge',0);
-          CREATE TRIGGER IF NOT EXISTS count_insert AFTER INSERT ON notes BEGIN UPDATE state SET value=value+1 WHERE key='count'; END;
-          CREATE TRIGGER IF NOT EXISTS count_delete AFTER DELETE ON notes BEGIN UPDATE state SET value=value-1 WHERE key='count'; END;
-          PRAGMA user_version=6;")?;
-        if key.is_some() {
-            db.execute_batch("PRAGMA cache_size=-16384; PRAGMA wal_autocheckpoint=1000; PRAGMA journal_size_limit=8388608;")?;
-        }
-        if format != 6 {
-            db.execute_batch("UPDATE notes SET stamp='' WHERE title_search=''; UPDATE records SET stamp='' WHERE coalesce(json_extract(summary,'$.title'),'')='';")?;
-        }
-        let has_sequence = db
-            .prepare("PRAGMA table_info(records)")?
-            .query_map([], |row| row.get::<_, String>(1))?
-            .any(|row| row.is_ok_and(|name| name == "seq"));
-        if !has_sequence {
-            db.execute_batch("ALTER TABLE records ADD COLUMN seq INTEGER NOT NULL DEFAULT 0;")?;
-        }
-        db.execute_batch("CREATE INDEX IF NOT EXISTS record_sequence ON records(seq); CREATE INDEX IF NOT EXISTS record_kind_sequence ON records(trash,seq);")?;
-        db.execute("UPDATE state SET value=max(value,(SELECT coalesce(max(seq),0) FROM records)) WHERE key='record-sequence'",[])?;
-        loop {
-            let rows = db
-                .prepare("SELECT trash,id FROM records WHERE seq=0 ORDER BY trash,id LIMIT 1000")?
-                .query_map([], |row| {
-                    Ok((row.get::<_, bool>(0)?, row.get::<_, String>(1)?))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-            if rows.is_empty() {
-                break;
-            }
-            let transaction = db.unchecked_transaction()?;
-            for (trash, id) in rows {
-                let sequence: i64 = transaction.query_row(
-                    "UPDATE state SET value=value+1 WHERE key='record-sequence' RETURNING value",
-                    [],
-                    |row| row.get(0),
-                )?;
-                transaction.execute(
-                    "UPDATE records SET seq=? WHERE trash=? AND id=?",
-                    params![sequence, trash, id],
-                )?;
-            }
-            transaction.commit()?;
-        }
-        db.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS record_unique_sequence ON records(seq); INSERT OR IGNORE INTO trash_visible SELECT id,seq,captured,summary FROM records WHERE trash=1 AND seq>(SELECT value FROM state WHERE key='trash-purge');")?;
-        Self::configured(db, key.is_some())
+        super::workspaces::check_schema(&db)?;
+        Self::configured(db)
     }
 
-    fn configured(mut db: Connection, encrypted: bool) -> Result<Self, Error> {
-        if encrypted {
-            db.create_scalar_function(
-                "note_contains",
-                2,
-                rusqlite::functions::FunctionFlags::SQLITE_UTF8
-                    | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
-                |context| {
-                    let text: String = context.get(0)?;
-                    let term: String = context.get(1)?;
-                    Ok(text.to_lowercase().contains(&term))
-                },
-            )?;
-        }
+    fn configured(mut db: Connection) -> Result<Self, Error> {
+        db.create_scalar_function(
+            "note_contains",
+            2,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |context| {
+                let text: String = context.get(0)?;
+                let term: String = context.get(1)?;
+                Ok(text.to_lowercase().contains(&term))
+            },
+        )?;
         let clock = Instant::now();
         let deadline = Arc::new(AtomicU64::new(u64::MAX));
         let timer = Arc::clone(&deadline);
@@ -410,7 +389,6 @@ impl Catalog {
         )?;
         Ok(Self {
             db,
-            encrypted,
             clock,
             deadline,
         })
@@ -436,44 +414,24 @@ impl Catalog {
             .optional()?)
     }
 
-    pub fn journal(&self, names: &[&NoteName]) -> Result<(), Error> {
-        let tx = self.db.unchecked_transaction()?;
-        for name in names {
-            tx.execute("INSERT OR IGNORE INTO pending VALUES(?)", [name.as_str()])?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
-    pub fn pending(&self) -> Result<Vec<NoteName>, Error> {
-        self.db
-            .prepare_cached("SELECT name FROM pending")?
-            .query_map([], |row| row.get::<_, String>(0))?
-            .map(|row| NoteName::parse(row?))
-            .collect()
-    }
-
     pub fn put(&self, note: &Note, stamp: &str, pinned: bool, bulk: bool) -> Result<(), Error> {
-        let preview = crate::markdown::preview(note.name.as_str(), &note.body);
-        let title = preview.outline.first().map_or_else(
-            || {
-                note.body
-                    .lines()
-                    .find(|line| !line.trim().is_empty())
-                    .unwrap_or("Untitled note")
-                    .trim()
-                    .trim_start_matches('#')
-                    .trim()
-                    .to_owned()
-            },
-            |heading| heading.text.clone(),
-        );
+        let metadata = crate::markdown::index_metadata(note.name.as_str(), &note.body);
+        let title = metadata.title.unwrap_or_else(|| {
+            note.body
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or("Untitled note")
+                .trim()
+                .trim_start_matches('#')
+                .trim()
+                .to_owned()
+        });
         let summary = Summary {
             name: note.name.clone(),
             title: title.chars().take(200).collect(),
             modified: note.modified,
             pinned,
-            tags: preview
+            tags: metadata
                 .tags
                 .iter()
                 .take(32)
@@ -496,14 +454,14 @@ impl Catalog {
         };
         let existed = !bulk && self.stamp(&note.name)?.is_some();
         let modified = i64::try_from(note.modified).map_err(|_| Error::InvalidFile)?;
-        let id: i64 = self.db.prepare_cached("INSERT INTO notes(name,summary,stamp,search,title_search,modified,pinned,open_task,tags,outgoing) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(name) DO UPDATE SET summary=excluded.summary,stamp=excluded.stamp,search=excluded.search,title_search=excluded.title_search,modified=excluded.modified,pinned=excluded.pinned,open_task=excluded.open_task,tags=excluded.tags,degree=notes.degree+excluded.outgoing-notes.outgoing,outgoing=excluded.outgoing RETURNING id")?.query_row(params![note.name.as_str(),serde_json::to_string(&summary).map_err(data_error)?,stamp,if self.encrypted {""} else {&text},title,modified,pinned,note.body.contains("[ ]"),serde_json::to_string(&preview.tags).map_err(data_error)?,preview.links.len() as i64], |row| row.get(0))?;
+        let id: i64 = self.db.prepare_cached("INSERT INTO notes(id,name,summary,stamp,title_search,modified,pinned,open_task,tags,outgoing) VALUES((SELECT id FROM notes WHERE name=?1),?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(name) DO UPDATE SET summary=excluded.summary,stamp=excluded.stamp,title_search=excluded.title_search,modified=excluded.modified,pinned=excluded.pinned,open_task=excluded.open_task,tags=excluded.tags,degree=notes.degree+excluded.outgoing-notes.outgoing,outgoing=excluded.outgoing RETURNING id")?.query_row(params![note.name.as_str(),serde_json::to_string(&summary).map_err(data_error)?,stamp,title,modified,pinned,note.body.contains("[ ]"),serde_json::to_string(&metadata.tags).map_err(data_error)?,metadata.links.len() as i64], |row| row.get(0))?;
         self.db
             .prepare_cached("DELETE FROM links WHERE source=?")?
             .execute([id])?;
         self.db
             .prepare_cached("DELETE FROM attachments WHERE source=?")?
             .execute([id])?;
-        for target in &preview.links {
+        for target in &metadata.links {
             self.db
                 .prepare_cached("INSERT OR IGNORE INTO links VALUES(?,?)")?
                 .execute(params![id, target])?;
@@ -522,28 +480,15 @@ impl Catalog {
                 .prepare_cached("INSERT OR IGNORE INTO gc_dirty VALUES(?)")?
                 .execute([target])?;
         }
-        self.db
-            .prepare_cached("INSERT OR REPLACE INTO fulltext(rowid,text,k) VALUES(?,?,'all')")?
-            .execute(params![id, &text])?;
-        self.db
-            .prepare_cached("INSERT OR REPLACE INTO titletext(rowid,text,k) VALUES(?,?,'all')")?
-            .execute(params![id, &title])?;
-        self.db
-            .prepare_cached("DELETE FROM pending WHERE name=?")?
-            .execute([note.name.as_str()])?;
-        self.db
-            .prepare_cached("INSERT OR REPLACE INTO shorttext(rowid,grams) VALUES(?,?)")?
-            .execute(params![id, grams(&text)])?;
-        self.db
-            .prepare_cached("INSERT OR REPLACE INTO shorttitle(rowid,grams) VALUES(?,?)")?
-            .execute(params![id, grams(&title)])?;
+        write_search_text(&self.db, id, SearchField::Body, &text)?;
+        write_search_text(&self.db, id, SearchField::Title, &title)?;
         self.db.execute(
             "UPDATE retitles SET ready=1 WHERE target=? AND revision=?",
             params![note.name.as_str(), note.revision.as_str()],
         )?;
         if !bulk {
             let old: BTreeSet<_> = old_targets.into_iter().collect();
-            let current: BTreeSet<_> = preview.links.into_iter().collect();
+            let current: BTreeSet<_> = metadata.links.into_iter().collect();
             for target in old.difference(&current) {
                 self.db
                     .prepare_cached("UPDATE notes SET degree=degree-1 WHERE name=?")?
@@ -567,15 +512,19 @@ impl Catalog {
     }
 
     pub fn finish_rebuild(&self) -> Result<(), Error> {
-        self.db.execute_batch("CREATE INDEX IF NOT EXISTS incoming ON links(target,source); DROP INDEX IF EXISTS hubs; UPDATE notes SET degree=outgoing+(SELECT count(*) FROM links WHERE target=notes.name); INSERT OR REPLACE INTO state VALUES('building',0);")?;
+        self.db.execute_batch("CREATE INDEX IF NOT EXISTS incoming ON links(target,source); DROP INDEX IF EXISTS hubs; UPDATE notes SET degree=outgoing+(SELECT count(*) FROM links WHERE target=notes.name);")?;
         self.ensure_indexes()?;
+        self.db
+            .execute("INSERT OR REPLACE INTO state VALUES('building',0)", [])?;
         self.db
             .execute_batch("PRAGMA optimize; PRAGMA wal_checkpoint(TRUNCATE);")?;
         Ok(())
     }
 
     pub fn begin_import(&self) -> Result<(), Error> {
-        self.db.execute_batch("DROP INDEX IF EXISTS incoming; DROP INDEX IF EXISTS recent_order; DROP INDEX IF EXISTS titles; DROP INDEX IF EXISTS hubs;")?;
+        let transaction = self.db.unchecked_transaction()?;
+        self.db.execute_batch("INSERT OR REPLACE INTO state VALUES('building',1); DROP INDEX IF EXISTS incoming; DROP INDEX IF EXISTS recent_order; DROP INDEX IF EXISTS titles; DROP INDEX IF EXISTS hubs;")?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -610,22 +559,12 @@ impl Catalog {
                 .execute("DELETE FROM shorttitle WHERE rowid=?", [id])?;
             self.db.execute("DELETE FROM notes WHERE id=?", [id])?;
         }
-        self.db
-            .execute("DELETE FROM pending WHERE name=?", [name.as_str()])?;
         for target in targets {
             self.db
                 .prepare_cached("UPDATE notes SET degree=degree-1 WHERE name=?")?
                 .execute([target])?;
         }
         Ok(())
-    }
-
-    pub fn names(&self) -> Result<Vec<NoteName>, Error> {
-        self.db
-            .prepare("SELECT name FROM notes")?
-            .query_map([], |row| row.get::<_, String>(0))?
-            .map(|row| NoteName::parse(row?))
-            .collect()
     }
 
     pub fn outgoing(&self, name: &NoteName) -> Result<Vec<String>, Error> {
@@ -668,7 +607,14 @@ impl Catalog {
             .replace('\\', "\\\\")
             .replace('[', "\\[")
             .replace(']', "\\]");
-        let query = format!("\"[{}](\"", escaped.to_lowercase().replace('"', "\"\""));
+        let query = if escaped.contains('\0') {
+            "k : set".to_owned()
+        } else {
+            format!(
+                "text : \"[{}](\" OR k : set",
+                escaped.to_lowercase().replace('"', "\"\"")
+            )
+        };
         self.db.prepare_cached("SELECT f.rowid,n.name FROM fulltext f JOIN notes n ON n.id=f.rowid WHERE fulltext MATCH ?1 AND f.rowid>?2 AND EXISTS(SELECT 1 FROM links WHERE source=f.rowid AND target=?3) ORDER BY f.rowid LIMIT ?4")?.query_map(params![query,after,name.as_str(),limit as i64],|row|Ok((row.get::<_,i64>(0)?,row.get::<_,String>(1)?)))?.map(|row|{let(id,name)=row?;Ok((id,NoteName::parse(name)?))}).collect()
     }
 
@@ -735,10 +681,10 @@ impl Catalog {
         let mut exact = Vec::new();
         let mut last = None;
         if parsed.as_ref().is_none_or(|cursor| cursor.exact) {
-            let mut statement=self.db.prepare_cached("SELECT id,summary,pinned,modified,name FROM notes WHERE title_search=? AND id<? ORDER BY id DESC LIMIT ?")?;
+            let mut statement=self.db.prepare_cached("SELECT id,summary,pinned,modified,name FROM notes WHERE title_search=? AND id<=? ORDER BY id DESC LIMIT ?")?;
             let mut rows = statement.query(params![
                 query,
-                parsed.as_ref().map_or(i64::MAX, |cursor| cursor.id),
+                parsed.as_ref().map_or(i64::MAX, |cursor| cursor.id - 1),
                 (limit + 1) as i64
             ])?;
             while let Some(row) = rows.next()? {
@@ -817,6 +763,10 @@ impl Catalog {
         let mut long_negative = Vec::new();
         let mut short_positive = Vec::new();
         let mut short_negative = Vec::new();
+        let mut compact_positive = Vec::new();
+        let mut compact_negative = Vec::new();
+        let mut has_long = false;
+        let mut indexed = false;
         for term in query.split_whitespace().take(33) {
             if conditions.len() >= 32 {
                 return Err(Error::InvalidData("Use at most 32 search terms."));
@@ -839,26 +789,40 @@ impl Catalog {
                 } else if term == "task:open" {
                     "n.open_task=1".to_owned()
                 } else {
-                    let short = term.chars().count() < 3;
-                    let expression = if short {
-                        encoded(&term.chars().collect::<Vec<_>>())
+                    indexed = true;
+                    let expression = trigram_expression(term);
+                    let length = term.chars().count();
+                    if !negate {
+                        compact_positive.push(expression.clone());
+                    } else if length <= 3 {
+                        compact_negative.push(expression.clone());
+                    }
+                    if length < 3 {
+                        if negate {
+                            short_negative.push(expression);
+                        } else {
+                            short_positive.push(expression);
+                        }
                     } else {
-                        format!("text : \"{}\"", term.replace('"', "\"\""))
-                    };
-                    match (short, negate) {
-                        (false, false) => long_positive.push(expression),
-                        (false, true) => long_negative.push(expression),
-                        (true, false) => short_positive.push(expression),
-                        (true, true) => short_negative.push(expression),
+                        has_long = true;
+                        if term.contains('\0') {
+                            if !negate {
+                                long_positive.push("k : set".into());
+                            }
+                        } else {
+                            let phrase = format!("text : \"{}\"", term.replace('"', "\"\""));
+                            if negate {
+                                long_negative.push(phrase);
+                            } else {
+                                long_positive.push(phrase);
+                            }
+                        }
                     }
                     params.push(Value::Text(term.to_owned()));
-                    if self.encrypted && !titles {
+                    if !titles {
                         "note_contains(n.name || char(10) || v.body,?)".to_owned()
                     } else {
-                        format!(
-                            "instr(n.{},?)>0",
-                            if titles { "title_search" } else { "search" }
-                        )
+                        "instr(n.title_search,?)>0".to_owned()
                     }
                 };
             conditions.push(if negate {
@@ -867,38 +831,31 @@ impl Catalog {
                 condition
             });
         }
-        let indexed = !long_positive.is_empty()
-            || !long_negative.is_empty()
-            || !short_positive.is_empty()
-            || !short_negative.is_empty();
-        let use_short =
-            long_positive.is_empty() && (!short_positive.is_empty() || long_negative.is_empty());
-        let long_table = if titles { "titletext" } else { "fulltext" };
-        let short_table = if titles { "shorttitle" } else { "shorttext" };
-        let long_expression = fts_expression(&long_positive, &long_negative, "k : all");
-        let short_expression = fts_expression(&short_positive, &short_negative, "all");
-        let table = if use_short { short_table } else { long_table };
-        let secondary = if use_short && (!long_positive.is_empty() || !long_negative.is_empty()) {
-            Some((long_table, long_expression.clone()))
-        } else if !use_short && (!short_positive.is_empty() || !short_negative.is_empty()) {
-            Some((short_table, short_expression.clone()))
+        let positional = if titles { "titletext" } else { "fulltext" };
+        let distinct = if titles { "shorttitle" } else { "shorttext" };
+        let (table, expression, secondary) = if has_long {
+            let native = fts_expression(&long_positive, &long_negative, "k : all");
+            let small = fts_expression(&short_positive, &short_negative, "all");
+            let large = fts_expression(&compact_positive, &compact_negative, "all");
+            (
+                positional,
+                format!("({native}) OR k : set"),
+                Some(format!("(pos AND ({small})) OR (set AND ({large}))")),
+            )
         } else {
-            None
+            (
+                distinct,
+                fts_expression(&short_positive, &short_negative, "all"),
+                None,
+            )
         };
-        let body_join = if self.encrypted && !titles {
-            " JOIN vault_notes v ON v.name=n.name"
+        let body_join = if !titles {
+            " JOIN documents v ON v.name=n.name"
         } else {
             ""
         };
         let mut sql = if indexed {
-            params.insert(
-                0,
-                Value::Text(if use_short {
-                    short_expression
-                } else {
-                    long_expression
-                }),
-            );
+            params.insert(0, Value::Text(expression));
             format!(
                 "SELECT n.id,n.summary,n.pinned,n.modified,n.name FROM {table} s JOIN notes n ON n.id=s.rowid{body_join} WHERE {table} MATCH ?"
             )
@@ -910,11 +867,11 @@ impl Catalog {
             sql.push_str(&condition);
             sql.push(')');
         }
-        if let Some((secondary, expression)) = &secondary {
+        if let Some(expression) = secondary {
             sql.push_str(&format!(
-                " AND EXISTS(SELECT 1 FROM {secondary} WHERE rowid=n.id AND {secondary} MATCH ?)"
+                " AND EXISTS(SELECT 1 FROM {distinct} WHERE rowid=n.id AND {distinct} MATCH ?)"
             ));
-            params.push(Value::Text(expression.clone()));
+            params.push(Value::Text(expression));
         }
         if exclude_exact {
             sql.push_str(" AND n.title_search!=?");
@@ -944,23 +901,6 @@ impl Catalog {
             Ordering::Relaxed,
         );
         let result = (|| -> Result<_, Error> {
-            if let Some((table, expression)) = &secondary
-                && self
-                    .db
-                    .query_row(
-                        &format!("SELECT rowid FROM {table} WHERE {table} MATCH ? LIMIT 1"),
-                        [expression],
-                        |row| row.get::<_, i64>(0),
-                    )
-                    .optional()?
-                    .is_none()
-            {
-                return Ok(Page {
-                    notes: Vec::new(),
-                    next: None,
-                    total: self.count()?,
-                });
-            }
             let mut stmt = self.db.prepare(&sql)?;
             let mut rows = stmt.query(params_from_iter(params))?;
             let mut notes = Vec::new();
@@ -1082,5 +1022,193 @@ impl Catalog {
             neighbors,
             truncated,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn small_nonmatching_phrases_do_not_read_original_bodies() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = super::super::Store::open(directory.path()).unwrap();
+        store
+            .create(Some("One.md".into()), "# Topic\n\nabc bcd bca cab")
+            .unwrap();
+        let calls = Arc::new(AtomicU64::new(0));
+        let observed = Arc::clone(&calls);
+        store
+            .index
+            .db
+            .create_scalar_function(
+                "note_contains",
+                2,
+                rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                    | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+                move |context| {
+                    observed.fetch_add(1, Ordering::Relaxed);
+                    Ok(context
+                        .get::<String>(0)?
+                        .to_lowercase()
+                        .contains(&context.get::<String>(1)?))
+                },
+            )
+            .unwrap();
+        for query in ["abcd", "abcabc"] {
+            assert!(
+                store
+                    .search(query, None, 10, false)
+                    .unwrap()
+                    .notes
+                    .is_empty()
+            );
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        let note = store
+            .read(&NoteName::parse("One.md".into()).unwrap())
+            .unwrap();
+        let larger = store
+            .update(
+                &note.name,
+                &format!("# Topic\n\nabc bcd bca cab {}", "x".repeat(16 * 1024)),
+                note.revision.as_str(),
+            )
+            .unwrap();
+        assert!(
+            store
+                .search("abcd", None, 10, false)
+                .unwrap()
+                .notes
+                .is_empty()
+        );
+        assert!(calls.load(Ordering::Relaxed) > 0);
+        store
+            .update(
+                &larger.name,
+                "# Topic\n\nabc bcd bca cab",
+                larger.revision.as_str(),
+            )
+            .unwrap();
+        calls.store(0, Ordering::Relaxed);
+        assert!(
+            store
+                .search("abcd", None, 10, false)
+                .unwrap()
+                .notes
+                .is_empty()
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn large_substring_indexes_omit_body_positions() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = super::super::Store::open(directory.path()).unwrap();
+        store
+            .create(
+                Some("One.md".into()),
+                &format!(
+                    "# {}\n\n{}",
+                    "Repeated title ".repeat(1400),
+                    "repeat ".repeat(4000)
+                ),
+            )
+            .unwrap();
+        for table in ["fulltext", "titletext"] {
+            store.index.db.execute_batch(&format!(
+                "CREATE VIRTUAL TABLE temp.positions USING fts5vocab(main,'{table}','instance');"
+            )).unwrap();
+            let (tokens, positions): (i64, i64) = store
+                .index
+                .db
+                .query_row(
+                    "SELECT count(*),count(CASE WHEN col='text' THEN offset END) FROM positions",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert!(tokens > 0);
+            assert_eq!(positions, 0, "{table}");
+            store
+                .index
+                .db
+                .execute_batch("DROP TABLE temp.positions;")
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn database_working_memory_uses_bounded_pages_and_disk_temporaries() {
+        let directory = tempfile::tempdir().unwrap();
+        let catalog = Catalog::open(&directory.path().join("notes.sqlite")).unwrap();
+        for (pragma, expected) in [("cache_size", -2048), ("temp_store", 1), ("mmap_size", 0)] {
+            assert_eq!(
+                catalog
+                    .db
+                    .pragma_query_value(None, pragma, |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                expected,
+                "{pragma}"
+            );
+        }
+    }
+
+    #[test]
+    fn streamed_search_grams_match_unicode_windows_and_duplicate_elimination() {
+        for text in [
+            "",
+            "a",
+            "aa",
+            "ababa",
+            "日本語😀 日本語",
+            "\u{10ffff}\u{10000}é\n",
+        ] {
+            let characters: Vec<_> = text.chars().collect();
+            let mut keys = BTreeSet::new();
+            for size in 1..=3 {
+                for window in characters.windows(size) {
+                    keys.insert(gram_key(window));
+                }
+            }
+            let mut expected = String::new();
+            for key in keys {
+                write!(expected, "g{key:x} ").unwrap();
+            }
+            expected.push_str("all");
+            assert_eq!(grams(text, true), expected);
+        }
+    }
+
+    #[test]
+    fn an_index_publication_failure_keeps_the_import_resumable() {
+        let directory = tempfile::tempdir().unwrap();
+        let catalog = Catalog::open(&directory.path().join("notes.sqlite")).unwrap();
+        catalog.begin_import().unwrap();
+        catalog
+            .db
+            .execute_batch(
+                "INSERT OR REPLACE INTO state VALUES('building',1); CREATE TABLE hubs(value TEXT);",
+            )
+            .unwrap();
+        assert!(catalog.finish_rebuild().is_err());
+        assert!(
+            catalog
+                .db
+                .query_row("SELECT value FROM state WHERE key='building'", [], |row| {
+                    row.get::<_, bool>(0)
+                })
+                .unwrap()
+        );
+        catalog.db.execute_batch("DROP TABLE hubs;").unwrap();
+        catalog.finish_rebuild().unwrap();
+        assert!(
+            !catalog
+                .db
+                .query_row("SELECT value FROM state WHERE key='building'", [], |row| {
+                    row.get::<_, bool>(0)
+                })
+                .unwrap()
+        );
     }
 }

@@ -2,5 +2,3 @@
 pub mod rules;
 
 pub mod browser;
-#[cfg(kani)]
-mod vault;

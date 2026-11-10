@@ -1,64 +1,39 @@
-use super::{Note, SavedNote, Store, open_file};
+use super::{Note, RecordKind, SavedNote, Store};
+use crate::{Error, domain::NoteName};
+use rusqlite::{OptionalExtension, params};
+use std::time::Duration;
 
 #[derive(serde::Serialize)]
 pub struct TrashPage {
     pub entries: Vec<SavedNote>,
     pub next: Option<String>,
 }
-use crate::{Error, domain::NoteName, rules::valid_id};
-use rusqlite::{OptionalExtension, params};
-use rustix::fs::{self, OFlags};
-use std::{collections::HashSet, fs::File, io, os::unix::fs::MetadataExt, time::Duration};
 
 fn json_error(_: serde_json::Error) -> Error {
     Error::InvalidData("The recovery catalog data is invalid.")
 }
 
 impl Store {
-    pub(super) fn record_stamp(&self, directory: &File, id: &str) -> Result<String, Error> {
-        if self.encrypted {
-            return self
-                .index
-                .db
-                .query_row(
-                    "SELECT revision FROM vault_records WHERE trash=? AND id=?",
-                    params![std::ptr::eq(directory, &self.trash), id],
-                    |row| row.get(0),
-                )
-                .optional()?
-                .ok_or(Error::NotFound);
-        }
-        let record = open_file(directory, id, OFlags::RDONLY | OFlags::DIRECTORY)?;
-        let mut stamp = String::new();
-        for name in ["metadata.json", "body.md"] {
-            let file = open_file(&record, name, OFlags::RDONLY | OFlags::NONBLOCK)?;
-            let meta = file.metadata()?;
-            if !meta.is_file() {
-                return Err(Error::InvalidFile);
-            }
-            use std::fmt::Write;
-            let _ = write!(
-                stamp,
-                "{}:{}:{}:{}:{}:{};",
-                meta.ino(),
-                meta.len(),
-                meta.mtime(),
-                meta.mtime_nsec(),
-                meta.ctime(),
-                meta.ctime_nsec()
-            );
-        }
-        Ok(stamp)
+    fn record_stamp(&self, kind: RecordKind, id: &str) -> Result<String, Error> {
+        self.index
+            .db
+            .query_row(
+                "SELECT revision FROM snapshots WHERE trash=? AND id=?",
+                params![kind.is_trash(), id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(Error::NotFound)
     }
 
     pub(super) fn index_record(
         &self,
-        directory: &File,
+        kind: RecordKind,
         id: &str,
         note: &Note,
         captured: u128,
     ) -> Result<SavedNote, Error> {
-        let trash = std::ptr::eq(directory, &self.trash);
+        let trash = kind.is_trash();
         let saved = SavedNote {
             id: id.to_owned(),
             name: note.name.clone(),
@@ -102,7 +77,7 @@ impl Store {
             )?,
         };
         let summary = serde_json::to_string(&saved).map_err(json_error)?;
-        self.index.db.prepare_cached("INSERT INTO records(trash,id,name,captured,summary,stamp,seq) VALUES(?,?,?,?,?,?,?) ON CONFLICT(trash,id) DO UPDATE SET name=excluded.name,captured=excluded.captured,summary=excluded.summary,stamp=excluded.stamp")?.execute(params![trash,id,note.name.as_str(),i64::try_from(captured).map_err(|_|Error::InvalidFile)?,summary,self.record_stamp(directory,id)?,sequence])?;
+        self.index.db.prepare_cached("INSERT INTO records(trash,id,name,captured,summary,stamp,seq) VALUES(?,?,?,?,?,?,?) ON CONFLICT(trash,id) DO UPDATE SET name=excluded.name,captured=excluded.captured,summary=excluded.summary,stamp=excluded.stamp")?.execute(params![trash,id,note.name.as_str(),i64::try_from(captured).map_err(|_|Error::InvalidFile)?,summary,self.record_stamp(kind,id)?,sequence])?;
         if trash {
             self.index.db.execute("INSERT INTO trash_visible SELECT ?1,?2,?3,?4 WHERE ?2>(SELECT value FROM state WHERE key='trash-purge') ON CONFLICT(id) DO UPDATE SET captured=excluded.captured,summary=excluded.summary",params![id,sequence,captured as i64,summary])?;
         }
@@ -130,7 +105,7 @@ impl Store {
                 .prepare_cached("INSERT OR IGNORE INTO record_attachments VALUES(?,?,?)")?
                 .execute(params![trash, id, target])?;
         }
-        if !trash && transaction.is_some() {
+        if !trash {
             self.index.db.execute(
                 "INSERT OR IGNORE INTO retention_queue VALUES(?)",
                 [note.name.as_str()],
@@ -140,93 +115,6 @@ impl Store {
             transaction.commit()?;
         }
         Ok(saved)
-    }
-
-    pub(super) fn reconcile_recovery(&self, strict: bool) -> Result<(), Error> {
-        if self.encrypted {
-            return Ok(());
-        }
-        self.index.db.execute(
-            "INSERT OR REPLACE INTO state VALUES('recovery-readable',0)",
-            [],
-        )?;
-        let mut readable = true;
-        for (trash, directory) in [(false, &self.history), (true, &self.trash)] {
-            let mut seen = HashSet::new();
-            let mut changed = 0;
-            self.index.db.execute_batch("BEGIN IMMEDIATE")?;
-            let result = (|| -> Result<(), Error> {
-                for entry in fs::Dir::read_from(directory).map_err(io::Error::from)? {
-                    let entry = entry.map_err(io::Error::from)?;
-                    let Ok(id) = entry.file_name().to_str() else {
-                        continue;
-                    };
-                    if !valid_id(id.as_bytes()) {
-                        continue;
-                    }
-                    seen.insert(id.to_owned());
-                    let result = (|| -> Result<(), Error> {
-                        if entry.file_type() != fs::FileType::Directory {
-                            return Err(Error::InvalidFile);
-                        }
-                        let stamp = self.record_stamp(directory, id)?;
-                        let indexed = self
-                            .index
-                            .db
-                            .prepare_cached("SELECT stamp FROM records WHERE trash=? AND id=?")?
-                            .query_row(params![trash, id], |row| row.get::<_, String>(0))
-                            .optional()?;
-                        if indexed.as_deref() != Some(&stamp) {
-                            let note = self.record(directory, id)?;
-                            self.index_record(directory, id, &note, self.captured(directory, id)?)?;
-                            changed += 1;
-                            if changed % 1000 == 0 {
-                                self.index.db.execute_batch("COMMIT; BEGIN IMMEDIATE")?;
-                            }
-                            if changed % 10_000 == 0 {
-                                eprintln!(
-                                    "operation=recovery_index phase=reconcile trash={trash} changed={changed}"
-                                );
-                            }
-                        }
-                        Ok(())
-                    })();
-                    if let Err(error) = result {
-                        readable = false;
-                        if strict {
-                            return Err(error);
-                        }
-                        eprintln!("operation=recovery_index outcome=unreadable error={error}");
-                    }
-                }
-                let indexed = self
-                    .index
-                    .db
-                    .prepare_cached("SELECT id FROM records WHERE trash=?")?
-                    .query_map([trash], |row| row.get::<_, String>(0))?
-                    .collect::<Result<Vec<_>, _>>()?;
-                for id in indexed {
-                    if !seen.contains(&id) {
-                        self.index
-                            .db
-                            .prepare_cached("DELETE FROM records WHERE trash=? AND id=?")?
-                            .execute(params![trash, id])?;
-                    }
-                }
-                Ok(())
-            })();
-            if let Err(error) = result {
-                let _ = self.index.db.execute_batch("ROLLBACK");
-                return Err(error);
-            }
-            self.index.db.execute_batch("COMMIT")?;
-        }
-        self.index.db.execute("INSERT OR IGNORE INTO retention_queue SELECT name FROM records WHERE trash=0 GROUP BY name HAVING count(*)>50",[])?;
-        self.index.db.execute(
-            "UPDATE state SET value=? WHERE key='recovery-readable'",
-            [readable],
-        )?;
-        Ok(())
     }
 
     pub fn trash_page(&self, cursor: Option<&str>) -> Result<TrashPage, Error> {
@@ -307,7 +195,7 @@ impl Store {
         let mut removed = 0;
         let purged=self.index.db.prepare_cached("SELECT id FROM records WHERE trash=1 AND seq<=(SELECT value FROM state WHERE key='trash-purge') ORDER BY seq LIMIT ?")?.query_map([limit as i64],|row|row.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
         for id in purged {
-            self.remove_record(&self.trash, &id)?;
+            self.remove_record(RecordKind::Trash, &id)?;
             removed += 1;
         }
         let expired = if now >= grace && removed < limit {
@@ -327,12 +215,16 @@ impl Store {
             if removed >= limit {
                 break;
             }
-            let directory = if trash { &self.trash } else { &self.history };
-            self.record(directory, &id)?;
-            if self.captured(directory, &id)? > cutoff as u128 {
+            let kind = if trash {
+                RecordKind::Trash
+            } else {
+                RecordKind::History
+            };
+            self.record(kind, &id)?;
+            if self.captured(kind, &id)? > cutoff as u128 {
                 return Err(Error::InvalidFile);
             }
-            self.remove_record(directory, &id)?;
+            self.remove_record(kind, &id)?;
             removed += 1;
         }
         if removed < limit {
@@ -346,7 +238,7 @@ impl Store {
             if let Some(name) = queued {
                 let obsolete=self.index.db.prepare_cached("SELECT id FROM records WHERE trash=0 AND name=? ORDER BY captured DESC,id LIMIT ? OFFSET 50")?.query_map(params![name,(limit-removed) as i64],|row|row.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
                 for id in &obsolete {
-                    self.remove_record(&self.history, id)?;
+                    self.remove_record(RecordKind::History, id)?;
                     removed += 1;
                 }
                 if removed < limit {
