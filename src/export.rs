@@ -102,6 +102,11 @@ pub fn write(source: &Path, output: &Path) -> Result<(), Error> {
                 }
             }
             for id in crate::markdown::attachment_references(&note.body) {
+                let attachment = match store.attachment(&id) {
+                    Ok(attachment) => attachment,
+                    Err(Error::NotFound) => continue,
+                    Err(error) => return Err(error),
+                };
                 let mut output = match file(&attachments, &id) {
                     Ok(file) => file,
                     Err(Error::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -109,7 +114,6 @@ pub fn write(source: &Path, output: &Path) -> Result<(), Error> {
                     }
                     Err(error) => return Err(error),
                 };
-                let attachment = store.attachment(&id)?;
                 for start in (0..attachment.bytes).step_by(64 * 1024) {
                     output.write_all(&store.attachment_range(
                         &id,

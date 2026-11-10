@@ -102,3 +102,19 @@ fn missing_schema_contracts_do_not_silently_rebuild_a_database() {
         assert!(Store::open(directory.path()).is_err(), "{statement}");
     }
 }
+
+#[test]
+fn stores_notes_below_a_symlinked_state_directory() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("private/tungsten");
+    std::fs::create_dir_all(&state).unwrap();
+    let alias = directory.path().join("tungsten");
+    std::os::unix::fs::symlink(&state, &alias).unwrap();
+    assert!(Store::open(&alias).is_err());
+    let mut store = Store::open(&alias.join("notes")).unwrap();
+    let note = store.create(Some("Saved.md".into()), "# Saved").unwrap();
+    drop(store);
+    let reopened = Store::open(&state.join("notes")).unwrap();
+    assert_eq!(reopened.read(&note.name).unwrap().body, note.body);
+    assert!(!state.join("notes.sqlite").exists());
+}

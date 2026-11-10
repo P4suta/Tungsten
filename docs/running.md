@@ -51,7 +51,9 @@ Run the bounded [memory checks](verification.md#memory-footprint) to measure the
 ## Service management
 
 Install the executable as `/usr/local/bin/tungsten` and use [the systemd unit](../deploy/tungsten.service).
-The unit owns `/var/lib/tungsten` through a dynamic service account.
+The unit owns `/var/lib/tungsten` through a dynamic service account and stores notes in its real `notes` child directory.
+[systemd can expose the state root through a symbolic link](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#StateDirectory=).
+The store opens the real `notes` child because it rejects a symbolic link as its data directory.
 The unit listens on loopback without requiring an environment file.
 Configure the origin in a unit override when using a canonical proxy hostname.
 
@@ -76,6 +78,7 @@ The app doesn't scan or import external Markdown files.
 Export Markdown and original files before using another editor.
 Stop the service and run `tungsten --data-dir ./notes --export-to ./exported-notes` to write the current notes and referenced originals.
 Export preserves source text and identifiers, excludes Trash and history, and refuses an existing destination.
+References to deleted or missing originals remain in the Markdown without creating empty exported files.
 It reads attachment chunks and publishes the directory only after completion.
 Use a complete database backup to keep recovery records.
 Use `tungsten --data-dir ./notes --backup-to ./backup` for a complete portable archive.
