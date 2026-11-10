@@ -3,6 +3,8 @@
 Run `mise x -- just check` for the required local gate.
 The gate builds the assets before checking Rust, TypeScript, HTTP behavior, browser workflows, dependencies, secrets, and prose.
 Native storage checks cover atomic rollback, revision conflicts, original byte ranges, corrupted storage, incomplete backups, and bounded space reclamation.
+The directory lock explicitly releases ownership under the [Rust file locking contract](https://doc.rust-lang.org/std/fs/struct.File.html#method.unlock) after database closure.
+Regression checks keep a duplicated descriptor open across store replacement and verify that closing the descriptor preserves the replacement store's lock.
 Portable archive checks preserve original bytes, recovery records, workspace membership, counters, and pending maintenance while rebuilding indexes.
 Restore failures preserve existing destinations.
 Shutdown checks keep an upload body unfinished, send SIGTERM to an owned server process, and require the process and directory lock to exit within six seconds.

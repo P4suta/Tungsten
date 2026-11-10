@@ -7,7 +7,7 @@ use rustix::fs::{self, Mode, OFlags};
 use serde::Serialize;
 use std::{
     fs::{File, TryLockError},
-    io,
+    io::{self, Write},
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::Path,
     time::{SystemTime, UNIX_EPOCH},
@@ -64,7 +64,30 @@ impl RecordKind {
 
 pub struct Store {
     index: catalog::Catalog,
-    _lock: File,
+    _lock: DirectoryLock,
+}
+
+struct DirectoryLock(File);
+
+impl DirectoryLock {
+    fn acquire(file: File) -> Result<Self, Error> {
+        file.try_lock().map_err(|error| match error {
+            TryLockError::WouldBlock => Error::Locked,
+            TryLockError::Error(error) => Error::Io(error),
+        })?;
+        Ok(Self(file))
+    }
+}
+
+impl Drop for DirectoryLock {
+    fn drop(&mut self) {
+        if let Err(error) = self.0.unlock() {
+            let _ = writeln!(
+                io::stderr().lock(),
+                "operation=store_lock outcome=release_failed error={error}"
+            );
+        }
+    }
 }
 
 fn now() -> Result<i64, Error> {
@@ -105,10 +128,7 @@ impl Store {
         if !lock.metadata()?.is_file() || lock.metadata()?.nlink() != 1 {
             return Err(Error::InvalidFile);
         }
-        lock.try_lock().map_err(|error| match error {
-            TryLockError::WouldBlock => Error::Locked,
-            TryLockError::Error(error) => Error::Io(error),
-        })?;
+        let lock = DirectoryLock::acquire(lock)?;
         for (index, entry) in std::fs::read_dir(path)?.enumerate() {
             let entry = entry?;
             if index >= 8
@@ -414,5 +434,24 @@ impl Store {
         self.index.remove(name)?;
         transaction.commit()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Error, Store};
+
+    #[test]
+    fn writer_ownership_ends_before_duplicated_descriptors_close() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(directory.path()).unwrap();
+        let duplicate = store._lock.0.try_clone().unwrap();
+        assert!(matches!(Store::open(directory.path()), Err(Error::Locked)));
+        drop(store);
+        let replacement = Store::open(directory.path()).unwrap();
+        drop(duplicate);
+        assert!(matches!(Store::open(directory.path()), Err(Error::Locked)));
+        drop(replacement);
+        Store::open(directory.path()).unwrap();
     }
 }
