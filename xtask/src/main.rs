@@ -137,6 +137,22 @@ fn run(directory: &Path, program: &str, args: &[&str]) -> Result<()> {
     run_env(directory, program, args, &[])
 }
 
+fn verification_command(directory: &Path, program: &str, args: &[&str]) -> Result<Command> {
+    let local = Command::new("git")
+        .args(["rev-parse", "--local-env-vars"])
+        .output()?;
+    ensure!(
+        local.status.success(),
+        "cannot identify the Git repository environment"
+    );
+    let mut command = Command::new(program);
+    command.args(args).current_dir(directory);
+    for name in String::from_utf8(local.stdout)?.lines() {
+        command.env_remove(name);
+    }
+    Ok(command)
+}
+
 fn run_env(
     directory: &Path,
     program: &str,
@@ -144,10 +160,8 @@ fn run_env(
     environment: &[(&str, &str)],
 ) -> Result<()> {
     eprintln!("phase=command program={program} args={args:?}");
-    let status = Command::new(program)
-        .args(args)
+    let status = verification_command(directory, program, args)?
         .envs(environment.iter().copied())
-        .current_dir(directory)
         .stdin(Stdio::null())
         .status()
         .with_context(|| format!("start {program}"))?;
@@ -159,10 +173,7 @@ fn run_env(
 }
 
 fn output(directory: &Path, program: &str, args: &[&str]) -> Result<String> {
-    let result = Command::new(program)
-        .args(args)
-        .current_dir(directory)
-        .output()?;
+    let result = verification_command(directory, program, args)?.output()?;
     ensure!(
         result.status.success(),
         "{program} failed: {}",
@@ -240,6 +251,16 @@ fn dependencies(root: &Path) -> Result<()> {
             == "https://github.com/RustSec/advisory-db",
         "unexpected advisory source"
     );
+    let present = verification_command(database, "git", &["cat-file", "-e", ADVISORIES])?
+        .stderr(Stdio::null())
+        .status()?;
+    if !present.success() {
+        run(
+            database,
+            "git",
+            &["fetch", "--depth", "1", "origin", ADVISORIES],
+        )?;
+    }
     run(database, "git", &["checkout", "--detach", ADVISORIES])?;
     ensure!(
         output(database, "git", &["rev-parse", "HEAD"])? == ADVISORIES,
@@ -598,6 +619,52 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn commands_use_the_requested_repository_inside_git_hooks() {
+        if let Some(directory) = std::env::var_os("TUNGSTEN_CHECK_FOREIGN_REPOSITORY") {
+            let directory = PathBuf::from(directory);
+            assert_eq!(
+                output(&directory, "git", &["config", "test.scope"]).unwrap(),
+                "foreign"
+            );
+            run(&directory, "git", &["config", "test.scope", "checked"]).unwrap();
+            return;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        for name in ["parent", "foreign"] {
+            run(directory.path(), "git", &["init", "--quiet", name]).unwrap();
+            run(
+                &directory.path().join(name),
+                "git",
+                &["config", "test.scope", name],
+            )
+            .unwrap();
+        }
+        let parent = directory.path().join("parent");
+        let foreign = directory.path().join("foreign");
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::commands_use_the_requested_repository_inside_git_hooks",
+            ])
+            .env("TUNGSTEN_CHECK_FOREIGN_REPOSITORY", &foreign)
+            .env("GIT_DIR", parent.join(".git"))
+            .env("GIT_WORK_TREE", &parent)
+            .env("GIT_INDEX_FILE", parent.join(".git/index"))
+            .env("GIT_COMMON_DIR", parent.join(".git"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(
+            output(&parent, "git", &["config", "test.scope"]).unwrap(),
+            "parent"
+        );
+        assert_eq!(
+            output(&foreign, "git", &["config", "test.scope"]).unwrap(),
+            "checked"
+        );
+    }
 
     #[test]
     fn command_failures_are_not_successful_checks() {
