@@ -14,6 +14,7 @@ Use `mise x -- just scale-profile --counts 1000000` for the bounded database cap
 Install the shared `prose` and `dotfiles` commands from the pinned source revision in the workflow when preparing another machine.
 The same commands validate the decision records and generated repository files.
 Project tool pins include the Vale version required by the shared prose checker.
+Update Vale together with the shared checker revision and its required version.
 Hosted checks run the documentation gate before setting up browsers.
 
 The browser suite uses Chromium, Firefox, WebKit, and mobile device profiles.
