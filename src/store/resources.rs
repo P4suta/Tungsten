@@ -8,6 +8,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
     io::{self, Read},
+    os::unix::fs::PermissionsExt,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
@@ -375,7 +376,9 @@ impl Store {
         let directory = std::path::Path::new(self.index.db.path().ok_or(Error::InvalidFile)?)
             .parent()
             .ok_or(Error::InvalidFile)?;
-        Ok(tempfile::tempfile_in(directory)?)
+        let file = tempfile::tempfile_in(directory)?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        Ok(file)
     }
 
     pub fn upload_from(
