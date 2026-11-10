@@ -1,5 +1,8 @@
 [tools]
-rust = "1.99.1"
+rust = { version = "1.99.1", profile = "minimal", components = [
+  "clippy",
+  "rustfmt",
+] }
 node = "26.13.0"
 just = "1.59.0"
 taplo = "0.10.0"
