@@ -9,6 +9,9 @@ Portable archive checks preserve original bytes, recovery records, workspace mem
 Restore failures preserve existing destinations.
 Shutdown checks keep an upload body unfinished, send SIGTERM to an owned server process, and require the process and directory lock to exit within six seconds.
 The license policy permits SQLite's public-domain dedication through its `blessing` identifier.
+Run `mise x -- cargo xtask secrets` to check working files and Git history.
+Hosted checkouts include complete history, and secret checks reject shallow repositories.
+Fixtures verify detection in working files and in earlier commits after a later commit removes the file.
 Dataset fixtures resume interrupted committed batches without replacing saved notes.
 Browser fixtures exercise writing without setup, unavailable IndexedDB, independent profiles, server restarts, and original media.
 Rendered note fixtures select complete Markdown through keyboard commands before clearing, restoring, and continuing input.
@@ -145,8 +148,8 @@ Reports record source identity, container identity, environment, input revision,
 Repetition checks require complete engine groups and reject mixed source or input identities before reporting run-level variation.
 Use repeated runs on the same machine before attributing a timing change to an engine.
 
-Fjall's development dependencies require version-scoped license exceptions for `varint-rs` under [0BSD](https://spdx.org/licenses/0BSD.html) and `xxhash-rust` under [Boost Software License 1.0](https://spdx.org/licenses/BSL-1.0.html).
-The general license allowlist remains unchanged.
+The Fjall comparison adapter requires version-scoped license exceptions for `varint-rs` under [0BSD](https://spdx.org/licenses/0BSD.html) and `xxhash-rust` under [Boost Software License 1.0](https://spdx.org/licenses/BSL-1.0.html).
+The exceptions cover only the named Fjall dependencies and versions.
 
 Storage fixtures check streamed hashes, rollback on short and failed readers, unlinked private staging, and restart persistence.
 HTTP fixtures check interrupted streams, declared lengths, JSON limits, upload-slot cancellation, and editing while an upload waits for bytes.

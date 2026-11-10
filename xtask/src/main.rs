@@ -4,6 +4,7 @@ mod mutation;
 mod performance;
 mod proofs;
 mod scale;
+mod secrets;
 mod storage;
 mod stress;
 
@@ -53,6 +54,7 @@ enum Task {
     Format,
     Docs,
     Dependencies,
+    Secrets,
     Proofs {
         #[arg(long)]
         dry_run: bool,
@@ -277,18 +279,7 @@ fn dependencies(root: &Path) -> Result<()> {
         "npm",
         &["audit", "--package-lock-only", "--audit-level=high"],
     )?;
-    run(
-        root,
-        "gitleaks",
-        &[
-            "dir",
-            ".",
-            "--config",
-            "deploy/gitleaks.toml",
-            "--redact",
-            "--no-banner",
-        ],
-    )
+    secrets::verify(root)
 }
 
 fn check(root: &Path) -> Result<()> {
@@ -506,6 +497,7 @@ fn main() -> Result<()> {
         }
         Task::Docs => docs(&root)?,
         Task::Dependencies => dependencies(&root)?,
+        Task::Secrets => secrets::verify(&root)?,
         Task::Proofs { dry_run } => proofs::verify(&root, dry_run)?,
         Task::ProofNative { reports } => proofs::native(&root, &reports)?,
         Task::ReleaseCheck => {
