@@ -233,7 +233,7 @@ test("writes when IndexedDB is unavailable", async ({ page, service }) => {
   await expect(page.locator("#save-status")).toHaveText("Saved");
 });
 
-test("keeps original files, history, and Trash usable after a server restart", async ({
+test("keeps original files usable after a server restart and Trash restore", async ({
   page,
   service,
 }) => {
@@ -251,6 +251,11 @@ test("keeps original files, history, and Trash usable after a server restart", a
   await editor.press("Enter");
   await editor.press("Enter");
   await editor.pressSequentially("Below the image");
+  await expect(page.locator("#save-status")).toHaveText("Saved");
+  await service.restart();
+  await page.reload();
+  await expect(editor).toHaveText(/Below the image/);
+  await expect(page.locator("#save-status")).toHaveText("Saved");
   const image = page.locator("#live-editor img");
   await expect(image).toBeVisible();
   const path = await image.getAttribute("src");
