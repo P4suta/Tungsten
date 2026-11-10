@@ -29,8 +29,11 @@ test("keeps the last writing line centered through wrapping and narrow layouts",
   ]) {
     await page.setViewportSize(viewport);
     for (const text of ["A line\n".repeat(45), "長い文章を続けて書く。".repeat(130)]) {
-      await note.fill(text);
+      await note.press("ControlOrMeta+a");
+      await page.keyboard.insertText(text);
+      await expect(note).toHaveMarkdown(text);
       await note.pressSequentially("typing");
+      await expect(note).toHaveMarkdown(`${text}typing`);
       await expect
         .poll(() =>
           note.evaluate((input) => {
