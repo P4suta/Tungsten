@@ -194,6 +194,7 @@ Parser and browser behavior cross dependency and DOM boundaries and remain integ
 Named regions use direct labels matching their headings, following the [W3C region examples](https://www.w3.org/WAI/ARIA/apg/patterns/landmarks/examples/region.html).
 A direct label avoids a pinned Firefox crash when the preview region refers to its heading by ID.
 The browser suite runs the complete selected accessibility rule set and rejects an unnamed button fixture.
+The gate rejects child frames and uses the [documented analysis mode](https://github.com/dequelabs/axe-core-npm/blob/develop/packages/playwright/error-handling.md#axebuildersetlegacymodelegacy-boolean) that runs in the tested page, avoiding a second WebKit automation window.
 Media checks decode an image, play a recording, render PDF pixels and text, follow links, and select PDF pages.
 The viewer follows the [HTML media contract](https://html.spec.whatwg.org/multipage/media.html#media-elements) and the [PDF.js rendering API](https://mozilla.github.io/pdf.js/examples/).
 Media descriptions support transcripts supplied by the owner.
