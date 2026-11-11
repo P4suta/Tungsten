@@ -1,4 +1,9 @@
-import { afterWritingLayout, writingCaret, writingElement } from "./surface.js";
+import {
+  afterWritingLayout,
+  writingCaret,
+  writingElement,
+  writingScrollContainer,
+} from "./surface.js";
 
 export function paperHeight(body: HTMLTextAreaElement): number {
   if (!body.value) return 0;
@@ -71,6 +76,8 @@ export function caretBox(body: HTMLTextAreaElement): DOMRect {
     top: "0",
     visibility: "hidden",
     width: `${body.clientWidth}px`,
+    height: "0",
+    overflow: "hidden",
     whiteSpace: "pre-wrap",
     overflowWrap: "break-word",
   });
@@ -115,11 +122,18 @@ export function initWriting(
     )
       return;
     const caret = caretBox(body);
-    const center = (visualViewport?.offsetTop ?? 0) + (visualViewport?.height ?? innerHeight) / 2;
-    if (caret.top + scrollY < center) return;
-    const top = scrollY + caret.top + caret.height / 2 - center;
-    spacer.style.height = `${Math.ceil(innerHeight - center + caret.height)}px`;
-    window.scrollTo({ top, behavior: "instant" });
+    const scroll = writingScrollContainer();
+    const bounds = scroll.getBoundingClientRect();
+    const viewportTop = Math.max(bounds.top, visualViewport?.offsetTop ?? 0);
+    const viewportBottom = Math.min(
+      bounds.bottom,
+      (visualViewport?.offsetTop ?? 0) + (visualViewport?.height ?? innerHeight),
+    );
+    const center = (viewportTop + viewportBottom) / 2;
+    if (caret.top + scroll.scrollTop < center) return;
+    const top = scroll.scrollTop + caret.top + caret.height / 2 - center;
+    spacer.style.height = `${Math.ceil(viewportBottom - center + caret.height)}px`;
+    scroll.scrollTo({ top, behavior: "instant" });
   }
   function schedule(): void {
     if (scheduled) return;
@@ -134,6 +148,8 @@ export function initWriting(
   });
   document.addEventListener("tungsten:note", () => {
     spacer.style.height = "0px";
+    writingScrollContainer().scrollTo({ top: 0, behavior: "instant" });
   });
   visualViewport?.addEventListener("resize", schedule);
+  new ResizeObserver(schedule).observe(writingScrollContainer());
 }

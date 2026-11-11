@@ -4,7 +4,6 @@
 
 The proof gate checks executable Rust with [Kani 0.68.0](https://github.com/model-checking/kani/releases/tag/kani-0.68.0).
 Native proofs call the production path, identifier, revision, destination, and attribute rules in `src/rules.rs`.
-Vault proofs call the dependency-free `tungsten-state` crate used by manifest persistence and the private request boundary.
 Browser proofs call generated Rust functions translated from the production Boolean decisions in `ui/src/model.ts`.
 The translator accepts explicit Boolean parameters, Boolean returns, identifiers, literals, negation, conjunction, and disjunction.
 It rejects extra or missing functions, changed parameter meanings, side effects, implicit coercions, and unsupported syntax.
@@ -35,12 +34,6 @@ Different local writing causes a conflict instead of replacement.
 Automatic draft recovery excludes a living owner and requires coordination for owned drafts.
 Legacy drafts remain recoverable.
 
-Vault creation requires preparation before readiness.
-An existing vault keeps its identity and advances from pending through optional migration to readiness.
-Identical manifests are idempotent, and readiness can't regress.
-Private requests require a ready manifest, a valid session, an available router, and no failed initialization.
-An unlocked server doesn't grant another browser profile access without enrollment.
-
 ## Bounds and correspondence
 
 Boolean decision proofs cover every parameter combination.
@@ -50,15 +43,15 @@ The scalar encoding proof covers the complete Rust `char` domain.
 The competing-writer schedule uses distinct four-byte revision representatives and both writer orders.
 Equality representatives model decision outcomes without modeling the hash algorithm.
 
-Temporal browser and vault harnesses examine sequences of 16 operations with explicit unwinding bounds.
+Temporal browser harnesses examine sequences of 16 operations with explicit unwinding bounds.
 Browser traces model edits, save requests, acknowledgements, navigation, revision changes, composition, and refresh replies.
 Text identity representatives cover repeated values and edits that return to earlier text.
 Navigation counters remain within the declared sequence bound.
 The traces verify compositions of production decisions under the harness's adapter model.
 They don't prove the browser event loop, network transport, storage APIs, or every production event handler.
-Browser tests exercise delayed replies, live sibling drafts, hidden pages, competing encrypted writes, independent profiles, and restarts at those boundaries.
+Browser tests exercise delayed replies, live sibling drafts, hidden pages, competing writes, independent profiles, and restarts at those boundaries.
 
-Cryptographic primitives, key erasure, allocation, filesystem durability, SQLite transactions, HTTP delivery, and browser coordination keep integration checks.
+Allocation, filesystem durability, SQLite transactions, HTTP delivery, and browser coordination keep integration checks.
 The proof gate covers bounded execution and trusts the running server.
 
 ## Reproduction and refusal behavior

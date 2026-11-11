@@ -47,25 +47,17 @@ fn indexed_collection_is_bounded_and_references_restart_the_grace_period() {
 }
 
 #[test]
-fn automatic_collection_stops_after_reopening_unreadable_sources() {
+fn unexpected_data_prevents_reopening_before_automatic_collection() {
     let directory = tempfile::tempdir().unwrap();
     let mut store = Store::open(directory.path()).unwrap();
     let file = store.upload("keep.txt".into(), b"original").unwrap();
     drop(store);
     std::fs::write(directory.path().join("broken.md"), [0xff]).unwrap();
-    let mut store = Store::open(directory.path()).unwrap();
-    assert!(
-        store
-            .collect_indexed_unused_attachments(
-                SystemTime::now() + Duration::from_secs(8 * 86400),
-                8
-            )
-            .is_err()
-    );
-    assert_eq!(store.attachment_bytes(&file.id).unwrap(), b"original");
-    drop(store);
+    assert!(Store::open(directory.path()).is_err());
+    assert!(directory.path().join("notes.sqlite").is_file());
     std::fs::remove_file(directory.path().join("broken.md")).unwrap();
     let mut store = Store::open(directory.path()).unwrap();
+    assert_eq!(store.attachment_bytes(&file.id).unwrap(), b"original");
     assert_eq!(
         store
             .collect_indexed_unused_attachments(

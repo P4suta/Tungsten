@@ -1,6 +1,18 @@
-import { expect as baseExpect, type Locator, test } from "@playwright/test";
+import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
 
 export { test };
+
+export async function pressShortcut(target: Locator | Page, key: string): Promise<void> {
+  const page = "keyboard" in target ? target : target.page();
+  const modifier = await page.evaluate(() =>
+    /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /iPhone|iPad|iPod/.test(navigator.userAgent)
+      ? "Meta"
+      : "Control",
+  );
+  const shortcut = `${modifier}+${key}`;
+  if ("keyboard" in target) await target.keyboard.press(shortcut);
+  else await target.press(shortcut);
+}
 
 export async function markdownValue(editor: Locator): Promise<string> {
   return editor.page().locator("#body").inputValue();
@@ -10,7 +22,7 @@ export async function selectMarkdown(editor: Locator, from: number, to = from): 
   const source = await markdownValue(editor);
   if (from < 0 || to < from || to > source.length) throw new Error("Invalid Markdown selection");
   await editor.focus();
-  await editor.press("ControlOrMeta+Home");
+  await pressShortcut(editor, "Home");
   const backing = editor.page().locator("#body");
   const position = (edge: "start" | "end"): Promise<number> =>
     backing.evaluate(

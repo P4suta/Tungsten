@@ -3,6 +3,12 @@
   "extends": ["github>P4suta/renovate-config"],
   "packageRules": [
     {
+      "description": "The pinned prose checker requires Vale 3.25.1.",
+      "matchManagers": ["mise"],
+      "matchPackageNames": ["vale-cli/vale"],
+      "allowedVersions": "3.25.1"
+    },
+    {
       "matchFileNames": ["Dockerfile"],
       "matchDatasources": ["apk"],
       "registryUrls": [

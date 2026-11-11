@@ -12,10 +12,9 @@ import {
   mayRecoverDraft,
   maySave,
 } from "./model.js";
-import { closePage, currentPage, returningFromPage } from "./pages.js";
-import { focusWriting, observeLayout } from "./surface.js";
+import { navigationHasFocus } from "./sidebar.js";
+import { focusWriting, observeLayout, writingScrollContainer } from "./surface.js";
 import { defaultTitle, noteTitle } from "./titles.js";
-import { vaultFetch } from "./vault-session.js";
 
 interface Note {
   name: string;
@@ -157,7 +156,7 @@ async function api(
     headers["x-attachment-name"] = encodeURIComponent(input.name);
     options.body = input;
   } else if (input !== undefined) options.body = JSON.stringify(input);
-  const response = await vaultFetch(path, options);
+  const response = await fetch(path, options);
   if (response.status === 204 || response.status === 304) return null;
   const text = await response.text();
   let value: unknown;
@@ -192,7 +191,7 @@ function remember(name: string, replace = false): void {
   if (address.searchParams.get("note") !== name) {
     address.searchParams.set("note", name);
     const target = address.pathname + address.search + address.hash;
-    if (currentPage() === "note" && !replace) history.pushState(null, "", target);
+    if (!replace) history.pushState(null, "", target);
     else history.replaceState(null, "", target);
   }
   try {
@@ -286,7 +285,7 @@ function renderDrafts(): void {
 
 function renderStatus(editor: Editor): void {
   if (editor !== current) return;
-  if (currentPage() === "note") document.title = noteTitle(editor.body);
+  document.title = noteTitle(editor.body);
   const busy = editor.pending !== null || editor.operation;
   body.readOnly = editor.operation;
   status.textContent = editor.blocked
@@ -303,8 +302,7 @@ function renderStatus(editor: Editor): void {
   const error = editor.failure || storageWarning;
   errorText.textContent = error;
   errorText.hidden = error === "";
-  if (error && element("more-dialog", HTMLDialogElement).open)
-    element("more-status", HTMLParagraphElement).textContent = error;
+  element("sidebar-status", HTMLParagraphElement).textContent = error;
   element("recovery", HTMLDivElement).hidden = error === "" && !editor.blocked;
   retryButton.hidden = editor.failure === null || editor.blocked;
   reloadButton.hidden = !editor.blocked || editor.name === null || editor.missing;
@@ -315,14 +313,13 @@ function renderStatus(editor: Editor): void {
 }
 
 function resizePaper(): void {
-  const paper = element("editor-pane", HTMLElement);
+  const paper = writingScrollContainer();
   if (paper.hidden) return;
-  const top = paper.offsetTop;
-  document.documentElement.style.setProperty("--header-height", `${top}px`);
+  document.documentElement.style.setProperty("--writing-height", `${paper.clientHeight}px`);
 }
 window.addEventListener("resize", resizePaper);
 observeLayout(
-  [element("editor-pane", HTMLElement), document.querySelector("header") ?? document.body],
+  [writingScrollContainer(), document.querySelector("header") ?? document.body],
   resizePaper,
 );
 
@@ -417,15 +414,14 @@ async function openAfterDeletion(editor: Editor): Promise<void> {
       try {
         const note = parseNote(await api(notePath(name)));
         if (generation !== openGeneration || current !== editor) return;
-        showNote(note, true, currentPage() === "note" && !document.querySelector("dialog[open]"));
+        showNote(note, true, mayResumeWriting());
         return;
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 404) throw error;
         recentlyOpened = recentlyOpened.filter((entry) => entry !== name);
       }
     }
-    if (generation === openGeneration && current === editor)
-      show(editor, currentPage() === "note" && !document.querySelector("dialog[open]"));
+    if (generation === openGeneration && current === editor) show(editor, mayResumeWriting());
   } catch (error) {
     if (generation !== openGeneration || current !== editor) return;
     editor.failure = message(error);
@@ -435,6 +431,12 @@ async function openAfterDeletion(editor: Editor): Promise<void> {
       renderStatus(editor);
     }
   }
+}
+
+function mayResumeWriting(): boolean {
+  const compactContext =
+    document.body.dataset.layout === "compact" && document.body.dataset.context === "open";
+  return !document.querySelector("dialog[open]") && (compactContext || !navigationHasFocus());
 }
 
 async function refresh(
@@ -460,8 +462,7 @@ async function refresh(
       button.dataset.name = note.name;
       if (current?.name === note.name) button.setAttribute("aria-current", "true");
       button.addEventListener("click", () => {
-        element("notes-dialog", HTMLDialogElement).close();
-        void openNote(note.name);
+        void features?.open(note.name).catch(() => {});
       });
       const item = document.createElement("li");
       item.append(button);
@@ -569,7 +570,8 @@ async function recover(draft: StoredDraft): Promise<void> {
         if (generation !== openGeneration) return;
         forgetDeleted(editor);
         const replacement = blank();
-        show(replacement);
+        element("notes-dialog", HTMLDialogElement).close();
+        show(replacement, true);
         await openAfterDeletion(replacement);
         return;
       }
@@ -580,7 +582,8 @@ async function recover(draft: StoredDraft): Promise<void> {
   }
   if (generation !== openGeneration) return;
   if (editor.name) remember(editor.name);
-  show(editor);
+  element("notes-dialog", HTMLDialogElement).close();
+  show(editor, true);
   persist(editor);
   if (dirty(editor) && !editor.blocked) {
     editor.failure ??= "Recovered an unsaved draft. Select Retry to save it.";
@@ -682,9 +685,8 @@ document.addEventListener("compositionend", () => {
   renderStatus(current);
   schedule(current);
 });
-function createDraft(title: string, text: string, focus = true, save = true): void {
-  closePage();
-  for (const id of ["more-dialog", "notes-dialog"]) element(id, HTMLDialogElement).close();
+function createDraft(title: string, text: string, focus = true, save = true): Editor {
+  element("notes-dialog", HTMLDialogElement).close();
   ++openGeneration;
   const editor = blank();
   editor.body = text || (title ? `# ${title}\n\n` : editor.body);
@@ -695,23 +697,17 @@ function createDraft(title: string, text: string, focus = true, save = true): vo
   if (!text) body.setSelectionRange(body.value.length, body.value.length);
   persist(editor);
   if (save && editor.body) schedule(editor);
+  return editor;
 }
 
-element("new-note", HTMLButtonElement).addEventListener("click", () => {
-  createDraft("", "");
-});
-element("show-notes", HTMLAnchorElement).addEventListener("click", (event) => {
+element("show-notes", HTMLButtonElement).addEventListener("click", (event) => {
   event.preventDefault();
-  closePage();
-  openDialog(element("notes-dialog", HTMLDialogElement), element("show-notes", HTMLAnchorElement));
+  openDialog(element("notes-dialog", HTMLDialogElement), element("show-notes", HTMLButtonElement));
   search.focus();
   search.value = "";
   void features?.home();
   void refresh().catch(() => {});
 });
-element("more", HTMLButtonElement).addEventListener("click", () =>
-  openDialog(element("more-dialog", HTMLDialogElement), element("more", HTMLButtonElement)),
-);
 search.addEventListener("input", () => {
   void refresh().catch(() => {});
 });
@@ -762,7 +758,7 @@ copyButton.addEventListener("click", () => {
 deleteButton.addEventListener("click", () => {
   const editor = current;
   if (!editor?.name || !confirm("Move this note to trash?")) return;
-  element("more-dialog", HTMLDialogElement).close();
+  element("close-context", HTMLButtonElement).focus({ preventScroll: true });
   const generation = openGeneration;
   void (async () => {
     if ((dirty(editor) || editor.pending) && !(await flush(editor))) return;
@@ -821,7 +817,7 @@ async function synchronize(): Promise<void> {
   if (
     !mayReadRemote(
       !document.hidden,
-      currentPage() === "note",
+      !writingScrollContainer().hidden,
       body.disabled,
       editor.pending !== null,
       editor.operation,
@@ -1002,12 +998,14 @@ features = initFeatures({
   state: snapshot,
   api,
   open: (name) => {
-    closePage(name);
-    element("more-dialog", HTMLDialogElement).close();
     element("notes-dialog", HTMLDialogElement).close();
     return openNote(name, true);
   },
   blank: createDraft,
+  create: async () => {
+    const created = createDraft("", "");
+    return (await flush(created)) ? created.name : null;
+  },
   mutate: async (action) => {
     const editor = current;
     if (!editor || editor.operation || editor.composing) return false;
@@ -1031,14 +1029,6 @@ features = initFeatures({
 });
 
 window.addEventListener("popstate", () => {
-  if (currentPage() !== "note") return;
-  if (returningFromPage() && current) {
-    const address = new URL(location.href);
-    if (current.name) address.searchParams.set("note", current.name);
-    else address.searchParams.delete("note");
-    history.replaceState(null, "", address.pathname + address.search + address.hash);
-    return;
-  }
   const name = new URL(location.href).searchParams.get("note");
   if (current && name === current.name) return;
   if (name)

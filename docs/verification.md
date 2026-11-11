@@ -2,22 +2,44 @@
 
 Run `mise x -- just check` for the required local gate.
 The gate builds the assets before checking Rust, TypeScript, HTTP behavior, browser workflows, dependencies, secrets, and prose.
-Native encryption checks cover device sessions, restart locking, original byte ranges, live journals, corrupted storage, incomplete backups, and bounded space reclamation.
+Native storage checks cover atomic rollback, revision conflicts, original byte ranges, corrupted storage, incomplete backups, and bounded space reclamation.
+The directory lock explicitly releases ownership under the [Rust file locking contract](https://doc.rust-lang.org/std/fs/struct.File.html#method.unlock) after database closure.
+Regression checks keep a duplicated descriptor open across store replacement and verify that closing the descriptor preserves the replacement store's lock.
+Portable archive checks preserve original bytes, recovery records, workspace membership, counters, and pending maintenance while rebuilding indexes.
+Restore failures preserve existing destinations.
 Shutdown checks keep an upload body unfinished, send SIGTERM to an owned server process, and require the process and directory lock to exit within six seconds.
-The license policy limits `blessing` and `WTFPL` permissions to the pinned `sqlcipher-src` package after checking its bundled license declarations.
-Distributed executable outputs include the SQLCipher copyright notice.
-Migration fixtures interrupt committed batches, reject changed sources, and preserve search, recovery identities, Trash visibility, pins, metadata, and original bytes.
-Browser fixtures exercise enrollment, wrong recovery keys, failed persistent storage, remembered keys after browser and server restarts, and media inside encrypted notes.
+The license policy permits SQLite's public-domain dedication through its `blessing` identifier.
+Run `mise x -- cargo xtask secrets` to check working files and Git history.
+Hosted checkouts include complete history, and secret checks reject shallow repositories.
+Fixtures verify detection in working files and in earlier commits after a later commit removes the file.
+Dataset fixtures resume interrupted committed batches without replacing saved notes.
+Browser fixtures exercise writing without setup, unavailable IndexedDB, independent profiles, server restarts, and original media.
 Rendered note fixtures select complete Markdown through keyboard commands before clearing, restoring, and continuing input.
-Use `mise x -- just scale-profile --encrypted --counts 1000000` for the bounded encrypted capacity campaign.
+Use `mise x -- just scale-profile --counts 1000000` for the bounded database capacity campaign.
 Install the shared `prose` and `dotfiles` commands from the pinned source revision in the workflow when preparing another machine.
 The same commands validate the decision records and generated repository files.
+Project tool pins include the Vale version required by the shared prose checker.
+Update Vale together with the shared checker revision and its required version.
+Hosted checks run the documentation gate before setting up browsers.
 
 The browser suite uses Chromium, Firefox, WebKit, and mobile device profiles.
+Shortcut fixtures choose Control or Meta from the browser's platform and device identity.
+Shifted letter shortcuts send uppercase characters under the [Playwright keyboard contract](https://playwright.dev/docs/api/class-keyboard#keyboard-press).
+CI stops after the first browser failure, names each test, and retains failure traces for seven days.
 Each run uses a separate data directory, and recovery fixtures use separate note identities for each profile.
 It checks note operations, draft recovery, delayed responses, stale tabs, and composition events.
-Concurrent editing fixtures cover conditional refresh, active draft ownership, hidden-page suspension, remote deletion, and separate encrypted browser profiles.
+Concurrent editing fixtures cover conditional refresh, active draft ownership, hidden-page suspension, remote deletion, and separate browser profiles.
 Empty page checks reject scrolling and persistent formatting controls at desktop, narrow, landscape, and enlarged text sizes.
+Sidebar checks cover independent visibility, reserved writing space, fixed pane bounds, unavailable storage, keyboard return, and unchanged drafts.
+Every wide-screen sidebar combination preserves the paper's bounds, writing width, scroll position, and source selection at four viewport widths.
+Compact checks return from navigation and context to the same reading position after centered typing has settled.
+Workspace contracts check current-schema initialization, restart persistence, bounded pagination, concurrent additions, rejected stale metadata, rename cascades, and membership cleanup.
+Catalog contracts reject unsupported format markers and incomplete recovery records or search cursors.
+Browser checks create, rename, and remove workspaces, keep selections independent across tabs, and retry failed membership without duplicating notes.
+Delayed deletion checks preserve newly opened navigation and keyboard focus.
+Deletion fault injection waits for the linked note before disrupting collection reads.
+Navigation uses the [W3C disclosure pattern](https://www.w3.org/WAI/ARIA/apg/patterns/disclosure/) with native links and buttons.
+The pane grid uses separate scroll containers and shows one pane on narrow screens to preserve [reflow](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html).
 Keyboard workflows check delimiter completion, selected text formatting, link entry, list continuation, indentation, undo, and focus exit.
 Composition fixtures verify that Markdown completion leaves composing input unchanged.
 Composition events exercise the app's input protocol without claiming to emulate a phone's native keyboard.
@@ -62,6 +84,19 @@ Timed tasks and authentication criteria have no matching features in the app.
 Black and white styling, 18 CSS pixel text, and 48 CSS pixel targets are owner preferences.
 Automated results don't establish behavior in an untested assistive technology.
 
+## Database capacity
+
+The ordinary SQLite mixed campaign passed with 1000000 notes and 5676337 stored links.
+Startup took 101 milliseconds.
+Across twenty samples per endpoint, the largest search ninety-fifth percentile was two milliseconds and Overview reached 69 milliseconds.
+Eight concurrent clients reached a ninety-fifth percentile of 95 milliseconds.
+
+The extreme campaign passed with 1000000 notes, 999999 incoming links to one hub, and 1000000 recovery records.
+Reopening took two milliseconds, hub saving took five milliseconds, and bounded cleanup took nine milliseconds.
+Both campaigns used two CPUs, 2 GiB of memory, no swap, and a 10 GiB storage budget in the local Linux container.
+The test operator removed the generated campaign volumes after verification.
+The observations describe seeded synthetic data and the measured host, without establishing latency on every physical device.
+
 ## Browser performance
 
 Run `mise x -- just browser-performance --dry-run` to inspect the bounded workload.
@@ -79,10 +114,49 @@ The regular browser suite limits initial decoded JavaScript to 420 KiB and trans
 PDF rendering, formatting, syntax highlighting, graph simulation, and version differences load on demand.
 HTTP fixtures verify compression, conditional requests, immutable fingerprinted chunks, and private pages retaining `no-store`.
 Source files and retired settings and export routes remain unavailable.
-Chromium tests measure twelve edits under sixfold CPU slowdown and require the ninety-fifth percentile through the following rendering frame to stay below 200 milliseconds.
+Chromium tests load 50 sidebar notes, measure twelve edits under sixfold CPU slowdown, and require the ninety-fifth percentile through the following rendering frame to stay below 200 milliseconds.
 Other engines run the same editing behavior without claiming support for Chromium's CPU emulation.
 Lighthouse's [performance score](https://developer.chrome.com/docs/lighthouse/performance/performance-scoring) and synthetic latency budgets cover the specified fixture and emulation.
 Physical devices and networks can differ from the laboratory conditions.
+
+## Memory footprint
+
+Run `mise x -- just memory-profile --dry-run` to inspect the workload.
+Run `mise x -- just memory-profile` for a Linux container with one CPU, 64 MiB of memory, no swap, 32 processes, no network, and a 180-second deadline.
+The workload seeds 5000 notes, requests compressed browser assets, repeats indexed search and graph reads, saves a near-limit note with 35000 headings, and round-trips three 64 MiB files.
+Uploads and downloads use bounded client buffers, and the gate checks every returned file byte.
+The container owns its temporary dataset and removes the anonymous volume on exit.
+The server's resident high-water mark must remain within 24 MiB.
+Missing, malformed, zero, and excessive measurements fail.
+Linux process measurements and total container memory remain distinct because the container also holds the runner and filesystem cache.
+[Docker statistics](https://docs.docker.com/reference/cli/docker/container/stats/) subtract inactive file cache, so their display isn't a process resident memory measurement.
+The release gate runs the same memory workload.
+It also runs the bounded SQLite storage regression workload.
+Full cross-engine comparisons remain manual.
+
+## Storage characterization
+
+`mise x -- just storage-profile --engine all --case regression` compares durable note, search, file, recovery, and restart operations.
+Small cross-engine contract tests run in the normal Rust test suite.
+The shared-index SQLite control runs the same contracts as redb and Fjall.
+Packed Unicode key checks compare independent substring windows and check width and scalar boundaries.
+Ordered search checks cover exact formatted titles, negative terms, filters, pins, changes, and bounded results.
+Shared contracts cover empty path and tag filters, negative filters, and bare negation markers.
+Fixture checks cross batch boundaries and preserve editing, recovery, and reopening.
+Measurement checks reject missing phases, incorrect operation counts, incomplete outcomes, incompatible baselines, and allocation overruns.
+Reports record source identity, container identity, environment, input revision, and durability settings.
+Repetition checks require complete engine groups and reject mixed source or input identities before reporting run-level variation.
+Use repeated runs on the same machine before attributing a timing change to an engine.
+
+The Fjall comparison adapter requires version-scoped license exceptions for `varint-rs` under [0BSD](https://spdx.org/licenses/0BSD.html) and `xxhash-rust` under [Boost Software License 1.0](https://spdx.org/licenses/BSL-1.0.html).
+The exceptions cover only the named Fjall dependencies and versions.
+
+Storage fixtures check streamed hashes, rollback on short and failed readers, unlinked private staging, and restart persistence.
+HTTP fixtures check interrupted streams, declared lengths, JSON limits, upload-slot cancellation, and editing while an upload waits for bytes.
+Chromium and mobile Chrome collect [heap metrics](https://chromedevtools.github.io/devtools-protocol/tot/Performance/#method-getMetrics) after garbage collection while switching 24 populated notes.
+The gate limits retained JavaScript heap to 16 MiB, growth to 2 MiB, DOM growth to 200 nodes, and listener growth to 30.
+Reading and navigation must leave formatter chunks unloaded.
+Other engines keep their workflow checks without claiming support for Chromium heap instrumentation.
 
 ## Release checks
 
@@ -113,7 +187,7 @@ The translator accepts only explicit boolean parameters, boolean operators, and 
 Tests reject unsupported syntax and effects before a proof can run.
 Kani checks the full admitted boolean domains and filename inputs up to the production length limit.
 Filesystem durability and browser networking remain external boundaries covered by integration and fault-injection tests.
-Single-note reads synchronize the file and directory before acknowledging content after an ambiguous save response.
+Note writes commit source, recovery records, and derived indexes in one durable SQLite transaction.
 The gate runs every discovered proof harness, 20000 seeded fuzz inputs, and the configured Rust rule mutations.
 The [formal assurance guide](formal-assurance.md) describes the production decisions, temporal models, input bounds, and rejected verification results.
 Run `mise x -- just proofs --dry-run` to inspect the proof allocation or `mise x -- just proofs` to run the isolated proof gate.
@@ -128,6 +202,7 @@ Parser and browser behavior cross dependency and DOM boundaries and remain integ
 Named regions use direct labels matching their headings, following the [W3C region examples](https://www.w3.org/WAI/ARIA/apg/patterns/landmarks/examples/region.html).
 A direct label avoids a pinned Firefox crash when the preview region refers to its heading by ID.
 The browser suite runs the complete selected accessibility rule set and rejects an unnamed button fixture.
+The gate rejects child frames and uses the [documented analysis mode](https://github.com/dequelabs/axe-core-npm/blob/develop/packages/playwright/error-handling.md#axebuildersetlegacymodelegacy-boolean) that runs in the tested page, avoiding a second WebKit automation window.
 Media checks decode an image, play a recording, render PDF pixels and text, follow links, and select PDF pages.
 The viewer follows the [HTML media contract](https://html.spec.whatwg.org/multipage/media.html#media-elements) and the [PDF.js rendering API](https://mozilla.github.io/pdf.js/examples/).
 Media descriptions support transcripts supplied by the owner.
@@ -145,7 +220,7 @@ Dialog and page checks verify the name and upper-right placement of close contro
 Heading checks enforce the owner's single-title and continuous-rank policy while preserving literal code and Undo.
 Matched-delimiter and fence checks preserve contents, unrelated blocks, and native Undo.
 Highlighting fixtures cover language aliases, common grammars, a deferred grammar, literal HTML, and an unknown language.
-Trash uses the [single-select listbox keyboard model](https://www.w3.org/WAI/ARIA/apg/patterns/listbox/) with indexed paging, selection, preview, and restoration through browser history.
+Trash uses the [single-select listbox keyboard model](https://www.w3.org/WAI/ARIA/apg/patterns/listbox/) with indexed paging, selection, inline preview, and restoration inside navigation.
 Version comparisons bound computation and output, preserve Unicode, and insert source text without interpreting HTML.
 Explicit-clock storage fixtures preserve a session's starting state, checkpoint idle or structural changes, and suppress duplicate or empty snapshots.
 File-link checks hold the save request until validation completes and reject stale results.
@@ -162,7 +237,7 @@ Pure graph fixtures check bounded neighborhoods and reject edges to missing note
 The sample generator checks counts, repeatability, unique titles, internal destinations, and refusal to replace existing data.
 The scale generator checks random access across a million-page collection without keeping every note in memory.
 Mixed fixtures cover isolated and terminal notes, duplicate titles, and intentional missing destinations.
-Filesystem checks reject an undeclared missing destination.
+Stored-body audits reject an undeclared missing destination.
 Local socket checks reject truncated responses, missing lengths, and streaming responses, and identify HTTP failures and response budget overruns.
 The optional `scale-profile` command measures real generated collections with bounded resources.
 Dataset verification and latency gates must both pass.
@@ -170,75 +245,3 @@ The separate `test:demo` browser command exercises a generated collection and or
 Graph labels never intercept pointer input, while native buttons keep their target size and `accessible name`s.
 Internal-link fixtures check relative destinations, escaped Unicode titles, explicit aliases, literal code, recovery records, and stale revisions.
 Graph controls follow native [button keyboard behavior](https://www.w3.org/WAI/ARIA/apg/patterns/button/) and keep fixed target sizes during zoom.
-
-## Scale observations
-
-The following baseline predates the indexed implementation.
-On 2026-11-09, the default mixed profile with seed 42 completed its three dataset stages in 90.6 seconds on OrbStack.
-The campaign used the documented two CPU and 2 GiB limits.
-The million-page dataset contained 5676337 parsed links, including 9135 intentional missing destinations.
-It included 29791 isolated notes, 86779 notes without outgoing links, 18557 repeated nonempty titles, and 10032 pages without a title heading.
-The largest connected component contained 921714 notes, while the most popular note had 66990 incoming links.
-The million-page dataset occupied 4199305216 bytes in allocated file blocks.
-
-With 10000 pages, search, listing, and connections completed in 232, 224, and 453 milliseconds.
-With 100000 pages, search completed in 2350 milliseconds.
-Listing returned a declared 34164782 byte response after 2548 milliseconds, and connections returned 28845751 bytes after 5020 milliseconds.
-Both collection responses exceeded the 4 MiB budget before the profiler downloaded their bodies.
-
-With 1000000 pages, startup completed in 9331 milliseconds and opening the entry note completed within one millisecond.
-Search, listing, and connections each exceeded the request deadline of 15 seconds.
-Requests ran serially after generation and a full file audit in the same service process.
-Timed out storage work can keep the store mutex and delay later requests, so the observations include queueing.
-The measurements expose collection scans and full collection responses as limits on practical use at larger sizes.
-The successful profiling command doesn't establish million-page support.
-
-## Indexed capacity checks
-
-The indexed implementation bounds search pages, title suggestions, and graph neighborhoods instead of transferring the collection.
-Storage fixtures check Unicode substring semantics, exact title ranking, cursor validation, pagination, interrupted writes, index reconciliation, and queued title updates across restarts.
-Recovery checks return the newest 50 records without opening unrelated bodies.
-Trash clearing remains durable and leaves later deletions restorable.
-Attachment collection checks bounded batches, original bytes, returning references, fragments, and recovery retention.
-Repeated-heading and task fixtures validate unique heading identifiers and UTF-16 positions without repeated prefix scans.
-A browser fixture edits an 840 KB note with 35000 repeated headings while bounding rendered elements.
-PDF and audio fixtures preserve media instances across transient live rendering changes.
-Layout updates wait for a rendering frame instead of changing observed sizes inside a [Resize Observer notification](https://www.w3.org/TR/resize-observer/#html-event-loop).
-The observer specification remains a Working Draft and browser checks cover the notification behavior.
-
-On 2026-11-09, an extreme campaign used 1000000 Markdown files, 999999 incoming links into one hub, and 1000000 recovery records for that hub.
-The runtime retained two CPUs, 2 GiB of memory, no swap, and a campaign limit of 900 seconds.
-Initial index construction completed in 251214 milliseconds and a warm restart completed in 8357 milliseconds.
-Twenty serial measurements per endpoint kept search and list ninety-fifth percentiles below one millisecond.
-The warm graph ninety-fifth percentile was 58 milliseconds with a 42164 byte response.
-Reading and validating 50 recovery sources completed below one millisecond.
-Saving the hub took 15 milliseconds, processing unchanged aliases took 2 milliseconds, saving another note took 11 milliseconds, and an eight-record cleanup batch took 13 milliseconds.
-The former bulk export operation streamed into a sink in 9008 milliseconds.
-Recovery records shared immutable bytes across 4096 variants with separate record directories and identifiers.
-The measurements cover the synthetic fixture and local environment rather than every possible note collection.
-
-The mixed million-page collection with 5676337 parsed links passed the same indexed endpoint gates.
-Its graph ninety-fifth percentile was 11 milliseconds, overview was 53 milliseconds, and eight simultaneous clients completed 32 mixed requests with a 68 millisecond ninety-fifth percentile.
-The largest measured response was 55745 bytes.
-The retired bulk export operation took 3473 milliseconds into a sink.
-Opening the reconciled catalog took 10702 milliseconds.
-
-## Encrypted capacity checks
-
-On 2026-11-09, the encrypted mixed profile with seed 42 completed the million-note capacity gate on OrbStack.
-The run resumed the earlier partial fixture, completed preparation in 69958 milliseconds, and finished all observations in 71893 milliseconds.
-The container retained two CPUs, 2 GiB of memory, no swap, no network, and the deadline of 900 seconds.
-The approved allocation budget was 12 GiB, and the completed data directory occupied 9165807616 bytes in allocated blocks.
-The fixture stored original note bodies and indexes inside SQLCipher and exercised authenticated HTTP requests without a browser index replica.
-
-The profiler reports integer milliseconds.
-Each serial endpoint ran 20 times.
-Search reported 1 millisecond at the ninety-fifth percentile and 20 milliseconds for its slowest request.
-Short, Unicode, negative, and absent searches each reported a ninety-fifth percentile below one millisecond.
-The neighborhood graph reported 11 milliseconds at the ninety-fifth percentile and 25 milliseconds for its slowest request.
-The overview graph reported 59 milliseconds at the ninety-fifth percentile and 63 milliseconds for its slowest request.
-Eight simultaneous clients completed 32 mixed requests.
-The ninety-fifth percentile and slowest response both reported 109 milliseconds.
-The largest measured response was 55745 bytes.
-Every measured endpoint kept its ninety-fifth percentile within 500 milliseconds and every response within one second.
-The measurements cover the synthetic fixture after preparation in the measured container and local environment.

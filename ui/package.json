@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --project tsconfig.build.json && esbuild src/app.ts src/vault-start.ts --bundle --splitting --minify --format=esm --platform=browser --target=es2024 --external:./pdf.mjs --outdir=dist --chunk-names=chunks/[name]-[hash]",
+    "build": "tsc --project tsconfig.build.json && esbuild src/app.ts --bundle --splitting --minify --format=esm --platform=browser --target=es2024 --external:./pdf.mjs --outdir=dist --chunk-names=chunks/[name]-[hash]",
     "typecheck": "tsc --noEmit",
     "lint": "biome check --error-on-warnings .",
     "test": "playwright test",

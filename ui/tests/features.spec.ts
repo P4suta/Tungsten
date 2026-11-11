@@ -1,6 +1,14 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, selectMarkdown, test } from "./editor.js";
-import { attachToNote, nameNote, noteAction, openMore, openTrash } from "./interface.js";
+import { expect, pressShortcut, selectMarkdown, test } from "./editor.js";
+import {
+  attachToNote,
+  exploreNotes,
+  nameNote,
+  newNote,
+  noteAction,
+  openNavigation,
+  openTrash,
+} from "./interface.js";
 
 test.beforeEach(async ({ page, request }) => {
   const notes: { name: string }[] = await (await request.get("/api/notes")).json();
@@ -44,7 +52,7 @@ test("previews Markdown, follows note links, and toggles source tasks", async ({
   expect((await (await request.get("/api/notes/Markdown.md")).json()).body).toContain("- [x] Todo");
   await page.locator("#live-editor").getByRole("link", { name: "Linked", exact: true }).click();
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("Linked content");
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   await expect(page.getByRole("button", { name: "Explore 日本語😀", exact: true })).toBeVisible();
 });
 
@@ -64,7 +72,7 @@ test("searches a flat note collection and leaves browser Find available", async 
       return event.defaultPrevented;
     }),
   ).toBe(false);
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   await page.getByLabel("Search notes", { exact: true }).fill("alpha");
   await expect(page.locator("#notes")).toContainText("alpha alpha #work");
   await expect(page.locator("#notes")).not.toContainText("Projects/Plan");
@@ -83,21 +91,19 @@ test("restores note history and deleted notes through the browser", async ({
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("changed text\n");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await noteAction(page, "Version history");
-  const history = page.getByRole("dialog", { name: "Version history", exact: true });
+  const history = page.getByRole("region", { name: "Version history", exact: true });
   await history.getByRole("button", { name: "View version" }).first().click();
   await expect(history.getByLabel("Saved content", { exact: true })).toHaveValue("original text\n");
   await history.getByRole("button", { name: "Restore version", exact: true }).click();
-  await expect(history).not.toBeVisible();
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("original text\n");
   await noteAction(page, "Delete");
   await expect(page.locator("#save-status")).toHaveText("Ready");
-  await expect(page.getByRole("button", { name: "More", exact: true })).toBeInViewport();
-  const library = await openMore(page);
-  await library.getByRole("link", { name: "Trash", exact: true }).click();
-  const trash = page.getByRole("main", { name: "Trash", exact: true });
+  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeInViewport();
+  const library = await openNavigation(page);
+  await library.getByRole("button", { name: "Trash", exact: true }).click();
+  const trash = page.getByRole("region", { name: "Trash", exact: true });
   await trash.getByRole("option", { name: "original text", exact: true }).click();
   await trash.getByRole("button", { name: "Restore", exact: true }).click();
-  await expect(library).not.toBeVisible();
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("original text\n");
   expect((await request.get(`/api/notes/${name}.md`)).ok()).toBeTruthy();
 });
@@ -109,9 +115,9 @@ test("opens original attachments directly without a bulk download action", async
   await request.post("/api/notes", {
     data: { name: "Templates/Daily.md", body: "## {{title}}\n\n{{date}}\n" },
   });
-  const library = await openMore(page);
-  await library.getByRole("button", { name: "Close", exact: true }).click();
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  const library = await openNavigation(page);
+  await library.getByRole("button", { name: "Close navigation", exact: true }).click();
+  await newNote(page);
   await page.getByLabel("Note", { exact: true }).fill("File: ");
   await attachToNote(page, {
     name: "hello.txt",
@@ -120,7 +126,7 @@ test("opens original attachments directly without a bulk download action", async
   });
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/\.attachments\/.+\.txt/);
   await expect(page.locator("#save-status")).toHaveText("Saved");
-  await page.getByLabel("Note", { exact: true }).press("ControlOrMeta+Home");
+  await pressShortcut(page.getByLabel("Note", { exact: true }), "Home");
   const fileLink = page
     .locator("#live-editor")
     .getByRole("link", { name: "hello.txt", exact: true })
@@ -129,11 +135,11 @@ test("opens original attachments directly without a bulk download action", async
   const href = await fileLink.locator("a").getAttribute("href");
   expect(href).toMatch(/^\/.attachments\//);
   expect(await (await request.get(href ?? "")).text()).toBe("hello file");
-  await openMore(page);
+  await openNavigation(page);
   await expect(library.getByRole("link", { name: "Download all files", exact: true })).toHaveCount(
     0,
   );
-  await library.getByRole("button", { name: "Close", exact: true }).click();
+  await library.getByRole("button", { name: "Close navigation", exact: true }).click();
   expect((await request.get("/api/notes/Templates%2FDaily.md")).ok()).toBeTruthy();
   await expect(page.locator("#template")).toHaveCount(0);
 });
@@ -144,9 +150,9 @@ test("formats text, keeps undo history, and opens notes with the keyboard", asyn
   await selectMarkdown(textarea, 0, 4);
   await textarea.press("Control+b");
   await expect(textarea).toHaveMarkdown("**word**");
-  await textarea.press("ControlOrMeta+z");
+  await pressShortcut(textarea, "z");
   await expect(textarea).toHaveMarkdown("word");
-  await textarea.press("ControlOrMeta+Shift+z");
+  await pressShortcut(textarea, "Shift+Z");
   await expect(textarea).toHaveMarkdown("**word**");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await textarea.press("Control+p");
@@ -241,14 +247,14 @@ test("keeps preview and Trash accessible at narrow widths and enlarged text", as
   expect(geometry.content, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.width);
   expect(await accessibilityViolations(page)).toEqual([]);
   await dialog.press("Escape");
-  await expect(page.getByLabel("Note", { exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeFocused();
 });
 
 test("follows heading anchors without reopening the saved note", async ({ page }) => {
   await nameNote(page, "Anchor");
   await page.getByLabel("Note", { exact: true }).fill("# Heading\n\n[jump](#heading)");
   await expect(page.locator("#save-status")).toHaveText("Saved");
-  await page.getByLabel("Note", { exact: true }).press("ControlOrMeta+Home");
+  await pressShortcut(page.getByLabel("Note", { exact: true }), "Home");
   const link = page.locator("#live-editor").getByRole("link", { name: "jump", exact: true });
   await expect(link).toBeVisible();
   let reads = 0;
@@ -263,7 +269,7 @@ test("follows heading anchors without reopening the saved note", async ({ page }
   await expect(
     page.getByRole("heading", { level: 1, name: "# Heading", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await newNote(page);
   await expect(page).toHaveURL(/\/?\?note=[a-f0-9]{32}\.md$/);
   await page.goBack();
   await expect(

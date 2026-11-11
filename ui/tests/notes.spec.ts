@@ -1,11 +1,18 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, test } from "./editor.js";
-import { nameNote, noteAction } from "./interface.js";
+import { expect, pressShortcut, test } from "./editor.js";
+import {
+  closeNavigation,
+  exploreNotes,
+  nameNote,
+  newNote,
+  noteAction,
+  openNavigation,
+  showPaper,
+} from "./interface.js";
 
 async function showNotes(page: Page): Promise<void> {
-  const button = page.getByRole("link", { name: "Explore notes", exact: true });
-  if (await button.isVisible()) await button.click();
+  await exploreNotes(page);
 }
 
 async function seedNotes(request: APIRequestContext, notes: Record<string, string>): Promise<void> {
@@ -103,14 +110,18 @@ test("returns to the preceding note after deletion and replaces the deleted addr
   });
   await page.goto("/?note=Parent.md");
   const editor = page.getByLabel("Note", { exact: true });
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await page.locator("#live-editor").getByRole("link", { name: "Child", exact: true }).click();
   await expect(editor).toHaveMarkdown(/^# Child\n/);
   await noteAction(page, "Delete");
   await expect(editor).toHaveMarkdown(/^# Parent\n/);
   await expect(page).toHaveURL(/\?note=Parent.md$/);
-  await expect(editor).toBeFocused();
-  await expect(page.getByRole("dialog", { name: "More", exact: true })).toBeHidden();
+  await expect(
+    (await page.evaluate(() => document.body.dataset.layout === "wide"))
+      ? page.locator("#close-context")
+      : editor,
+  ).toBeFocused();
+  await expect(page.getByRole("dialog", { name: "More", exact: true })).toHaveCount(0);
   expect((await request.get("/api/notes/Child.md")).status()).toBe(404);
   expect(await accessibilityViolations(page)).toEqual([]);
   await page.screenshot({ path: `../target/screenshots/after-deletion-${info.project.name}.png` });
@@ -121,10 +132,7 @@ test("returns to the preceding note after deletion and replaces the deleted addr
   await expect(editor).toHaveMarkdown(/^# Parent\n/);
 });
 
-test("closes the initiating menu before deletion and preserves a menu opened while deletion is pending", async ({
-  page,
-  request,
-}) => {
+test("preserves navigation opened while deletion is pending", async ({ page, request }) => {
   await seedNotes(request, { "Discarded.md": "# Discarded", "Survivor.md": "# Survivor" });
   await page.goto("/?note=Discarded.md");
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("# Discarded");
@@ -146,13 +154,15 @@ test("closes the initiating menu before deletion and preserves a menu opened whi
   try {
     await noteAction(page, "Delete");
     await requested;
-    const menu = page.getByRole("dialog", { name: "More", exact: true });
+    const menu = page.getByRole("complementary", { name: "Navigation", exact: true });
+    await closeNavigation(page);
     await expect(menu).not.toBeVisible();
-    await page.getByRole("button", { name: "More", exact: true }).click();
+    await openNavigation(page);
     await expect(menu).toBeVisible();
     release?.();
-    await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("# Survivor");
+    await expect(page.locator("#body")).toHaveValue("# Survivor");
     await expect(menu).toBeVisible();
+    await expect(menu.getByRole("button", { name: "Close navigation", exact: true })).toBeFocused();
   } finally {
     release?.();
   }
@@ -173,7 +183,11 @@ test("opens a surviving note after deletion without using the previous search fi
   await noteAction(page, "Delete");
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/^# Survivor\n/);
   await expect(page).toHaveURL(/\?note=Survivor.md$/);
-  await expect(page.getByLabel("Note", { exact: true })).toBeFocused();
+  await expect(
+    (await page.evaluate(() => document.body.dataset.layout === "wide"))
+      ? page.locator("#close-context")
+      : page.getByLabel("Note", { exact: true }),
+  ).toBeFocused();
 });
 
 test("skips a previously visited note that has also moved to trash", async ({ page, request }) => {
@@ -184,7 +198,7 @@ test("skips a previously visited note that has also moved to trash", async ({ pa
   });
   await page.goto("/?note=Parent.md");
   const editor = page.getByLabel("Note", { exact: true });
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await page.locator("#live-editor").getByRole("link", { name: "Child", exact: true }).click();
   await expect(editor).toHaveMarkdown(/^# Child\n/);
   const saved: { revision: string } = await (await request.get("/api/notes/Parent.md")).json();
@@ -234,8 +248,9 @@ test("preserves the active note when deletion fails", async ({ page, request }) 
       : route.continue(),
   );
   await noteAction(page, "Delete");
-  await expect(page.getByRole("dialog", { name: "More", exact: true })).not.toBeVisible();
+  await expect(page.getByRole("dialog", { name: "More", exact: true })).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveText("Deletion is unavailable.");
+  await showPaper(page);
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(
     "# Kept\n\nOriginal writing.\n",
   );
@@ -270,7 +285,7 @@ test("does not replace a new draft when loading the note after deletion finishes
   await seen;
   await expect(page.locator("#body")).not.toHaveValue(/Discarded/);
   await expect(page).not.toHaveURL(/note=Discarded.md/);
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await newNote(page);
   const editor = page.getByLabel("Note", { exact: true });
   await editor.fill("# New draft\n\nKeep my latest writing.\n");
   release();
@@ -289,7 +304,7 @@ test("preserves a pending browser navigation when deletion finishes late", async
   });
   await page.goto("/?note=Parent.md");
   const editor = page.getByLabel("Note", { exact: true });
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await page.locator("#live-editor").getByRole("link", { name: "Child", exact: true }).click();
   await expect(editor).toHaveMarkdown(/^# Child\n/);
   let deleted: () => void = () => {};
@@ -349,6 +364,7 @@ test("keeps deleted content out of the editor when the replacement cannot load",
   );
   await noteAction(page, "Delete");
   await expect(page.getByRole("alert")).toContainText("The next note is unavailable.");
+  await showPaper(page);
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/^# \d{4}-/);
   await expect(page).toHaveURL("/");
   expect((await request.get("/api/notes/Discarded.md")).status()).toBe(404);
@@ -367,6 +383,7 @@ test("does not recover a deleted note when the collection refresh fails", async 
   });
   await page.goto("/?note=Discarded.md");
   const collection = /\/api\/notes\?paged=true&limit=24(?:&|$)/;
+  await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/^# Discarded\n/);
   await page.route(collection, (route) =>
     route.fulfill({ status: 404, json: { error: "The collection is unavailable." } }),
   );
@@ -570,7 +587,7 @@ test("keeps a title containing path punctuation as ordinary note content", async
 
 test("supports narrow layouts, text enlargement, labels, and keyboard access", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
-  await expect(page.getByRole("link", { name: "Explore notes", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeVisible();
   await expect(page.getByLabel("Note", { exact: true })).toBeVisible();
   await page.evaluate(() => {
     const root = document.documentElement;
@@ -579,13 +596,13 @@ test("supports narrow layouts, text enlargement, labels, and keyboard access", a
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBeTruthy();
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   await expect(page.getByLabel("Search notes")).toBeVisible();
   await page
     .getByRole("dialog", { name: "Explore notes", exact: true })
     .getByRole("button", { name: "Close", exact: true })
     .click();
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await newNote(page);
   await expect(page.getByLabel("Note", { exact: true })).toBeFocused();
   await page.evaluate(() => {
     for (const element of document.querySelectorAll("p, label, button, input, textarea")) {

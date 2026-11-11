@@ -1,5 +1,5 @@
-import { expect, markdownValue, test } from "./editor.js";
-import { newEmptyNote, openMore } from "./interface.js";
+import { expect, markdownValue, pressShortcut, test } from "./editor.js";
+import { newEmptyNote, newNote, openNavigation } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -25,7 +25,11 @@ test("starts with a blank paper without scrolling or persistent tools", async ({
       .poll(() =>
         page.evaluate(() => ({
           width: document.documentElement.scrollWidth <= innerWidth,
-          height: document.documentElement.scrollHeight <= innerHeight + 1,
+          height:
+            document.documentElement.scrollHeight <= innerHeight + 1 &&
+            [...document.querySelectorAll<HTMLElement>("#paper-scroll")].every(
+              (paper) => paper.scrollHeight <= paper.clientHeight + 1,
+            ),
         })),
       )
       .toEqual({ width: true, height: true });
@@ -36,7 +40,11 @@ test("starts with a blank paper without scrolling or persistent tools", async ({
   await expect
     .poll(() =>
       page.evaluate(() => ({
-        within: document.documentElement.scrollHeight <= innerHeight + 1,
+        within:
+          document.documentElement.scrollHeight <= innerHeight + 1 &&
+          [...document.querySelectorAll<HTMLElement>("#paper-scroll")].every(
+            (paper) => paper.scrollHeight <= paper.clientHeight + 1,
+          ),
         viewport: innerHeight,
         height: document.documentElement.scrollHeight,
         elements: ["header", "#editor-pane", ".cm-content", ".cm-line", "#typing-space"].map(
@@ -71,15 +79,15 @@ test("completes delimiters and wraps a selection without using a toolbar", async
   await note.press("[");
   await expect(note).toHaveMarkdown("[]()");
   await note.fill("selected text");
-  await note.press("ControlOrMeta+a");
+  await pressShortcut(note, "a");
   await note.press("*");
   await expect(note).toHaveMarkdown("**selected text**");
-  await note.press("ControlOrMeta+z");
+  await pressShortcut(note, "z");
   await expect(note).toHaveMarkdown("selected text");
-  await note.press("ControlOrMeta+a");
-  await note.press("ControlOrMeta+b");
+  await pressShortcut(note, "a");
+  await pressShortcut(note, "b");
   await expect(note).toHaveMarkdown("**selected text**");
-  await note.press("ControlOrMeta+b");
+  await pressShortcut(note, "b");
   await expect(note).toHaveMarkdown("selected text");
   await note.fill("");
   await note.pressSequentially("**bold**");
@@ -105,14 +113,14 @@ test("continues Markdown lists and lets Tab leave the editor after Escape", asyn
   await note.press("Enter");
   await expect(note).toHaveMarkdown("- [x] done\n");
   await note.fill("first\nsecond");
-  await note.press("ControlOrMeta+a");
+  await pressShortcut(note, "a");
   await note.press("Tab");
   await expect(note).toHaveMarkdown("    first\n    second");
   await note.press("Shift+Tab");
   await expect(note).toHaveMarkdown("first\nsecond");
   await note.press("Escape");
   await note.press("Shift+Tab");
-  await expect(page.getByRole("button", { name: "More", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Note context", exact: true })).toBeFocused();
 });
 
 test("leaves composition unchanged with automatic typing assistance", async ({ page }) => {
@@ -134,7 +142,7 @@ test("leaves composition unchanged with automatic typing assistance", async ({ p
   });
   expect(accepted).toBe(true);
   await expect(note).toHaveMarkdown("変換*");
-  await note.press("ControlOrMeta+a");
+  await pressShortcut(note, "a");
   await note.press("Backspace");
   await expect(note).toHaveMarkdown("");
   await note.press("*");
@@ -146,17 +154,17 @@ test("always opens an editable live note and ignores retired view preferences", 
 }) => {
   await page.evaluate(() => localStorage.setItem("tungsten.view", "preview"));
   await page.reload();
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await newNote(page);
   const note = page.getByRole("textbox", { name: "Note", exact: true });
   await expect(note).toBeEditable();
   await note.fill("# Next note");
-  await note.press("ControlOrMeta+Enter");
+  await pressShortcut(note, "Enter");
   await expect(note).toBeFocused();
   await expect(note).toBeEditable();
   const before = await markdownValue(note);
   await note.pressSequentially("!");
   await expect(note).toHaveMarkdown(`${before}!`);
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect(more.getByLabel("View", { exact: true })).toHaveCount(0);
   await expect(more.getByRole("link", { name: "Download all files", exact: true })).toHaveCount(0);
   await expect(page.locator("#preview-pane, .writing-icon, .heading-fold")).toHaveCount(0);

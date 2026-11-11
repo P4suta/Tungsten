@@ -1,8 +1,11 @@
 mod demo;
+mod memory;
 mod mutation;
 mod performance;
 mod proofs;
 mod scale;
+mod secrets;
+mod storage;
 mod stress;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -22,12 +25,36 @@ struct Options {
 }
 #[derive(Subcommand)]
 enum Task {
+    StorageProfile(storage::Options),
+    StorageSummary {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long, value_enum, default_value = "all")]
+        engine: storage::Engine,
+        #[arg(long, default_value_t = 4, value_parser=clap::value_parser!(u32).range(1..=9))]
+        repeats: u32,
+    },
+    #[command(hide = true)]
+    StorageProfileNative {
+        #[arg(long)]
+        request: PathBuf,
+    },
+    #[command(hide = true)]
+    StorageCrashNative {
+        #[arg(long, value_enum)]
+        engine: storage::Engine,
+        #[arg(long)]
+        data: PathBuf,
+        #[arg(long)]
+        commit: bool,
+    },
     Setup,
     Build,
     Check,
     Format,
     Docs,
     Dependencies,
+    Secrets,
     Proofs {
         #[arg(long)]
         dry_run: bool,
@@ -48,6 +75,15 @@ enum Task {
     BrowserPerformance {
         #[arg(long)]
         dry_run: bool,
+    },
+    MemoryProfile {
+        #[arg(long)]
+        dry_run: bool,
+    },
+    #[command(hide = true)]
+    MemoryProfileNative {
+        #[arg(long, default_value = "/tungsten")]
+        server: PathBuf,
     },
     #[command(hide = true)]
     BrowserPerformanceNative,
@@ -72,8 +108,6 @@ enum Task {
         reuse_volume: Option<String>,
         #[arg(long)]
         extremes: bool,
-        #[arg(long)]
-        encrypted: bool,
         #[arg(long, default_value_t=8, value_parser=clap::value_parser!(u64).range(8..=12))]
         allocation_gib: u64,
     },
@@ -89,8 +123,6 @@ enum Task {
         reuse_data: bool,
         #[arg(long, action=clap::ArgAction::Set,default_value_t=false)]
         extremes: bool,
-        #[arg(long, action=clap::ArgAction::Set,default_value_t=false)]
-        encrypted: bool,
         #[arg(long, default_value_t=8, value_parser=clap::value_parser!(u64).range(8..=12))]
         allocation_gib: u64,
     },
@@ -177,13 +209,17 @@ fn collect(directory: &Path, extension: &str, result: &mut Vec<String>) -> Resul
 }
 
 fn docs(root: &Path) -> Result<()> {
-    let mut paths = vec![
-        root.join("README.md")
-            .to_str()
-            .context("README path")?
-            .to_owned(),
-    ];
+    let mut paths = ["README.md", "CONTRIBUTING.md", "SECURITY.md"]
+        .into_iter()
+        .map(|name| {
+            root.join(name)
+                .to_str()
+                .context("document path")
+                .map(str::to_owned)
+        })
+        .collect::<Result<Vec<_>>>()?;
     collect(&root.join("docs"), "md", &mut paths)?;
+    collect(&root.join(".github"), "md", &mut paths)?;
     ensure!(paths.len() >= 4, "missing project documents");
     let shared_source = std::env::var("PROSE_SOURCE").ok();
     let mut args = Vec::new();
@@ -243,18 +279,7 @@ fn dependencies(root: &Path) -> Result<()> {
         "npm",
         &["audit", "--package-lock-only", "--audit-level=high"],
     )?;
-    run(
-        root,
-        "gitleaks",
-        &[
-            "dir",
-            ".",
-            "--config",
-            "deploy/gitleaks.toml",
-            "--redact",
-            "--no-banner",
-        ],
-    )
+    secrets::verify(root)
 }
 
 fn check(root: &Path) -> Result<()> {
@@ -277,7 +302,6 @@ fn check(root: &Path) -> Result<()> {
             "--check",
             "Cargo.toml",
             "xtask/Cargo.toml",
-            "crates/state/Cargo.toml",
             "mise.toml",
             ".cargo/config.toml",
             "repository.toml",
@@ -299,6 +323,19 @@ fn check(root: &Path) -> Result<()> {
             "clippy",
             "--workspace",
             "--all-targets",
+            "--locked",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )?;
+    run(
+        root,
+        "cargo",
+        &[
+            "clippy",
+            "--lib",
+            "--no-default-features",
             "--locked",
             "--",
             "-D",
@@ -350,6 +387,18 @@ fn check(root: &Path) -> Result<()> {
 fn main() -> Result<()> {
     let root = root()?;
     match Options::parse().task {
+        Task::StorageProfile(options) => storage::run(&root, options)?,
+        Task::StorageSummary {
+            input,
+            engine,
+            repeats,
+        } => storage::summarize(&input, engine, repeats)?,
+        Task::StorageProfileNative { request } => storage::native(&request)?,
+        Task::StorageCrashNative {
+            engine,
+            data,
+            commit,
+        } => storage::crash(engine, &data, commit)?,
         Task::Setup => {
             npm(&root, &["ci"])?;
             npm(
@@ -382,7 +431,6 @@ fn main() -> Result<()> {
             profile,
             reuse_volume,
             extremes,
-            encrypted,
             allocation_gib,
         } => scale::run(
             &root,
@@ -393,7 +441,6 @@ fn main() -> Result<()> {
             reuse_volume.as_deref(),
             scale::Workload {
                 extremes,
-                encrypted,
                 allocation_gib,
             },
         )?,
@@ -403,7 +450,6 @@ fn main() -> Result<()> {
             profile,
             reuse_data,
             extremes,
-            encrypted,
             allocation_gib,
         } => scale::native(
             &counts,
@@ -412,7 +458,6 @@ fn main() -> Result<()> {
             reuse_data,
             scale::Workload {
                 extremes,
-                encrypted,
                 allocation_gib,
             },
         )?,
@@ -430,6 +475,8 @@ fn main() -> Result<()> {
         Task::EditingAssurance { dry_run } => mutation::verify(&root, dry_run)?,
         Task::BrowserPerformance { dry_run } => performance::verify(&root, dry_run)?,
         Task::BrowserPerformanceNative => performance::native()?,
+        Task::MemoryProfile { dry_run } => memory::verify(&root, dry_run)?,
+        Task::MemoryProfileNative { server } => memory::native(&server)?,
         Task::Format => {
             run(&root, "cargo", &["fmt", "--all"])?;
             run(
@@ -439,7 +486,6 @@ fn main() -> Result<()> {
                     "fmt",
                     "Cargo.toml",
                     "xtask/Cargo.toml",
-                    "crates/state/Cargo.toml",
                     "deny.toml",
                     "repository.toml",
                     "deploy/gitleaks.toml",
@@ -451,12 +497,15 @@ fn main() -> Result<()> {
         }
         Task::Docs => docs(&root)?,
         Task::Dependencies => dependencies(&root)?,
+        Task::Secrets => secrets::verify(&root)?,
         Task::Proofs { dry_run } => proofs::verify(&root, dry_run)?,
         Task::ProofNative { reports } => proofs::native(&root, &reports)?,
         Task::ReleaseCheck => {
             check(&root)?;
             mutation::verify(&root, false)?;
             performance::verify(&root, false)?;
+            memory::verify(&root, false)?;
+            storage::release(&root)?;
             run(
                 &root,
                 "docker",

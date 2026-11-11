@@ -55,6 +55,10 @@ impl Revision {
         for part in parts {
             digest.update(part);
         }
+        Self::from_digest(digest)
+    }
+
+    pub fn from_digest(digest: Sha256) -> Self {
         let hash: String = digest
             .finalize()
             .iter()

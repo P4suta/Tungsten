@@ -2,8 +2,10 @@ services:
   tungsten:
     build: .
     image: tungsten:local
-    command: ["--data-dir", "/data", "--listen", "0.0.0.0:8080", "--origin", "${TUNGSTEN_ORIGIN:?Set a dedicated HTTPS origin}"]
+    command: ["--data-dir", "/data", "--listen", "0.0.0.0:8080"]
     user: "${TUNGSTEN_UID:-1000}:${TUNGSTEN_GID:-1000}"
+    environment:
+      SQLITE_TMPDIR: /data
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -21,3 +23,11 @@ services:
       - no-new-privileges:true
     init: true
     restart: unless-stopped
+    cpus: 2
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 256
+    ulimits:
+      core:
+        soft: 0
+        hard: 0

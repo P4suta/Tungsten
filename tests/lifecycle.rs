@@ -19,7 +19,7 @@ fn termination_releases_the_directory_even_with_an_unfinished_upload() {
     let directory = tempfile::tempdir().unwrap();
     let mut server = OwnedServer(
         Command::new(env!("CARGO_BIN_EXE_tungsten"))
-            .args(["--plaintext", "--data-dir"])
+            .args(["--data-dir"])
             .arg(directory.path())
             .args(["--listen", "127.0.0.1:0"])
             .stdin(Stdio::null())

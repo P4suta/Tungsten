@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { pressShortcut } from "./editor.js";
 import { newEmptyNote } from "./interface.js";
 
 test("clears the complete Markdown source and restores it through native undo", async ({
@@ -10,7 +11,7 @@ test("clears the complete Markdown source and restores it through native undo", 
   await editor.fill(original);
   await expect(page.locator("#save-status")).toHaveText("Saved");
   for (const key of ["Backspace", "Delete"]) {
-    await editor.press("ControlOrMeta+a");
+    await pressShortcut(editor, "a");
     await expect
       .poll(() =>
         page
@@ -23,7 +24,7 @@ test("clears the complete Markdown source and restores it through native undo", 
       .toBe(true);
     await editor.press(key);
     await expect(page.locator("#body")).toHaveValue("");
-    await editor.press("ControlOrMeta+z");
+    await pressShortcut(editor, "z");
     await expect(page.locator("#body")).toHaveValue(original);
   }
 });
@@ -37,7 +38,7 @@ test("keeps exactly the heading the owner types in an empty note", async ({ page
   await editor.press("Enter");
   await editor.pressSequentially("Body");
   await expect(page.locator("#body")).toHaveValue("# Title\nBody");
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await editor.press("Backspace");
   await expect(page.locator("#body")).toHaveValue("");
   await editor.pressSequentially("# Again");
@@ -48,7 +49,7 @@ test("styles neighboring emphasis while editing an inline expression", async ({ 
   await page.goto("/");
   await newEmptyNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText("# Format\n\n**bold** and *italic* and `code` end");
   await expect(page.locator(".cm-content strong")).toHaveText("bold");
   await expect(page.locator(".cm-content em")).toHaveText("italic");
@@ -68,14 +69,16 @@ test("keeps a list line at the same height while moving the caret", async ({ pag
   await page.goto("/");
   await newEmptyNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText("# List\n\n- one\n- two\n- three\n\nEnd");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const positions = await page
     .locator(".cm-content")
     .evaluate((node) =>
       Array.from(node.querySelectorAll(".live-list-line")).map(
-        (line) => line.getBoundingClientRect().top + scrollY,
+        (line) =>
+          line.getBoundingClientRect().top +
+          (document.querySelector("#paper-scroll")?.scrollTop ?? 0),
       ),
     );
   expect(positions).toHaveLength(3);
@@ -87,7 +90,9 @@ test("keeps a list line at the same height while moving the caret", async ({ pag
           .locator(".cm-content")
           .evaluate((node) =>
             Array.from(node.querySelectorAll(".live-list-line")).map(
-              (line) => line.getBoundingClientRect().top + scrollY,
+              (line) =>
+                line.getBoundingClientRect().top +
+                (document.querySelector("#paper-scroll")?.scrollTop ?? 0),
             ),
           ),
       )
@@ -101,7 +106,7 @@ test("uses Tab for link fields and paired delimiters and supports line commands"
   await page.goto("/");
   await newEmptyNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText("# Keys\n\n");
   await editor.pressSequentially("[Label");
   await editor.press("Tab");
@@ -123,11 +128,11 @@ test("uses Tab for link fields and paired delimiters and supports line commands"
   await expect(page.locator("#body")).toHaveValue(
     "# Keys\n\nlast\nlast\n[Label](https://example.com) *italic* done",
   );
-  await editor.press("ControlOrMeta+Shift+k");
+  await pressShortcut(editor, "Shift+K");
   await expect(page.locator("#body")).toHaveValue(
     "# Keys\n\nlast\n[Label](https://example.com) *italic* done",
   );
-  await editor.press("ControlOrMeta+z");
+  await pressShortcut(editor, "z");
   await expect(page.locator("#body")).toHaveValue(
     "# Keys\n\nlast\nlast\n[Label](https://example.com) *italic* done",
   );
@@ -154,7 +159,7 @@ test("offers one unrestricted file command", async ({ page }) => {
   await page.goto("/");
   await newEmptyNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText("# Files\n\n/");
   await expect(page.getByRole("option", { name: "File /file", exact: true })).toBeVisible();
   for (const name of ["Image /image", "Audio /audio", "Video /video", "PDF /pdf"])
@@ -175,7 +180,7 @@ test("keeps keyboard editing available after switching notes", async ({ page, re
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await editor.pressSequentially("# First");
   await expect(page.locator("#save-status")).toHaveText("Saved");
-  await editor.press("ControlOrMeta+p");
+  await pressShortcut(editor, "p");
   await page.locator("#quick-search").fill("Switch destination");
   await page
     .locator("#quick-results")
@@ -183,7 +188,7 @@ test("keeps keyboard editing available after switching notes", async ({ page, re
     .first()
     .click();
   await expect(page.locator("#body")).toHaveValue("# Switch destination");
-  await page.keyboard.press("ControlOrMeta+End");
+  await pressShortcut(page, "End");
   await page.keyboard.insertText(" continued");
   await expect(page.locator("#body")).toHaveValue("# Switch destination continued");
 });

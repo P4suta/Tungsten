@@ -10,12 +10,12 @@ struct Options {
     listen: SocketAddr,
     #[arg(long)]
     origin: Option<String>,
-    #[arg(long)]
-    development: bool,
-    #[arg(long, conflicts_with = "plaintext")]
-    migrate_from: Option<PathBuf>,
-    #[arg(long)]
-    plaintext: bool,
+    #[arg(long, conflicts_with_all = ["backup_to", "restore_from"])]
+    export_to: Option<PathBuf>,
+    #[arg(long, conflicts_with_all = ["export_to", "restore_from"])]
+    backup_to: Option<PathBuf>,
+    #[arg(long, conflicts_with_all = ["export_to", "backup_to"])]
+    restore_from: Option<PathBuf>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,26 +31,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let options = Options::parse();
-    if options.development && !options.listen.ip().is_loopback() {
-        return Err("Development mode requires a loopback listener.".into());
+    if let Some(input) = options.restore_from {
+        tungsten::store::Store::restore_from(&input, &options.data_dir)?;
+        eprintln!("operation=restore outcome=complete");
+        return Ok(());
     }
-    let listener = tokio::net::TcpListener::bind(options.listen).await?;
-    let app = if !options.plaintext {
-        let origin = if options.development {
-            tungsten::api::ServerOrigin::development(&format!("http://{}", listener.local_addr()?))?
-        } else {
-            tungsten::api::ServerOrigin::https(options.origin.as_deref().ok_or(
-                "Set --origin to a dedicated HTTPS origin, or use --development on loopback.",
-            )?)?
-        };
-        if let Some(source) = options.migrate_from {
-            tungsten::api::migration_app(&options.data_dir, &source, origin)?
-        } else {
-            tungsten::api::sealed_app(&options.data_dir, origin)?
-        }
-    } else {
-        tungsten::api::app(&options.data_dir)?
+    if let Some(output) = options.backup_to {
+        tungsten::store::Store::open(&options.data_dir)?.backup_to(&output)?;
+        eprintln!("operation=backup outcome=complete");
+        return Ok(());
+    }
+    if let Some(output) = options.export_to {
+        tungsten::export::write(&options.data_dir, &output)?;
+        eprintln!("operation=export outcome=complete");
+        return Ok(());
+    }
+    let app = match options.origin {
+        Some(origin) => tungsten::api::app_with_origin(
+            &options.data_dir,
+            tungsten::api::ServerOrigin::https(&origin)?,
+        )?,
+        None => tungsten::api::app(&options.data_dir)?,
     };
+    let listener = tokio::net::TcpListener::bind(options.listen).await?;
     eprintln!(
         "operation=listen outcome=ready address={}",
         listener.local_addr()?

@@ -3,12 +3,17 @@ db-path = "target/advisory-db"
 db-urls = ["https://github.com/RustSec/advisory-db"]
 
 [licenses]
-allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause", "Zlib"]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause", "Zlib", "blessing"]
 
 [[licenses.exceptions]]
-name = "sqlcipher-src"
-version = "=419.0.6"
-allow = ["MIT", "BSD-3-Clause", "blessing", "WTFPL"]
+name = "varint-rs"
+version = "=2.2.1"
+allow = ["0BSD"]
+
+[[licenses.exceptions]]
+name = "xxhash-rust"
+version = "=0.8.19"
+allow = ["BSL-1.0"]
 
 [bans]
 multiple-versions = "warn"

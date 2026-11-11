@@ -6,15 +6,11 @@ use std::{collections::BTreeSet, fs, path::Path};
 const SOURCE_INPUTS: &[&str] = &[
     "Cargo.toml",
     "Cargo.lock",
-    "crates/state/Cargo.toml",
-    "crates/state/src/lib.rs",
     "src/rules.rs",
     "src/domain.rs",
     "src/store.rs",
-    "src/store/encrypted.rs",
-    "src/sealed.rs",
+    "src/store/database.rs",
     "src/api.rs",
-    "src/api/sealed.rs",
     "ui/src/model.ts",
     "ui/src/app.ts",
     "ui/src/draft-ownership.ts",
@@ -22,7 +18,6 @@ const SOURCE_INPUTS: &[&str] = &[
     "proofs/Cargo.lock",
     "proofs/src/lib.rs",
     "proofs/src/browser.rs",
-    "proofs/src/vault.rs",
     "proofs/Dockerfile",
     ".dockerignore",
     "xtask/src/proofs.rs",
@@ -44,11 +39,7 @@ fn fingerprint(root: &Path) -> Result<tungsten::domain::Revision> {
 
 fn inventory(root: &Path) -> Result<BTreeSet<String>> {
     let mut names = BTreeSet::new();
-    for path in [
-        "src/rules.rs",
-        "proofs/src/browser.rs",
-        "proofs/src/vault.rs",
-    ] {
+    for path in ["src/rules.rs", "proofs/src/browser.rs"] {
         for name in report::source_harnesses(&fs::read_to_string(root.join(path))?)? {
             ensure!(names.insert(name), "duplicate source harness identity");
         }

@@ -244,7 +244,7 @@ async fn original_attachments_remain_available_without_a_bulk_export_route() {
 }
 
 #[tokio::test]
-async fn note_lifecycle_persists_plain_files_and_trash() {
+async fn note_lifecycle_persists_markdown_and_trash() {
     let dir = tempfile::tempdir().unwrap();
     let app = tungsten::api::app(dir.path()).unwrap();
     let (status, note, revision) = request(
@@ -259,7 +259,15 @@ async fn note_lifecycle_persists_plain_files_and_trash() {
     assert_eq!(note["name"], "買い物.md");
     let revision = revision.unwrap();
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("買い物.md")).unwrap(),
+        request(
+            &app,
+            "GET",
+            "/api/notes/%E8%B2%B7%E3%81%84%E7%89%A9.md",
+            Value::Null,
+            None
+        )
+        .await
+        .1["body"],
         "牛乳\n# plain text\n"
     );
     let (status, found, _) = request(
@@ -303,15 +311,11 @@ async fn note_lifecycle_persists_plain_files_and_trash() {
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert!(!dir.path().join("List.md").exists());
-    let trash: Vec<_> = std::fs::read_dir(dir.path().join(".trash"))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
+    drop(app);
+    let store = tungsten::store::Store::open(dir.path()).unwrap();
+    let trash = store.trash().unwrap();
     assert_eq!(trash.len(), 1);
-    assert_eq!(
-        std::fs::read_to_string(trash[0].path().join("body.md")).unwrap(),
-        "パン\n"
-    );
+    assert_eq!(store.saved_note(&trash[0].id, true).unwrap().body, "パン\n");
 }
 
 #[tokio::test]
@@ -373,7 +377,9 @@ async fn stale_updates_and_colliding_names_do_not_overwrite() {
         StatusCode::PRECONDITION_REQUIRED
     );
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("Note.md")).unwrap(),
+        request(&app, "GET", "/api/notes/Note.md", Value::Null, None)
+            .await
+            .1["body"],
         "saved"
     );
     assert_ne!(next.unwrap(), revision);
@@ -438,8 +444,8 @@ async fn rejects_symlinks_unsafe_names_and_cross_origin_writes() {
     let dir = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
     std::fs::write(outside.path().join("secret"), "private").unwrap();
-    std::os::unix::fs::symlink(outside.path().join("secret"), dir.path().join("Link.md")).unwrap();
     let app = tungsten::api::app(dir.path()).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("secret"), dir.path().join("Link.md")).unwrap();
     assert_ne!(
         request(&app, "GET", "/api/notes/Link.md", Value::Null, None)
             .await
@@ -559,11 +565,15 @@ async fn a_rename_collision_preserves_both_notes() {
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("Source.md")).unwrap(),
+        request(&app, "GET", "/api/notes/Source.md", Value::Null, None)
+            .await
+            .1["body"],
         "source"
     );
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("Target.md")).unwrap(),
+        request(&app, "GET", "/api/notes/Target.md", Value::Null, None)
+            .await
+            .1["body"],
         "target"
     );
 }

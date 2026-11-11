@@ -5,16 +5,11 @@ use axum::http::{HeaderMap, Uri, header};
 pub struct ServerOrigin {
     origin: String,
     authority: String,
-    secure: bool,
 }
 
 impl ServerOrigin {
     fn parse(value: &str, secure: bool) -> Result<Self, Error> {
-        let invalid = || {
-            Error::InvalidData(
-                "Configure a dedicated HTTPS origin, or use loopback development mode.",
-            )
-        };
+        let invalid = || Error::InvalidData("Configure a valid HTTPS origin.");
         let uri: Uri = value.parse().map_err(|_| invalid())?;
         let authority = uri.authority().ok_or_else(invalid)?;
         let host = authority.host().trim_matches(['[', ']']);
@@ -39,7 +34,6 @@ impl ServerOrigin {
         Ok(Self {
             origin: format!("{}://{}", if secure { "https" } else { "http" }, authority),
             authority: authority.to_string(),
-            secure,
         })
     }
 
@@ -49,10 +43,6 @@ impl ServerOrigin {
 
     pub fn development(value: &str) -> Result<Self, Error> {
         Self::parse(value, false)
-    }
-
-    pub(super) fn secure(&self) -> bool {
-        self.secure
     }
 
     pub(super) fn permits(&self, headers: &HeaderMap) -> bool {

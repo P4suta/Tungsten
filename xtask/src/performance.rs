@@ -181,7 +181,7 @@ pub fn native() -> Result<()> {
     drop(store);
     let mut server = Server(
         Command::new("/tungsten")
-            .args(["--plaintext", "--data-dir"])
+            .args(["--data-dir"])
             .arg(data.path())
             .args(["--listen", "127.0.0.1:18090"])
             .stdin(Stdio::null())

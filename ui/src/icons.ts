@@ -4,6 +4,8 @@ const paths = {
   home: "M3 10 12 3l9 7v11h-6v-7H9v7H3Z",
   add: "M12 4v16M4 12h16",
   more: "M4 12h2m5 0h2m5 0h2",
+  sidebar: "M3 3h18v18H3ZM9 3v18",
+  context: "M3 3h18v18H3ZM15 3v18",
   close: "m6 6 12 12M18 6 6 18",
   settings: "M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6m-6 0v6",
   search: "M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6",
@@ -52,6 +54,16 @@ export function icon(name: IconName): SVGSVGElement {
 }
 
 function purpose(node: HTMLElement): IconName {
+  if (node.id === "show-notes") return "graph";
+  if (node.id === "toggle-context") return "context";
+  if (node.id === "show-paper") return "edit";
+  if (node.id === "trash-back") return "previous";
+  if (node.id === "sidebar-search") return "search";
+  if (node.id === "sidebar-previous") return "previous";
+  if (node.id === "sidebar-next") return "next";
+  if (node.id === "remove-workspace") return "close";
+  if (node.id === "add-current-note") return "add";
+  if (node.id === "preview-trashed") return "note";
   if (
     node.matches("#notes button, #quick-results button, #orphan-notes button, #file-references a")
   )
@@ -63,12 +75,14 @@ function purpose(node: HTMLElement): IconName {
     if (node.download) return "download";
     if (node.dataset.page === "files") return "folder";
     if (node.dataset.page === "trash") return "trash";
+    if (node.dataset.page === "note") return "previous";
     return "link";
   }
   const name =
     `${node.id} ${node.getAttribute("aria-label") ?? ""} ${node.textContent ?? ""}`.toLowerCase();
   for (const [pattern, kind] of [
-    [/close|×/, "close"],
+    [/close|cancel|×/, "close"],
+    [/navigation|sidebar/, "sidebar"],
     [/home/, "home"],
     [/new|create/, "add"],
     [/more|options/, "more"],

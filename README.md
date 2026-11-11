@@ -1,6 +1,6 @@
 # Tungsten
 
-Personal Markdown notes with encrypted storage inside your tailnet.
+Personal Markdown notes inside your tailnet.
 
 ## Installation
 
@@ -14,7 +14,7 @@ mise x -- just build
 ## Usage
 
 ```sh
-./target/release/tungsten --development --data-dir ./notes
+./target/release/tungsten --data-dir ./notes
 ```
 
 ## License

@@ -1,13 +1,21 @@
 import { expect, test } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
+import { pressShortcut } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
-import { newEmptyNote, openMore, openTrash } from "./interface.js";
+import {
+  exploreNotes,
+  newEmptyNote,
+  newNote,
+  openNavigation,
+  openTrash,
+  showPaper,
+} from "./interface.js";
 
 test("keeps an editable dated title and functional note exploration", async ({ page }, info) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await newNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await expect(page.getByRole("link", { name: "Explore notes", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeVisible();
   await expect(page.locator("header")).not.toContainText("Tungsten");
   await expect(page.locator(".title-cue,.body-cue")).toHaveCount(0);
   await page.screenshot({
@@ -21,14 +29,14 @@ test("keeps an editable dated title and functional note exploration", async ({ p
   await skip.focus();
   await skip.press("Enter");
   await expect(editor).toBeFocused();
-  await editor.press("ControlOrMeta+a");
+  await pressShortcut(editor, "a");
   await page.keyboard.insertText("# A title\n\nThe first paragraph.");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await page.screenshot({
     path: `../target/screenshots/live-${info.project.name}.png`,
     fullPage: true,
   });
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   await expect(page.getByRole("dialog", { name: "Explore notes", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Explore A title", exact: true })).toBeVisible();
   await expect(
@@ -47,11 +55,11 @@ test("renders inactive Markdown and reveals the selected source without losing e
   await page.goto(`/?note=${encodeURIComponent(name)}`);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await expect(editor).toBeVisible();
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await expect(page.locator(".cm-content strong")).toHaveText("bold");
   await page.locator(".cm-content strong").click();
   await expect(page.locator(".cm-line").filter({ hasText: "A **bold** paragraph." })).toBeVisible();
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await editor.pressSequentially(" More.");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const saved = await request.get(`/api/notes/${encodeURIComponent(name)}`);
@@ -71,8 +79,8 @@ test("formats Markdown automatically after editing and supports a single undo", 
   await page.goto(`/?note=${encodeURIComponent(name)}`);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await editor.click();
-  await editor.press("ControlOrMeta+End");
-  await editor.press("Alt+Shift+f");
+  await pressShortcut(editor, "End");
+  await editor.press("Alt+Shift+F");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await expect
     .poll(
@@ -82,13 +90,13 @@ test("formats Markdown automatically after editing and supports a single undo", 
   expect(
     (await (await request.get(`/api/notes/${encodeURIComponent(name)}`)).json()).body,
   ).toContain("  keep   this");
-  await editor.press("ControlOrMeta+z");
+  await pressShortcut(editor, "z");
   await expect
     .poll(
       async () => (await (await request.get(`/api/notes/${encodeURIComponent(name)}`)).json()).body,
     )
     .toBe(source);
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect(more.getByRole("button", { name: "Format Markdown", exact: true })).toHaveCount(0);
 });
 
@@ -109,7 +117,7 @@ test("keeps storage identities stable across title edits and duplicate titles", 
   const identity = address.searchParams.get("note");
   expect(identity).toMatch(/^[a-f0-9]{32}\.md$/);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.press("ControlOrMeta+Home");
+  await pressShortcut(editor, "Home");
   await editor.press("Home");
   await editor.press("Shift+End");
   await page.keyboard.insertText("# Renamed title");
@@ -117,7 +125,7 @@ test("keeps storage identities stable across title edits and duplicate titles", 
   expect(new URL(page.url()).searchParams.get("note")).toBe(identity);
   const saved = await request.get(`/api/notes/${encodeURIComponent(identity ?? "")}`);
   expect((await saved.json()).body).toContain("# Renamed title");
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect(more).not.toContainText(identity ?? "unreachable identifier");
 });
 
@@ -127,13 +135,13 @@ test("requires icons on controls throughout navigation and rejects missing icons
   await page.goto("/");
   await expect(page.getByRole("textbox", { name: "Note", exact: true })).toBeVisible();
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
-  await more.getByRole("button", { name: "Close", exact: true }).click();
+  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
   const settings = await openTrash(page);
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
-  await settings.getByRole("button", { name: "Close", exact: true }).click();
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await settings.getByRole("button", { name: "Back to notes", exact: true }).click();
+  await exploreNotes(page);
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
   expect(
     await page.evaluate<string[], "missing" | "valid" | null>(missingIcons, "missing"),
@@ -190,7 +198,7 @@ test("centers live typing across long paragraphs and wrapping", async ({ page })
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   for (const width of [1280, 320]) {
     await page.setViewportSize({ width, height: 700 });
-    await editor.press("ControlOrMeta+a");
+    await pressShortcut(editor, "a");
     await page.keyboard.insertText(`# Long note\n\n${"長い文章を続けて書く。".repeat(100)}`);
     await editor.pressSequentially("typing");
     await expect
@@ -268,15 +276,15 @@ test("automatically formats after blur and refuses stale formatting results", as
   await page.goto(`/?note=${encodeURIComponent(name)}`);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await editor.click();
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await editor.pressSequentially(" item");
-  const more = await openMore(page);
+  const more = await openNavigation(page);
   await expect
     .poll(
       async () => (await (await request.get(`/api/notes/${encodeURIComponent(name)}`)).json()).body,
     )
     .toContain("- first item");
-  await more.getByRole("button", { name: "Close", exact: true }).click();
+  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
   await editor.fill("# Blur\n\n*   selected");
   await expect(page.locator("#body")).toHaveValue("# Blur\n\n*   selected");
   await editor.evaluate((node) => {
@@ -294,7 +302,7 @@ test("automatically formats after blur and refuses stale formatting results", as
     source.dispatchEvent(new Event("input", { bubbles: true }));
     live.dispatchEvent(
       new KeyboardEvent("keydown", {
-        key: "f",
+        key: "F",
         altKey: true,
         shiftKey: true,
         bubbles: true,
@@ -322,18 +330,19 @@ test("allows browser text enlargement without changing fixed writing behavior or
   await editor.pressSequentially("Body");
   await editor.press("Enter");
   await expect(page.locator("#save-status")).toHaveText("Saved");
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   await expect(page.locator(".graph-node svg").first()).toHaveAttribute("data-icon", "note");
   await page
     .getByRole("dialog", { name: "Explore notes", exact: true })
     .getByRole("button", { name: "Close", exact: true })
     .click();
+  await showPaper(page);
   await page.evaluate(() => {
     document.documentElement.style.fontSize = "225%";
   });
   await expect(page.locator(".cm-editor")).toHaveCSS("font-size", "36px");
   await expect(editor).toHaveAttribute("spellcheck", "true");
-  await editor.press("ControlOrMeta+End");
+  await pressShortcut(editor, "End");
   await editor.press("ArrowUp");
   await editor.press("Home");
   await editor.press("Tab");

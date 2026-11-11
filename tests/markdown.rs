@@ -112,7 +112,15 @@ async fn folders_pins_and_backlinks_survive_moves_and_restarts() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        std::fs::read_to_string(directory.path().join("Archive/Plan.md")).unwrap(),
+        call(
+            &app,
+            "GET",
+            "/api/notes/Archive%2FPlan.md",
+            Value::Null,
+            None
+        )
+        .await
+        .1["body"],
         "# Plan\n#work"
     );
     drop(app);
@@ -121,7 +129,7 @@ async fn folders_pins_and_backlinks_survive_moves_and_restarts() {
     assert_eq!(notes[0]["pinned"], true);
     let outside = tempfile::tempdir().unwrap();
     std::os::unix::fs::symlink(outside.path(), directory.path().join("Escape")).unwrap();
-    assert_ne!(
+    assert_eq!(
         call(
             &app,
             "POST",
@@ -290,7 +298,9 @@ async fn removed_import_routes_leave_existing_notes_and_attachment_downloads_int
         "hello"
     );
     assert_eq!(
-        std::fs::read_to_string(directory.path().join("Keep.md")).unwrap(),
+        call(&app, "GET", "/api/notes/Keep.md", Value::Null, None)
+            .await
+            .1["body"],
         "saved"
     );
     assert_eq!(

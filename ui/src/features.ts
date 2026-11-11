@@ -1,4 +1,5 @@
 import { type Summary, summaries } from "./catalog.js";
+import { initContext } from "./context.js";
 import { initDialogChrome, openDialog } from "./dialogs.js";
 
 export { type Summary, summaries } from "./catalog.js";
@@ -9,12 +10,12 @@ import { formatMarkdown, mappedCursor } from "./formatting.js";
 import { initHome } from "./home.js";
 import { initIcons } from "./icons.js";
 import { initInput, wrapSelection } from "./input.js";
+import { initLibrary } from "./library.js";
 import { noteLink, noteLinkRange } from "./links.js";
 import { initLive, type RenderedBlock } from "./live.js";
 import { type Attachment, attachmentMarkdown, parseAttachment } from "./media.js";
-import { currentPage, initPages } from "./pages.js";
-import { type Saved, savedEntries } from "./recovery.js";
 import { withinPreviewBudget } from "./rendering.js";
+import { initSidebar } from "./sidebar.js";
 import { initInsertions } from "./slash.js";
 import { focusWriting, selectWriting, writingElement } from "./surface.js";
 import { noteTitle } from "./titles.js";
@@ -36,6 +37,7 @@ export interface EditorPort {
   state(): Snapshot | null;
   api(path: string, method?: string, input?: unknown, revision?: string | null): Promise<unknown>;
   open(name: string): Promise<void>;
+  create(): Promise<string | null>;
   blank(title: string, body: string): void;
   mutate(action: (note: Snapshot) => Promise<void>): Promise<boolean>;
   refresh(): Promise<Summary[]>;
@@ -58,6 +60,7 @@ interface Rendered {
 }
 
 export interface FeatureController {
+  open(name: string): Promise<void>;
   changed(): void;
   indexed(): Promise<void>;
   filter(notes: Summary[]): Summary[];
@@ -140,21 +143,25 @@ function button(text: string, action: () => void): HTMLButtonElement {
 }
 
 export function initFeatures(port: EditorPort): FeatureController {
-  initPages();
   initDialogChrome();
   initIcons();
+  const sidebar = initSidebar();
   const body = control("body", HTMLTextAreaElement);
   const previewStatus = control("preview-status", HTMLParagraphElement);
   const notice = control("feature-status", HTMLParagraphElement);
-  const history = control("history-dialog", HTMLDialogElement);
-  const historyStatus = control("history-status", HTMLParagraphElement);
-  const restore = control("restore-version", HTMLButtonElement);
-  const savedContent = control("saved-content", HTMLTextAreaElement);
   const switcher = control("switcher-dialog", HTMLDialogElement);
   const quickSearch = control("quick-search", HTMLInputElement);
   const fileLinks = initFileLinkGuard({ state: port.state, api: port.api, replace: replaceBody });
   const home = initHome({ state: port.state, api: port.api, navigate, blank: port.blank });
-  initTrash({ api: port.api, navigate, refresh: port.refresh });
+  initTrash({ api: port.api, navigate, refresh: port.refresh, sidebar });
+  const library = initLibrary({
+    state: port.state,
+    api: port.api,
+    open: navigate,
+    create: port.create,
+    sidebar,
+  });
+  const context = initContext({ ...port, navigate, sidebar });
   let notes: Summary[] = [];
   let indexGeneration = 0;
   let previewGeneration = 0;
@@ -165,9 +172,7 @@ export function initFeatures(port: EditorPort): FeatureController {
   let lastIdentity = "";
   let lastText = "";
   let lastName: string | null = null;
-  let selectedVersion: Saved | null = null;
-  let historyIdentity = "";
-  let versionGeneration = 0;
+  let formatIdentity: string | null = null;
   const live = initLive(body, control("live-editor", HTMLDivElement), {
     api: (path) => port.api(path),
     help: () => ({ spellcheck: true, tabSize: 4 }),
@@ -212,7 +217,7 @@ export function initFeatures(port: EditorPort): FeatureController {
   ): void {
     const state = port.state();
     if (!state || state.composing || body.disabled || body.readOnly) return;
-    control("more-dialog", HTMLDialogElement).close();
+    sidebar.writing();
     body.setRangeText(text, start, end, select ? "select" : "end");
     body.dispatchEvent(new Event("input", { bubbles: true }));
     focusWriting(body);
@@ -251,7 +256,7 @@ export function initFeatures(port: EditorPort): FeatureController {
     } catch {
       return;
     }
-    control("more-dialog", HTMLDialogElement).close();
+    sidebar.writing();
     await loadPreview();
     const index = renderedOutline.findIndex(
       (heading) => heading.id === id || heading.id === `md-${id}`,
@@ -266,6 +271,7 @@ export function initFeatures(port: EditorPort): FeatureController {
   async function navigate(name: string): Promise<void> {
     try {
       await port.open(name);
+      sidebar.writing();
       focusWriting(body);
     } catch (error) {
       if (record(error) && error.status === 404) throw new Error("The linked note is unavailable.");
@@ -423,10 +429,13 @@ export function initFeatures(port: EditorPort): FeatureController {
     const state = port.state();
     if (!state) return;
     fileLinks.changed(state);
+    library.changed(state);
+    context.changed(state);
     live.sync(state.identity);
     const changed =
       state.identity !== lastIdentity || state.body !== lastText || state.name !== lastName;
     if (state.identity !== lastIdentity) {
+      formatIdentity = state.body !== state.savedBody ? state.identity : null;
       renderedState = null;
       renderedTasks = [];
       renderedOutline = [];
@@ -459,7 +468,7 @@ export function initFeatures(port: EditorPort): FeatureController {
     if (
       !state ||
       state.composing ||
-      (!focus && !state.name && state.body === state.savedBody) ||
+      (!focus && formatIdentity !== state.identity) ||
       choosingFile ||
       body.disabled ||
       body.readOnly ||
@@ -488,22 +497,20 @@ export function initFeatures(port: EditorPort): FeatureController {
       body.setSelectionRange(mappedCursor(before, after, start), mappedCursor(before, after, end));
       body.dispatchEvent(new Event("input", { bubbles: true }));
     }
+    formatIdentity = null;
     if (focus) {
-      control("more-dialog", HTMLDialogElement).close();
+      sidebar.writing();
       focusWriting(body);
     }
   }
+  body.addEventListener("input", () => {
+    formatIdentity = port.state()?.identity ?? null;
+  });
   body.addEventListener("blur", () => {
     if (!port.state()?.composing) void run(() => tidy(false));
   });
   document.addEventListener("keydown", (event) => {
-    if (
-      event.altKey &&
-      event.shiftKey &&
-      event.key.toLowerCase() === "f" &&
-      !event.isComposing &&
-      currentPage() === "note"
-    ) {
+    if (event.altKey && event.shiftKey && event.key.toLowerCase() === "f" && !event.isComposing) {
       event.preventDefault();
       void run(() => tidy(true));
     }
@@ -698,98 +705,6 @@ export function initFeatures(port: EditorPort): FeatureController {
     }
   });
 
-  control("history", HTMLButtonElement).addEventListener("click", () => {
-    void run(async () => {
-      const success = await port.mutate(async (state) => {
-        if (!state.name) return;
-        historyIdentity = state.identity;
-        ++versionGeneration;
-        selectedVersion = null;
-        restore.disabled = true;
-        savedContent.value = "";
-        control("version-diff", HTMLElement).textContent = "";
-        const versions = savedEntries(
-          await port.api(`/api/history?name=${encodeURIComponent(state.name)}`),
-        );
-        const list = control("history-list", HTMLUListElement);
-        list.replaceChildren();
-        for (const version of versions) {
-          const item = document.createElement("li");
-          const info = document.createElement("p");
-          info.textContent = `${new Date(version.captured).toLocaleString()} · ${version.title}`;
-          item.append(
-            info,
-            button("View version", () => {
-              void run(async () => {
-                const generation = ++versionGeneration;
-                restore.disabled = true;
-                const value = await port.api(`/api/history/${version.id}`);
-                if (generation !== versionGeneration || port.state()?.identity !== historyIdentity)
-                  return;
-                if (!record(value) || typeof value.body !== "string")
-                  throw new Error("The version data is invalid.");
-                selectedVersion = version;
-                savedContent.value = value.body;
-                const { versionDifference } = await import("./differences.js");
-                if (generation !== versionGeneration || port.state()?.identity !== historyIdentity)
-                  return;
-                const difference = versionDifference(port.state()?.body ?? "", value.body);
-                const pane = control("version-diff", HTMLElement);
-                pane.replaceChildren();
-                const summary = document.createElement("p");
-                summary.textContent = difference
-                  ? `Restoring adds ${difference.added} lines and removes ${difference.removed} lines.${difference.complete ? "" : " The comparison is abbreviated."}`
-                  : "The changes exceed the comparison limit. Read the saved content below.";
-                pane.append(summary);
-                if (difference) {
-                  const source = document.createElement("pre");
-                  source.textContent = difference.text;
-                  pane.append(source);
-                }
-                restore.disabled = false;
-              }, historyStatus);
-            }),
-          );
-          list.append(item);
-        }
-        historyStatus.textContent = versions.length
-          ? `${versions.length} recovery points. Points expire after 7 days.`
-          : "No recovery points from the past 7 days.";
-      });
-      if (success && port.state()?.identity === historyIdentity) {
-        control("history", HTMLButtonElement).focus();
-        openDialog(history, control("history", HTMLButtonElement));
-      }
-    });
-  });
-  restore.addEventListener("click", () => {
-    void run(async () => {
-      const version = selectedVersion;
-      if (
-        !version ||
-        port.state()?.identity !== historyIdentity ||
-        !confirm("Restore the selected version?")
-      )
-        return;
-      restore.disabled = true;
-      try {
-        const success = await port.mutate(async (state) => {
-          await port.api(
-            `/api/history/${version.id}/restore`,
-            "POST",
-            { name: state.name },
-            state.revision,
-          );
-          if (state.name) await port.open(state.name);
-          await port.refresh();
-        });
-        if (success) history.close();
-      } finally {
-        restore.disabled = false;
-      }
-    }, historyStatus);
-  });
-
   window.addEventListener("offline", () =>
     report("Offline: keep this tab open until the note is saved."),
   );
@@ -799,7 +714,6 @@ export function initFeatures(port: EditorPort): FeatureController {
     if (
       event.isComposing ||
       state?.composing ||
-      currentPage() !== "note" ||
       !(event.ctrlKey || event.metaKey) ||
       event.altKey ||
       document.querySelector("dialog[open]")
@@ -815,7 +729,7 @@ export function initFeatures(port: EditorPort): FeatureController {
       void run(indexed);
     } else if (key === "n") {
       event.preventDefault();
-      port.blank("", "");
+      control("new-note", HTMLButtonElement).click();
     } else if (key === "f" && event.shiftKey) {
       event.preventDefault();
       openDialog(control("notes-dialog", HTMLDialogElement));
@@ -828,12 +742,20 @@ export function initFeatures(port: EditorPort): FeatureController {
   });
 
   live.show();
+  document.addEventListener("tungsten:write", () => {
+    live.show();
+    focusWriting(body);
+  });
   void run(loadPreview);
   return {
+    open: navigate,
     changed,
     indexed,
     filter,
-    write: () => live.show(),
+    write: () => {
+      sidebar.writing();
+      live.show();
+    },
     anchor,
     beforeSave: fileLinks.beforeSave,
     home: home.open,

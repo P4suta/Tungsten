@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { type TestContext, test } from "node:test";
 import { versionDifference } from "../src/differences.ts";
 import { savedEntries } from "../src/recovery.ts";
 
-test("recovery comparisons preserve Unicode and literal HTML while bounding work and output", () => {
+test("recovery comparisons preserve Unicode and literal HTML while bounding work and output", (testContext: TestContext) => {
+  testContext.mock.method(Date, "now", (): number => 1000);
   const change = versionDifference("Keep\nOld 日本語\n", "Keep\nNew <script>literal</script>\n");
   assert.equal(change?.added, 1);
   assert.equal(change?.removed, 1);
@@ -28,4 +29,19 @@ test("recovery comparisons preserve Unicode and literal HTML while bounding work
   );
   for (const invalid of [null, {}, [null], [{ id: "id" }]])
     assert.throws(() => savedEntries(invalid));
+});
+
+test("recovery comparisons distinguish the deadline boundary from expired work", (testContext: TestContext) => {
+  for (const elapsed of [40, 41]) {
+    let reads: number = 0;
+    testContext.mock.method(Date, "now", (): number => (reads++ === 0 ? 1000 : 1000 + elapsed));
+    const change = versionDifference("old\n", "new\n");
+    if (elapsed === 40) {
+      assert.equal(change?.added, 1);
+      assert.equal(change?.removed, 1);
+    } else {
+      assert.equal(change, null);
+    }
+    testContext.mock.restoreAll();
+  }
 });

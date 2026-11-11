@@ -5,10 +5,3 @@ version = 4
 [[package]]
 name = "tungsten-proofs"
 version = "0.1.0"
-dependencies = [
- "tungsten-state",
-]
-
-[[package]]
-name = "tungsten-state"
-version = "0.1.0"

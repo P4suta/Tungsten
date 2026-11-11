@@ -16,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
         with:
@@ -37,6 +38,7 @@ jobs:
       - run: cargo install --locked --path target/shared-tools/crates/prose --force
       - run: cargo install --locked --path target/shared-tools/crates/dotfiles --bin dotfiles --force
       - run: git config prose.standard true
+      - run: mise x -- cargo xtask docs
       - run: npm --prefix ui ci
       - run: npm --prefix ui exec -- playwright install --with-deps chromium firefox webkit
       - run: mise x -- just release-check

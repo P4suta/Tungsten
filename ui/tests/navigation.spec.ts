@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
+import { exploreNotes, newNote, openNavigation } from "./interface.js";
 
 test("explores a topic through a movable graph instead of a complete note list", async ({
   page,
@@ -13,7 +14,7 @@ test("explores a topic through a movable graph instead of a complete note list",
   ])
     await request.post("/api/notes", { data: { name, body } });
   await page.goto("/?note=Philosophy.md");
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   const graph = page.getByRole("region", { name: "Note graph", exact: true });
   await expect(graph).toBeVisible();
   await expect(page.locator("#notes")).toBeHidden();
@@ -103,7 +104,7 @@ test("creates a linked thought from its topic and finds disconnected notes throu
   await request.post("/api/notes", { data: { name, body: "# A topic\n\nIdeas" } });
   await request.post("/api/notes", { data: { name: separate, body: "# A disconnected thought" } });
   await page.goto(`/?note=${encodeURIComponent(name)}`);
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   const dialog = page.getByRole("dialog", { name: "Explore notes", exact: true });
   await dialog.getByLabel("Search notes", { exact: true }).fill("A disconnected thought");
   await expect(page.locator("#graph-selection")).toContainText("A disconnected thought");
@@ -115,7 +116,7 @@ test("creates a linked thought from its topic and finds disconnected notes throu
   );
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const created = new URL(page.url()).searchParams.get("note");
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openNavigation(page);
   await expect(page.locator("#body")).toHaveValue(/^# [^\n]+\n\n\[A topic\]/);
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const topic = await (await request.get(`/api/notes/${encodeURIComponent(name)}`)).json();
@@ -133,12 +134,12 @@ test("new notes have editable timestamp titles with stable independent identitie
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await newNote(page);
   await expect(page.locator("#body")).toHaveValue(/^# \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}\n\n$/);
   await expect(page.locator(".title-cue,.body-cue")).toHaveCount(0);
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const first = new URL(page.url()).searchParams.get("note");
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await newNote(page);
   await expect(page.locator("#save-status")).toHaveText("Saved");
   expect(new URL(page.url()).searchParams.get("note")).not.toBe(first);
 });
@@ -161,7 +162,7 @@ test("keeps a requested graph focus when resizing during a delayed response", as
     await route.continue();
   });
   await page.goto(`/?note=${initial}`);
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
+  await exploreNotes(page);
   await expect(page.locator("#graph-selection")).toContainText("Initial focus");
   releaseNote();
   let release: () => void = () => {};
