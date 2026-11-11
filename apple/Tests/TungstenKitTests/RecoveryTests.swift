@@ -5,6 +5,40 @@ import Testing
 
 private let emptyNotes = Data("{\"notes\":[],\"total\":0}".utf8)
 
+@Test @MainActor func conflictedDraftsKeepRevertedWritingAcrossRelaunch() async throws {
+  let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let original = try Note.test(body: "Original")
+  let remote = try Note.test(body: "Changed remotely", revision: "b")
+  let store = try DraftStore(directory: directory)
+  var draft = Draft(note: original)
+  draft.edit("Local writing")
+  let service = NoteService(address: try ServerAddress("https://notes.example")) { request, _ in
+    if request.httpMethod == "POST" {
+      let values = try JSONDecoder().decode([String: String].self, from: #require(request.httpBody))
+      let copy = try Note.test(body: #require(values["body"]), name: #require(values["name"]))
+      return HTTPResult(status: 201, data: try JSONEncoder().encode(copy))
+    }
+    if request.url?.path == "/api/notes" { return HTTPResult(status: 200, data: emptyNotes) }
+    return HTTPResult(status: 200, data: try JSONEncoder().encode(remote))
+  }
+  try store.save(draft, server: service.address)
+  let model = try testingModel(service: service, drafts: store)
+  await model.open(original.name)
+  #expect(model.currentDraft?.status == .conflict)
+  model.edit(original.body)
+  #expect(try store.load(server: service.address, id: original.name)?.body == original.body)
+  #expect(try store.all(server: service.address).drafts.map(\.id) == [original.name])
+  let reopened = try testingModel(service: service, drafts: store)
+  await reopened.open(original.name)
+  #expect(reopened.currentDraft?.body == original.body)
+  #expect(reopened.currentDraft?.status == .conflict)
+  await reopened.saveCopy()
+  #expect(reopened.activeID != original.name)
+  #expect(reopened.currentDraft?.body == original.body)
+  #expect(reopened.currentDraft?.status == .saved)
+}
+
 actor InterruptedUpdate {
   private var note: Note
   private var updates = 0
@@ -235,11 +269,13 @@ private let workspacePage = Data(
     if request.url?.path == "/api/notes" { return HTTPResult(status: 200, data: emptyNotes) }
     return HTTPResult(status: 200, data: try JSONEncoder().encode(original))
   }
-  let model = try testingModel(service: service, drafts: DraftStore(directory: directory))
+  let store = try DraftStore(directory: directory)
+  let model = try testingModel(service: service, drafts: store)
   await model.open(original.name)
   model.edit("Writing kept after remote deletion")
   await model.saveActive()
   #expect(model.currentDraft?.status == .conflict)
+  #expect(try store.load(server: service.address, id: original.name)?.status == .conflict)
   await model.saveCopy()
   #expect(model.activeID != original.name)
   #expect(model.currentDraft?.body == "Writing kept after remote deletion")

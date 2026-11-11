@@ -56,9 +56,61 @@ import Testing
   #expect(draft.status == .conflict)
   #expect(throws: ClientError.self) { try draft.pendingWrite() }
   draft.retry()
-  #expect(try draft.pendingWrite().revision == original.revision)
+  #expect(draft.status == .conflict)
+  #expect(throws: ClientError.self) { try draft.pendingWrite() }
   draft.conflict()
   #expect(draft.body == "Local writing")
+}
+
+private enum ConflictEvent: CaseIterable, Sendable {
+  case retry
+  case localFailure
+  case serverFailure
+  case workspaceAcknowledged
+}
+
+@Test(arguments: ConflictEvent.allCases)
+private func conflictEventsKeepRecoveryUntilResolution(_ event: ConflictEvent) throws {
+  let original = try Note.test(body: "Original")
+  var draft: Draft
+  if event == .workspaceAcknowledged {
+    draft = Draft(id: original.name, body: original.body, workspace: try WorkspaceID("1"))
+    try draft.acknowledge(original, writing: draft.pendingWrite())
+  } else {
+    draft = Draft(note: original)
+  }
+  draft.edit("Local writing")
+  draft.refresh(try Note.test(body: "Changed remotely", revision: "b"))
+  draft.edit(original.body)
+  switch event {
+  case .retry: draft.retry()
+  case .localFailure: draft.failLocally()
+  case .serverFailure: draft.fail()
+  case .workspaceAcknowledged: draft.joinedWorkspace()
+  }
+  #expect(draft.body == original.body)
+  #expect(draft.status == .conflict)
+  #expect(draft.hasPendingWork)
+  #expect(throws: ClientError.self) { try draft.pendingWrite() }
+}
+
+@Test(arguments: [true, false])
+func matchingServerContentsResolveConflicts(_ acknowledged: Bool) throws {
+  let original = try Note.test(body: "Original")
+  let saved = try Note.test(body: "Desired writing", revision: "b")
+  var draft = Draft(note: original)
+  draft.edit(saved.body)
+  let writing = acknowledged ? try draft.beginWrite() : nil
+  draft.conflict()
+  if let writing {
+    try draft.acknowledge(saved, writing: writing)
+  } else {
+    draft.refresh(saved)
+  }
+  #expect(draft.body == saved.body)
+  #expect(draft.revision == saved.revision)
+  #expect(draft.status == .saved)
+  #expect(!draft.hasPendingWork)
 }
 
 @Test func draftFilesSurviveRelaunchAndRemainIsolatedByServer() throws {

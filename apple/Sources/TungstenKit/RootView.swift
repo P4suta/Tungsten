@@ -399,7 +399,7 @@ private struct NoteEditorView: View {
         .foregroundStyle(Color.secondary)
         .accessibilityIdentifier("save-status")
       if draft.status == .conflict {
-        Text(localized("The server copy may differ, and your writing is saved on this device."))
+        Text(localized("The server copy may differ from your writing."))
         Button(localized("Save as New Note"), systemImage: "doc.badge.plus") {
           Task { await model.saveCopy() }
         }

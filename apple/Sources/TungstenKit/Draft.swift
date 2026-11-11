@@ -23,7 +23,10 @@ struct Draft: Codable, Identifiable, Sendable {
   private(set) var workspace: WorkspaceID?
   private(set) var unacknowledgedWrite: PendingWrite?
   var isDirty: Bool { body != savedBody }
-  var hasPendingWork: Bool { isDirty || workspace != nil || unacknowledgedWrite != nil }
+  private var hasChangesToSave: Bool {
+    isDirty || workspace != nil || unacknowledgedWrite != nil
+  }
+  var hasPendingWork: Bool { hasChangesToSave || status == .conflict }
   var title: String { NoteTitle.from(body) }
 
   init(note: Note) {
@@ -61,7 +64,7 @@ struct Draft: Codable, Identifiable, Sendable {
   }
 
   mutating func recoverAfterInterruption() {
-    if let writing = unacknowledgedWrite {
+    if status != .conflict, let writing = unacknowledgedWrite {
       status = writing.body == body ? .failed : .conflict
     }
   }
@@ -76,29 +79,34 @@ struct Draft: Codable, Identifiable, Sendable {
     savedBody = note.body
     unacknowledgedWrite = nil
     if body == writing.body { body = note.body }
-    status = hasPendingWork ? .pending : .saved
+    status = hasChangesToSave ? .pending : .saved
   }
 
   mutating func refresh(_ note: Note) {
     guard note.name == id, note.revision != revision, unacknowledgedWrite == nil else { return }
-    if isDirty && body != note.body {
+    if (isDirty || status == .conflict) && body != note.body {
       status = .conflict
       return
     }
     body = note.body
     savedBody = note.body
     revision = note.revision
-    status = hasPendingWork ? .pending : .saved
+    status = hasChangesToSave ? .pending : .saved
   }
 
   mutating func conflict() { status = .conflict }
   mutating func joinedWorkspace() {
     workspace = nil
-    status = hasPendingWork ? .pending : .saved
+    if status != .conflict { status = hasChangesToSave ? .pending : .saved }
   }
-  mutating func failLocally() { status = .unsaved }
+  mutating func failLocally() {
+    if status != .conflict { status = .unsaved }
+  }
   mutating func fail() {
+    guard status != .conflict else { return }
     status = unacknowledgedWrite.map { $0.body != body } == true ? .conflict : .failed
   }
-  mutating func retry() { status = hasPendingWork ? .pending : .saved }
+  mutating func retry() {
+    if status != .conflict { status = hasChangesToSave ? .pending : .saved }
+  }
 }
