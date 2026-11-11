@@ -7,6 +7,24 @@ concurrency:
   group: checks-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  apple:
+    name: Verify Apple candidate
+    runs-on: xcode-27
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
+        with:
+          version: 2026.11.4
+      - run: mise x -- npm --prefix ui ci
+      - run: mise x -- just apple check
+      - run: mise x -- just apple build macos --release
+      - run: mise x -- just apple build ios --release
   verify:
     name: Verify release candidate
     runs-on: ubuntu-24.04

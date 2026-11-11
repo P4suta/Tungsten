@@ -10,6 +10,9 @@ build:
 check:
     mise x -- cargo xtask check
 
+apple *args:
+    mise x -- cargo xtask apple {{ args }}
+
 format:
     mise x -- cargo xtask format
 

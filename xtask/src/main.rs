@@ -1,3 +1,4 @@
+mod apple;
 mod demo;
 mod memory;
 mod mutation;
@@ -25,6 +26,10 @@ struct Options {
 }
 #[derive(Subcommand)]
 enum Task {
+    Apple {
+        #[command(subcommand)]
+        action: apple::Action,
+    },
     StorageProfile(storage::Options),
     StorageSummary {
         #[arg(long)]
@@ -283,6 +288,7 @@ fn dependencies(root: &Path) -> Result<()> {
 }
 
 fn check(root: &Path) -> Result<()> {
+    apple::source(root)?;
     run(root, "cargo", &["fmt", "--all", "--check"])?;
     run(
         root,
@@ -387,6 +393,7 @@ fn check(root: &Path) -> Result<()> {
 fn main() -> Result<()> {
     let root = root()?;
     match Options::parse().task {
+        Task::Apple { action } => apple::run(&root, action)?,
         Task::StorageProfile(options) => storage::run(&root, options)?,
         Task::StorageSummary {
             input,

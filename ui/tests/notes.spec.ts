@@ -566,6 +566,7 @@ test("recovers a cleared draft when creation was not acknowledged", async ({ pag
   await page.getByLabel("Note", { exact: true }).fill("text to clear");
   await seen;
   await page.getByLabel("Note", { exact: true }).fill("");
+  await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("");
   await page.reload();
   release();
   await expect(page.getByLabel("Note", { exact: true })).toBeEditable();

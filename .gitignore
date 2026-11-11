@@ -13,3 +13,6 @@
 /fuzz/target/
 /proofs/target/
 .DS_Store
+/apple/.build/
+/apple/.swiftpm/
+/apple/Tungsten.xcodeproj/
