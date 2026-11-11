@@ -1,0 +1,138 @@
+name: Tungsten
+options:
+  minimumXcodeGenVersion: 2.46.0
+  xcodeVersion: "27.2"
+  deploymentTarget:
+    macOS: "27.0"
+    iOS: "27.0"
+packages:
+  TungstenKit:
+    path: .
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+    CODE_SIGN_STYLE: Automatic
+    ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    ASSETCATALOG_COMPILER_APPICON_NAME: Tungsten
+    INFOPLIST_FILE: App/Info-$(CONFIGURATION).plist
+    PRODUCT_NAME: Tungsten
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targetTemplates:
+  application:
+    type: application
+    sources:
+      - path: App
+        includes: ["**/*.swift"]
+      - path: App/Resources
+        buildPhase: resources
+    dependencies:
+      - package: TungstenKit
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: Tungsten
+  uiTests:
+    type: bundle.ui-testing
+    sources: [UITests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: ""
+        PRODUCT_NAME: $(TARGET_NAME)
+  unitTests:
+    type: bundle.unit-test
+    sources: [Tests/TungstenKitTests]
+    dependencies:
+      - package: TungstenKit
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: ""
+        PRODUCT_NAME: $(TARGET_NAME)
+targets:
+  TungstenMac:
+    templates: [application]
+    platform: macOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.p4suta.Tungsten.macOS
+        CODE_SIGN_ENTITLEMENTS: App/Tungsten.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+  TungstenIOS:
+    templates: [application]
+    platform: iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.p4suta.Tungsten.iOS
+        TARGETED_DEVICE_FAMILY: "1,2"
+  TungstenMacUITests:
+    templates: [uiTests]
+    platform: macOS
+    dependencies:
+      - target: TungstenMac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.p4suta.Tungsten.macOS.UITests
+        TEST_TARGET_NAME: TungstenMac
+  TungstenIOSUITests:
+    templates: [uiTests]
+    platform: iOS
+    dependencies:
+      - target: TungstenIOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.p4suta.Tungsten.iOS.UITests
+        TEST_TARGET_NAME: TungstenIOS
+  TungstenMacTests:
+    templates: [unitTests]
+    platform: macOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.p4suta.Tungsten.macOS.Tests
+  TungstenIOSTests:
+    templates: [unitTests]
+    platform: iOS
+    dependencies:
+      - target: TungstenIOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.p4suta.Tungsten.iOS.Tests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Tungsten.app/Tungsten
+        BUNDLE_LOADER: $(TEST_HOST)
+schemes:
+  TungstenMac:
+    build:
+      targets:
+        TungstenMac: all
+        TungstenMacTests: [test]
+    test:
+      targets: [TungstenMacTests]
+      gatherCoverageData: true
+  TungstenIOS:
+    build:
+      targets:
+        TungstenIOS: all
+        TungstenIOSTests: [test]
+    test:
+      targets: [TungstenIOSTests]
+      gatherCoverageData: true
+  TungstenMacInterfaceTests:
+    build:
+      targets:
+        TungstenMac: all
+        TungstenMacUITests: [test]
+    test:
+      targets: [TungstenMacUITests]
+      gatherCoverageData: true
+  TungstenIOSInterfaceTests:
+    build:
+      targets:
+        TungstenIOS: all
+        TungstenIOSUITests: [test]
+    test:
+      targets: [TungstenIOSUITests]
+      gatherCoverageData: true

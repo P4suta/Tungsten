@@ -12,6 +12,8 @@ jobs:
     name: Check source
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    outputs:
+      apple: ${{ steps.apple-scope.outputs.affected }}
     env:
       PROSE_SOURCE: ${{ github.workspace }}/target/shared-tools
     steps:
@@ -40,6 +42,10 @@ jobs:
       - run: cargo install --locked --path target/shared-tools/crates/dotfiles --bin dotfiles --force
       - run: git config prose.standard true
       - run: mise x -- cargo xtask docs
+      - id: apple-scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: mise x -- cargo xtask apple affected --base "$BASE_SHA" --head "$GITHUB_SHA" --output "$GITHUB_OUTPUT"
       - run: npm --prefix ui ci
       - run: npm --prefix ui exec -- playwright install --with-deps chromium firefox webkit
       - run: mise x -- just check
@@ -50,3 +56,39 @@ jobs:
           path: ui/test-results
           retention-days: 7
           if-no-files-found: ignore
+  apple:
+    name: Check Apple apps
+    needs: check
+    if: needs.check.outputs.apple == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
+        with:
+          version: 2026.11.4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.npm
+            target/apple-package
+            target/apple-build
+          key: apple-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'apple/Package.swift', 'apple/project.yml', 'mise.toml') }}
+      - run: mise x -- npm --prefix ui ci
+      - run: mise x -- just apple check
+  complete:
+    name: Check applicable targets
+    needs: [check, apple]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - if: needs.check.result != 'success' || (needs.apple.result != 'success' && needs.apple.result != 'skipped')
+        run: exit 1

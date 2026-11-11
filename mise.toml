@@ -13,3 +13,4 @@ vale = "3.25.1"
 "aqua:gitleaks/gitleaks" = "8.30.1"
 "aqua:evilmartians/lefthook" = "2.2.2"
 "aqua:zizmorcore/zizmor" = "1.32.0"
+xcodegen = { version = "2.46.0", os = ["macos"] }
