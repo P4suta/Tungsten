@@ -6,6 +6,13 @@ enum NoteCollection: Hashable, Sendable {
   case drafts
   case trash
   case workspace(WorkspaceID)
+
+  var supportsSearch: Bool {
+    switch self {
+    case .all, .drafts: true
+    case .trash, .workspace: false
+    }
+  }
 }
 
 enum AppSheet: Hashable, Identifiable {
@@ -16,6 +23,13 @@ enum AppSheet: Hashable, Identifiable {
   case workspaceEditor(Workspace?)
   case trashRecord(SavedNote)
   var id: Self { self }
+
+  var requiresCurrentNote: Bool {
+    switch self {
+    case .details, .linkPicker, .workspacePicker: true
+    case .connection, .workspaceEditor, .trashRecord: false
+    }
+  }
 }
 
 struct AppProblem: Identifiable {
@@ -150,17 +164,25 @@ struct AppProblem: Identifiable {
   }
 
   func connect(_ text: String) async -> Bool {
+    do { return await connect(to: NoteService(address: try Self.address(text))) } catch {
+      report(error)
+      return false
+    }
+  }
+
+  func connect(to candidate: NoteService) async -> Bool {
     guard !connecting, preserveCurrent(), draftStore != nil else { return false }
     connecting = true
     defer { connecting = false }
     do {
-      let candidate = NoteService(address: try Self.address(text))
       _ = try await candidate.notes(query: "")
+      guard preserveCurrent() else { return false }
       for task in scheduled.values { task.cancel() }
       scheduled.removeAll()
       saving.removeAll()
       connectionGeneration = UUID()
       selectionGeneration = UUID()
+      openingNote = false
       service = candidate
       activeID = nil
       drafts = [:]
@@ -186,7 +208,11 @@ struct AppProblem: Identifiable {
 
   func refreshDrafts() {
     guard let service, let draftStore else { return }
-    do { recoveredDrafts = try draftStore.all(server: service.address) } catch { report(error) }
+    do {
+      let recovery = try draftStore.all(server: service.address)
+      recoveredDrafts = recovery.drafts
+      if !recovery.failures.isEmpty { report(ClientError.draftRecovery) }
+    } catch { report(error) }
   }
 
   func selectCollection(_ selection: NoteCollection) {
@@ -249,7 +275,11 @@ struct AppProblem: Identifiable {
       }
     } catch {
       guard selectionGeneration == generation, connectionGeneration == connection else { return }
-      if drafts[id] == nil { activeID = nil }
+      if error as? ClientError == .missing {
+        handleMissingNote(id, at: service.address)
+      } else if drafts[id] == nil {
+        activeID = nil
+      }
       report(error)
     }
   }
@@ -299,11 +329,12 @@ struct AppProblem: Identifiable {
     else { return }
     do {
       if draft.isDirty {
-        let writing = try draft.pendingWrite()
+        var sending = draft
+        let writing = try sending.beginWrite()
+        drafts[id] = sending
+        guard persist(sending) else { return }
         let note: Note
-        do { note = try await service.save(writing) } catch ClientError.conflict
-          where writing.revision == nil
-        {
+        do { note = try await service.save(writing) } catch ClientError.conflict {
           let existing = try await service.read(id)
           guard existing.body == writing.body else { throw ClientError.conflict }
           note = existing
@@ -326,7 +357,13 @@ struct AppProblem: Identifiable {
       if drafts[id]?.isDirty == true { schedule(id) }
     } catch {
       guard connectionGeneration == connection, var current = drafts[id] else { return }
-      if error as? ClientError == .conflict { current.conflict() } else { current.fail() }
+      if error as? ClientError == .conflict
+        || (error as? ClientError == .missing && current.revision != nil)
+      {
+        current.conflict()
+      } else {
+        current.fail()
+      }
       drafts[id] = current
       _ = persist(current)
       report(error)
@@ -369,19 +406,26 @@ struct AppProblem: Identifiable {
         drafts[id]?.revision == draft.revision
       else { return }
       if error as? ClientError == .missing {
-        if var local = drafts[id], local.isDirty {
-          local.conflict()
-          drafts[id] = local
-          _ = persist(local)
-        } else {
-          drafts.removeValue(forKey: id)
-          activeID = nil
-          sheet = nil
-          preferences.removeObject(forKey: "lastNote.\(service.address.url.absoluteString)")
-          selectionGeneration = UUID()
-        }
+        handleMissingNote(id, at: service.address)
       } else if error as? ClientError != .disconnected {
         report(error)
+      }
+    }
+  }
+
+  private func handleMissingNote(_ id: NoteID, at address: ServerAddress) {
+    if var local = drafts[id], local.hasPendingWork {
+      local.conflict()
+      drafts[id] = local
+      _ = persist(local)
+    } else {
+      drafts.removeValue(forKey: id)
+      if activeID == id {
+        activeID = nil
+        if sheet?.requiresCurrentNote == true { sheet = nil }
+        preferences.removeObject(forKey: "lastNote.\(address.url.absoluteString)")
+        selectionGeneration = UUID()
+        openingNote = false
       }
     }
   }
@@ -546,7 +590,9 @@ struct AppProblem: Identifiable {
   }
 
   private func savedCurrent() throws -> Note {
-    guard let draft = currentDraft, !draft.isDirty, let revision = draft.revision else {
+    guard let draft = currentDraft, !draft.isDirty, draft.unacknowledgedWrite == nil,
+      let revision = draft.revision
+    else {
       throw ClientError.conflict
     }
     return try Note(name: draft.id, body: draft.body, modified: 0, revision: revision)
@@ -654,7 +700,10 @@ struct AppProblem: Identifiable {
         of: "[", with: "\\["
       ).replacingOccurrences(of: "]", with: "\\]")
       let prefix = attachment.kind == "image" ? "!" : ""
-      draft.edit(draft.body + "\n\(prefix)[\(name)](.attachments/\(attachment.id.rawValue))\n")
+      let relative = String(
+        repeating: "../", count: draft.id.rawValue.split(separator: "/").count - 1)
+      draft.edit(
+        draft.body + "\n\(prefix)[\(name)](\(relative).attachments/\(attachment.id.rawValue))\n")
       drafts[id] = draft
       if persist(draft) { await save(id) }
     } catch { if connectionGeneration == connection { report(error) } }

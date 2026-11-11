@@ -3,6 +3,30 @@ import Testing
 
 @testable import TungstenKit
 
+@Test(.enabled(if: ProcessInfo.processInfo.environment["TUNGSTEN_SERVER"] != nil))
+@MainActor func nestedNativeUploadsRemainPortableAndDiscoverable() async throws {
+  let server = try #require(ProcessInfo.processInfo.environment["TUNGSTEN_SERVER"])
+  let client = NoteService(address: try ServerAddress(server, permitsLoopback: true))
+  let unique = UUID().uuidString
+  let id = try NoteID("Nested-\(unique)/topic.md")
+  let created = try await client.save(Draft(id: id, body: "# Nested upload").pendingWrite())
+  let directory = FileManager.default.temporaryDirectory.appending(path: unique)
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let store = try DraftStore(directory: directory.appending(path: "drafts"))
+  let file = directory.appending(path: "sample.txt")
+  try Data("Original attachment".utf8).write(to: file)
+  let model = try testingModel(service: client, drafts: store)
+  await model.open(created.name)
+  await model.upload(file)
+  let saved = try await client.read(id)
+  let connection = try await client.connections(id)
+  let attachment = try #require(connection.attachments.first)
+  #expect(connection.attachments.count == 1)
+  #expect(saved.body.contains("../.attachments/\(attachment.rawValue)"))
+  #expect(try await client.attachment(attachment).name == "sample.txt")
+  try await client.delete(saved)
+}
+
 @Test(
   .enabled(if: ProcessInfo.processInfo.environment["TUNGSTEN_SERVER"] != nil),
   arguments: [false, true])

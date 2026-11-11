@@ -172,6 +172,7 @@ private struct NoteListView: View {
   @State private var emptyingTrash = false
 
   var body: some View {
+    let searching = model.collection.supportsSearch && !model.query.isEmpty
     Group {
       if model.collection == .trash {
         List {
@@ -241,21 +242,21 @@ private struct NoteListView: View {
           if model.notes.isEmpty && !model.loadingNotes {
             ContentUnavailableView {
               Label(
-                localized(model.query.isEmpty ? "No Notes" : "No Results"), systemImage: "note.text"
+                localized(searching ? "No Results" : "No Notes"), systemImage: "note.text"
               )
               .accessibilityIdentifier("empty-notes")
             } description: {
               Text(
                 localized(
-                  model.query.isEmpty
-                    ? "Create a note to start writing." : "Try a different search."))
+                  searching
+                    ? "Try a different search." : "Create a note to start writing."))
             } actions: {
               Button(localized("New Note"), systemImage: "square.and.pencil") { model.newNote() }
                 .accessibilityIdentifier("empty-create-note")
             }
           }
         }
-        .searchable(text: $model.query, prompt: Text(localized("Search Notes")))
+        .modifier(CollectionSearch(model: model))
         .toolbar {
           ToolbarItem(placement: .primaryAction) {
             Button(localized("New Note"), systemImage: "square.and.pencil") { model.newNote() }
@@ -291,6 +292,18 @@ private struct NoteListView: View {
       Button(localized("Remove from Workspace"), systemImage: "folder.badge.minus") {
         Task { await model.remove(entry.id, from: id) }
       }
+    }
+  }
+}
+
+private struct CollectionSearch: ViewModifier {
+  @Bindable var model: AppModel
+
+  @ViewBuilder func body(content: Content) -> some View {
+    if model.collection.supportsSearch {
+      content.searchable(text: $model.query, prompt: Text(localized("Search Notes")))
+    } else {
+      content
     }
   }
 }
@@ -386,7 +399,7 @@ private struct NoteEditorView: View {
         .foregroundStyle(Color.secondary)
         .accessibilityIdentifier("save-status")
       if draft.status == .conflict {
-        Text(localized("The saved note changed. Your writing is saved on this device."))
+        Text(localized("The server copy may differ, and your writing is saved on this device."))
         Button(localized("Save as New Note"), systemImage: "doc.badge.plus") {
           Task { await model.saveCopy() }
         }

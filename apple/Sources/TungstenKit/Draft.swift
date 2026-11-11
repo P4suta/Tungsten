@@ -8,7 +8,7 @@ enum SaveStatus: String, Codable, Sendable {
   case unsaved
 }
 
-struct PendingWrite: Sendable {
+struct PendingWrite: Codable, Equatable, Sendable {
   let id: NoteID
   let body: String
   let revision: Revision?
@@ -21,8 +21,9 @@ struct Draft: Codable, Identifiable, Sendable {
   private(set) var revision: Revision?
   private(set) var status: SaveStatus
   private(set) var workspace: WorkspaceID?
+  private(set) var unacknowledgedWrite: PendingWrite?
   var isDirty: Bool { body != savedBody }
-  var hasPendingWork: Bool { isDirty || workspace != nil }
+  var hasPendingWork: Bool { isDirty || workspace != nil || unacknowledgedWrite != nil }
   var title: String { NoteTitle.from(body) }
 
   init(note: Note) {
@@ -53,18 +54,33 @@ struct Draft: Codable, Identifiable, Sendable {
     return PendingWrite(id: id, body: body, revision: revision)
   }
 
+  mutating func beginWrite() throws -> PendingWrite {
+    let writing = try pendingWrite()
+    unacknowledgedWrite = writing
+    return writing
+  }
+
+  mutating func recoverAfterInterruption() {
+    if let writing = unacknowledgedWrite {
+      status = writing.body == body ? .failed : .conflict
+    }
+  }
+
   mutating func acknowledge(_ note: Note, writing: PendingWrite) throws {
-    guard note.name == id, writing.id == id, writing.revision == revision else {
+    guard note.name == id, writing.id == id, writing.revision == revision,
+      unacknowledgedWrite == nil || unacknowledgedWrite == writing
+    else {
       throw ClientError.invalidResponse
     }
     revision = note.revision
     savedBody = note.body
+    unacknowledgedWrite = nil
     if body == writing.body { body = note.body }
     status = hasPendingWork ? .pending : .saved
   }
 
   mutating func refresh(_ note: Note) {
-    guard note.name == id, note.revision != revision else { return }
+    guard note.name == id, note.revision != revision, unacknowledgedWrite == nil else { return }
     if isDirty && body != note.body {
       status = .conflict
       return
@@ -81,6 +97,8 @@ struct Draft: Codable, Identifiable, Sendable {
     status = hasPendingWork ? .pending : .saved
   }
   mutating func failLocally() { status = .unsaved }
-  mutating func fail() { status = .failed }
+  mutating func fail() {
+    status = unacknowledgedWrite.map { $0.body != body } == true ? .conflict : .failed
+  }
   mutating func retry() { status = hasPendingWork ? .pending : .saved }
 }

@@ -139,7 +139,7 @@ actor InterruptedCreate {
   #expect(model.currentDraft?.status == .saved)
   #expect(model.currentDraft?.body == "# Writing saved before the connection broke")
   #expect(await remote.creationCount() == 1)
-  #expect(try store.all(server: service.address).isEmpty)
+  #expect(try store.all(server: service.address).drafts.isEmpty)
 }
 
 @Test @MainActor func refreshingWhileTypingPreservesTheLocalDraft() async throws {

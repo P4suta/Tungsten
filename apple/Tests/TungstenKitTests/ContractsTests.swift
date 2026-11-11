@@ -74,7 +74,7 @@ import Testing
   let reopened = try DraftStore(directory: directory)
   #expect(try reopened.load(server: first, id: note.name)?.body == "Unsaved writing 日本語")
   #expect(try reopened.load(server: second, id: note.name) == nil)
-  #expect(try reopened.all(server: first).count == 1)
+  #expect(try reopened.all(server: first).drafts.count == 1)
   try reopened.remove(server: first, id: note.name)
   #expect(try reopened.load(server: first, id: note.name) == nil)
 }
@@ -96,16 +96,18 @@ import Testing
   #expect(!draft.hasPendingWork)
 }
 
-@Test func malformedDraftFilesFailWithoutRemovingTheFile() throws {
+@Test func malformedDraftFilesAreReportedWithoutRemovingTheFile() throws {
   let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
   defer { try? FileManager.default.removeItem(at: directory) }
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   let damaged = directory.appending(path: "damaged.json")
   try Data("broken".utf8).write(to: damaged)
   let store = try DraftStore(directory: directory)
-  #expect(throws: (any Error).self) {
-    try store.all(server: ServerAddress("https://first.example"))
-  }
+  let recovery = try store.all(server: ServerAddress("https://first.example"))
+  #expect(recovery.drafts.isEmpty)
+  #expect(
+    recovery.failures.map { $0.file.resolvingSymlinksInPath() }
+      == [damaged.resolvingSymlinksInPath()])
   #expect(FileManager.default.fileExists(atPath: damaged.path))
 }
 

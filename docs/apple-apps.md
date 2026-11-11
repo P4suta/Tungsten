@@ -10,6 +10,8 @@ Apple's system design governs the native interface instead of the browser's mono
 
 Use [NavigationSplitView](https://developer.apple.com/documentation/swiftui/navigationsplitview) to present collections, notes, and editing side by side on Mac and as a navigation stack on iPhone.
 Use standard lists, contextual actions, search, toolbars, sheets, and confirmations.
+Show [search fields](https://developer.apple.com/design/human-interface-guidelines/search-fields) in All Notes and Drafts, where the query can filter the displayed content.
+Workspace collections provide paged browsing because the shared API has no workspace search parameter.
 Use [inline toolbar titles](https://developer.apple.com/documentation/swiftui/view/toolbartitledisplaymode(_:)) for connection forms and sheets to keep their titles readable at accessibility text sizes.
 Let [TextField](https://developer.apple.com/documentation/swiftui/textfield) supply its own platform label instead of adding a second labeled container.
 Note Details uses the system [close role](https://developer.apple.com/documentation/swiftui/buttonrole/close) because closing the sheet doesn't commit an operation.
@@ -20,6 +22,8 @@ Choosing a collection clears the previous note selection and preserves pending w
 Keep the standard Mac title bar and menu commands.
 The editor uses [TextEditor](https://developer.apple.com/documentation/swiftui/texteditor) for original Markdown, native selection, composition, dictation, spelling, and Undo.
 Open links, original attachments, history, and Trash through native lists and system previews.
+Show failed history loads in [ContentUnavailableView](https://developer.apple.com/documentation/swiftui/contentunavailableview) with a Retry action.
+Tie preview downloads to [the view's task lifetime](https://developer.apple.com/documentation/swiftui/view/task%28id%3Aname%3Apriority%3Afile%3Aline%3A_%3A%29) and discard canceled or obsolete results before creating preview files.
 The interface language is English.
 On Mac, View > Zoom In enlarges reading text up to 200%, and View > Actual Size restores the system body size.
 On iPhone and iPad, text follows Dynamic Type.
@@ -40,6 +44,10 @@ Change the address in Tungsten > Settings on Mac or Collections > Server on iOS.
 Use View > Refresh or Command-R on Mac, or pull to refresh the note list on iOS, to load changes from another device.
 The server continues to own notes, attachments, indexes, workspaces, history, and Trash.
 The apps keep local drafts for interrupted writes and separate drafts by server and note.
+Recovery records remain until write acknowledgement, including edits that return to the saved text.
+Interrupted writes can reopen as conflicts to preserve their local text for a separate note.
+Retrying an unchanged interrupted write keeps the note's identity.
+The apps keep damaged draft files and recover valid drafts.
 Writes use the last acknowledged revision and preserve local text on conflict.
 Writing entered while a deletion or history restoration awaits a response remains recoverable on the device.
 Pending workspace assignments survive refreshed note contents.
@@ -56,6 +64,7 @@ Install the tools pinned by `mise`, then build the apps with the repository comm
 
 ```sh
 mise install
+mise x -- just setup
 mise x -- just apple build macos
 mise x -- just apple build ios
 open target/apple-build/Build/Products/Debug/Tungsten.app
@@ -94,9 +103,15 @@ The runner rejects UI commands before any effects unless `--allow-desktop-contro
 Its repository lock only prevents concurrent runs from the same checkout.
 
 Use the optional appearance and accessibility tours when their coverage answers a concrete unresolved question.
-Use `--only` to select `writing`, `workspace`, `empty-collections`, or `tour` diagnostics.
-Use `--appearance light|dark` and `--text-size standard|enlarged` to select the relevant display conditions.
+The `--only` option selects `writing`, `workspace`, `empty-collections`, or `tour` diagnostics.
+Choose display conditions with `--appearance light|dark` and `--text-size standard|enlarged`.
 Combine `--only tour` with `--tour` to audit the selected conditions.
+After obtaining permission and coordinating desktop access, run the relevant tour.
+
+```sh
+mise x -- just apple ui macos --only tour --tour --appearance dark --text-size enlarged --allow-desktop-control
+mise x -- just apple ui ios --only tour --tour --appearance light --text-size enlarged --allow-desktop-control
+```
 
 The Mac tour uses Light and Dark appearances at the system body size and 200% reading size.
 Only isolated debug test sessions choose [the app appearance](https://developer.apple.com/documentation/appkit/nsapplication/appearance), leaving the owner's system preferences untouched.

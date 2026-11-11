@@ -9,6 +9,7 @@ enum ClientError: Error, Equatable, LocalizedError {
   case tooLarge
   case disconnected
   case draftStorage
+  case draftRecovery
   case server(Int)
   case operationFailed
 
@@ -22,6 +23,8 @@ enum ClientError: Error, Equatable, LocalizedError {
     case .tooLarge: "Notes must be at most 1 MiB and attachments at most 64 MiB."
     case .disconnected: "Unable to reach the server. Check the address and network connection."
     case .draftStorage: "Unable to save the draft on this device. Keep the editor open and retry."
+    case .draftRecovery:
+      "Some local drafts could not be read, and their original files have been kept."
     case .server: "The server could not complete the operation. Keep the draft and retry."
     case .operationFailed: "Unable to complete the operation. Keep the draft and retry."
     }

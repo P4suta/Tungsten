@@ -160,9 +160,8 @@ private struct AttachmentRow: View {
   let model: AppModel
   let id: AttachmentID
   @State private var attachment: Attachment?
-  @State private var previewURL: URL?
-  @State private var previewDirectory: URL?
-  @State private var downloading = false
+  @State private var preview = AttachmentPreview()
+  @State private var previewRequest: UUID?
   @State private var confirmingDeletion = false
   @State private var deleted = false
 
@@ -172,11 +171,11 @@ private struct AttachmentRow: View {
         Label(localized("Original File Deleted"), systemImage: "doc.badge.ellipsis")
       } else {
         Button {
-          Task { await open() }
+          previewRequest = UUID()
         } label: {
           Label(attachment?.name ?? localized("Loading File"), systemImage: symbol)
         }
-        .disabled(downloading || attachment == nil)
+        .disabled(preview.isLoading || attachment == nil)
         .contextMenu { fileActions }
         .swipeActions(allowsFullSwipe: false) { fileActions }
         .confirmationDialog(
@@ -198,12 +197,18 @@ private struct AttachmentRow: View {
         }
       }
     }
-    .quickLookPreview($previewURL)
+    .quickLookPreview(Binding(get: { preview.file }, set: { if $0 == nil { preview.close() } }))
     .task {
       do { attachment = try await model.service?.attachment(id) } catch { model.report(error) }
     }
-    .onChange(of: previewURL) { if previewURL == nil { cleanup() } }
-    .onDisappear { cleanup() }
+    .task(id: previewRequest) {
+      guard previewRequest != nil else { return }
+      await open()
+    }
+    .onDisappear {
+      previewRequest = nil
+      preview.close()
+    }
   }
 
   private var symbol: String {
@@ -217,42 +222,19 @@ private struct AttachmentRow: View {
   }
 
   @ViewBuilder private var fileActions: some View {
-    Button(localized("Open File"), systemImage: "doc") { Task { await open() } }
+    Button(localized("Open File"), systemImage: "doc") { previewRequest = UUID() }
+      .disabled(preview.isLoading || attachment == nil)
     Button(localized("Delete Original"), systemImage: "trash", role: .destructive) {
       confirmingDeletion = true
     }
   }
 
   private func open() async {
-    guard let attachment, let service = model.service, !downloading else { return }
-    downloading = true
-    defer { downloading = false }
+    guard let attachment, let service = model.service else { return }
     do {
-      let source = try await service.download(attachment)
-      defer { try? FileManager.default.removeItem(at: source) }
-      let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-      try FileManager.default.createDirectory(
-        at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-      previewDirectory = directory
-      let name = URL(fileURLWithPath: attachment.name).lastPathComponent
-      let destination = directory.appending(path: name)
-      try FileManager.default.moveItem(at: source, to: destination)
-      previewURL = destination
-    } catch {
-      cleanup()
-      model.report(error)
-    }
+      try await preview.open(name: attachment.name) { try await service.download(attachment) }
+    } catch { model.report(error) }
   }
-
-  private func cleanup() {
-    if let previewDirectory { try? FileManager.default.removeItem(at: previewDirectory) }
-    previewDirectory = nil
-  }
-}
-
-enum RecordOrigin {
-  case history
-  case trash
 }
 
 struct SavedRecordContent: View {
@@ -260,20 +242,31 @@ struct SavedRecordContent: View {
   let record: SavedNote
   let origin: RecordOrigin
   @Environment(\.dismiss) private var dismiss
-  @State private var note: Note?
+  @State private var loader = SavedRecordLoader()
+  @State private var attempt = UUID()
   @State private var restoring = false
 
   var body: some View {
-    ScrollView {
-      if let note {
-        Text(note.body)
-          .font(.scaledSystemBody(model.readingScale))
-          .textSelection(.enabled)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding()
-          .accessibilityIdentifier("saved-note-text")
-      } else {
+    Group {
+      switch loader.state {
+      case .loaded(let note):
+        ScrollView {
+          Text(note.body)
+            .font(.scaledSystemBody(model.readingScale))
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .accessibilityIdentifier("saved-note-text")
+        }
+      case .loading:
         ProgressView().accessibilityLabel(localized("Loading Version"))
+      case .failed:
+        ContentUnavailableView {
+          Label(localized("Unable to Load Version"), systemImage: "exclamationmark.triangle")
+        } actions: {
+          Button(localized("Retry"), systemImage: "arrow.clockwise") { attempt = UUID() }
+            .accessibilityIdentifier("retry-record")
+        }
       }
     }
     .navigationTitle(record.title)
@@ -295,15 +288,13 @@ struct SavedRecordContent: View {
             if success { dismiss() }
           }
         }
-        .disabled(note == nil || restoring)
+        .disabled(loader.note == nil || restoring)
         .accessibilityIdentifier("restore-record")
       }
     }
-    .task {
+    .task(id: SavedRecordRequest(record: record, origin: origin, attempt: attempt)) {
       do {
-        let value = try await model.service?.saved(record, trash: origin == .trash)
-        guard value?.name == record.name else { throw ClientError.invalidResponse }
-        note = value
+        try await loader.load(record, origin: origin, service: model.service)
       } catch { model.report(error) }
     }
     .presentationSizing(.page)

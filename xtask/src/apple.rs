@@ -339,7 +339,16 @@ fn native_path(path: &str) -> bool {
     ["apple/", "src/", "tests/", "xtask/", ".github/workflows/"]
         .iter()
         .any(|prefix| path.starts_with(prefix))
-        || ["Cargo.toml", "Cargo.lock", "mise.toml", "justfile"].contains(&path)
+        || [
+            "Cargo.toml",
+            "Cargo.lock",
+            ".cargo/config.toml",
+            "ui/package.json",
+            "ui/package-lock.json",
+            "mise.toml",
+            "justfile",
+        ]
+        .contains(&path)
 }
 
 fn affected(root: &Path, base: &str, head: &str, output: &Path) -> Result<()> {
@@ -428,6 +437,8 @@ fn check(root: &Path) -> Result<()> {
         &[
             "swift",
             "test",
+            "--jobs",
+            "2",
             "--package-path",
             "apple",
             "--scratch-path",
@@ -854,6 +865,9 @@ mod tests {
             "src/api.rs",
             "xtask/src/apple.rs",
             "Cargo.lock",
+            ".cargo/config.toml",
+            "ui/package.json",
+            "ui/package-lock.json",
             ".github/workflows/ci.yml",
         ] {
             assert!(native_path(path));

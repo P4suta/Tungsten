@@ -1,6 +1,16 @@
 import CryptoKit
 import Foundation
 
+struct DraftReadFailure: Sendable {
+  let file: URL
+  let cause: any Error
+}
+
+struct DraftRecovery: Sendable {
+  let drafts: [Draft]
+  let failures: [DraftReadFailure]
+}
+
 struct DraftStore: Sendable {
   let directory: URL
 
@@ -43,13 +53,21 @@ struct DraftStore: Sendable {
     return record.draft
   }
 
-  func all(server: ServerAddress) throws -> [Draft] {
-    try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-      .filter { $0.pathExtension == "json" }
-      .map(read)
-      .filter { $0.server == server.url.absoluteString && $0.draft.hasPendingWork }
-      .map(\.draft)
-      .sorted { $0.id.rawValue < $1.id.rawValue }
+  func all(server: ServerAddress) throws -> DraftRecovery {
+    let files = try FileManager.default.contentsOfDirectory(
+      at: directory, includingPropertiesForKeys: nil)
+    var drafts: [Draft] = []
+    var failures: [DraftReadFailure] = []
+    for file in files where file.pathExtension == "json" {
+      do {
+        let record = try read(file)
+        if record.server == server.url.absoluteString, record.draft.hasPendingWork {
+          drafts.append(record.draft)
+        }
+      } catch { failures.append(DraftReadFailure(file: file, cause: error)) }
+    }
+    return DraftRecovery(
+      drafts: drafts.sorted { $0.id.rawValue < $1.id.rawValue }, failures: failures)
   }
 
   private func read(_ url: URL) throws -> Record {
@@ -57,14 +75,20 @@ struct DraftStore: Sendable {
       .fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey,
     ])
     guard values.isRegularFile == true, values.isSymbolicLink != true,
-      let size = values.fileSize, size <= 13 * 1024 * 1024
+      let size = values.fileSize, size <= 19 * 1024 * 1024
     else { throw ClientError.invalidResponse }
     let record = try JSONDecoder().decode(Record.self, from: Data(contentsOf: url))
     guard record.format == 1, record.draft.body.utf8.count <= 1024 * 1024,
       (record.draft.savedBody?.utf8.count ?? 0) <= 1024 * 1024,
-      (record.draft.revision == nil) == (record.draft.savedBody == nil)
+      (record.draft.revision == nil) == (record.draft.savedBody == nil),
+      record.draft.unacknowledgedWrite.map({
+        $0.id == record.draft.id && $0.revision == record.draft.revision
+          && $0.body.utf8.count <= 1024 * 1024
+      }) ?? true
     else { throw ClientError.invalidResponse }
-    return record
+    var draft = record.draft
+    draft.recoverAfterInterruption()
+    return Record(format: record.format, server: record.server, draft: draft)
   }
 
   func remove(server: ServerAddress, id: NoteID) throws {
