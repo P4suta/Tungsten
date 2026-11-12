@@ -46,6 +46,9 @@ impl NativeCheck {
         .map(str::to_owned)
         .to_vec();
         args.push(reports.to_str().context("mutation report path")?.to_owned());
+        if self == Self::Rules {
+            args.push("--no-default-features".into());
+        }
         args.extend(["--", "--locked"].map(str::to_owned));
         if self == Self::Rules {
             args.extend(["--test", "domain"].map(str::to_owned));
@@ -366,6 +369,7 @@ mod tests {
                 .windows(2)
                 .any(|args| args == ["--file", "src/rules.rs"])
         );
+        assert!(rules.iter().any(|arg| arg == "--no-default-features"));
         assert!(rules.ends_with(&["--test".into(), "domain".into()]));
         let model = NativeCheck::LinuxModel
             .mutation_arguments(Path::new("/reports/linux-model"))
@@ -375,6 +379,7 @@ mod tests {
                 .windows(2)
                 .any(|args| args == ["--file", "linux/model/src/state.rs"])
         );
+        assert!(!model.iter().any(|arg| arg == "--no-default-features"));
         assert!(!model.iter().any(|arg| arg == "--lib" || arg == "--test"));
     }
 }

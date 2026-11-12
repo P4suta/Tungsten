@@ -28,6 +28,7 @@ CMD ["cargo", "kani", "--manifest-path", "/project/proofs/Cargo.toml", "-Z", "un
 
 FROM release-tools AS release-check
 ENV CARGO_NET_OFFLINE=false
+ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
 WORKDIR /project
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo/config.toml .cargo/config.toml
@@ -42,4 +43,5 @@ COPY target/browser-proof.rs target/browser-proof.rs
 COPY ui/ ui/
 COPY --from=ui /ui/dist/ ui/dist/
 COPY --from=ui /ui/node_modules/pdfjs-dist/ ui/node_modules/pdfjs-dist/
+RUN cargo build --locked --package xtask
 CMD ["cargo", "xtask", "release-native"]

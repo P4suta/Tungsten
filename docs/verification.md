@@ -196,7 +196,7 @@ Run `mise x -- just release-check` for a candidate release.
 The command first runs the local gate, then runs native stages in bounded Linux containers.
 Each native stage has 4 GiB of memory, no swap, two CPUs, 256 processes, and a deadline of 890 seconds.
 Proofs, fuzzing, server rule mutations, and Linux model mutations run sequentially in separate containers and keep separate reports.
-The server rule mutation check uses the dedicated domain contract tests.
+The server rule mutation check runs the dedicated domain contract tests without server or storage features.
 The normal gate also runs the complete server contract suite.
 An exhausted limit leaves the result inconclusive and blocks release.
 Proofs and fuzzing use fixed input bounds and run counts.
