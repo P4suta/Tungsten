@@ -1,5 +1,5 @@
 use super::{generate, report};
-use crate::{output, run};
+use crate::{container_reports, output, run};
 use anyhow::{Result, ensure};
 use std::{collections::BTreeSet, fs, path::Path};
 
@@ -26,6 +26,7 @@ const SOURCE_INPUTS: &[&str] = &[
     "xtask/src/proofs/report.rs",
     "xtask/src/proofs/runner.rs",
     "xtask/src/main.rs",
+    "xtask/src/container_reports.rs",
     "xtask/src/release_checks.rs",
     "tests/domain.rs",
     "linux/model/tests/saving.rs",
@@ -107,18 +108,12 @@ pub fn verify(root: &Path, dry_run: bool) -> Result<()> {
             && image[7..].bytes().all(|byte| byte.is_ascii_hexdigit()),
         "missing immutable proof image identity"
     );
-    let reports = tempfile::Builder::new()
-        .prefix("proofs-")
-        .tempdir_in(root.join("target"))?
-        .keep();
-    let mount = format!("type=bind,source={},target=/reports", reports.display());
+    let reports = container_reports::directory(root, "proofs-")?;
     eprintln!(
         "operation=proofs phase=verify image={image} reports={}",
         reports.display()
     );
     let mut args = vec![
-        "run",
-        "--rm",
         "--init",
         "--platform",
         "linux/amd64",
@@ -129,8 +124,6 @@ pub fn verify(root: &Path, dry_run: bool) -> Result<()> {
         "--pids-limit=256",
         "--cap-drop=ALL",
         "--security-opt=no-new-privileges",
-        "--mount",
-        &mount,
         &image,
     ];
     let list_args = [
@@ -143,9 +136,9 @@ pub fn verify(root: &Path, dry_run: bool) -> Result<()> {
         "json",
     ];
     args.extend(list_args);
-    run(root, "docker", &args)?;
+    container_reports::run(root, &args, &reports)?;
     args.truncate(args.len() - list_args.len());
-    run(root, "docker", &args)?;
+    container_reports::run(root, &args, &reports)?;
     ensure!(
         fingerprint(root)? == source,
         "proof inputs changed during verification; rerun the gate"

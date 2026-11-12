@@ -197,6 +197,8 @@ The command first runs the local gate, then runs native stages in bounded Linux 
 Each native stage has 4 GiB of memory, no swap, two CPUs, 256 processes, and a deadline of 890 seconds.
 The host needs 12 GiB of free space before image creation and 8 GiB before each native container starts.
 Proofs, fuzzing, server rule mutations, and Linux model mutations run sequentially in separate containers and keep separate reports.
+Containers write to private anonymous volumes, and the runner copies reports to the host before removing its containers and volumes.
+Reports remain inside a private directory under `CARGO_TARGET_DIR` when set, or the project's `target` directory otherwise.
 The server rule mutation check runs the dedicated domain contract tests without server or storage features.
 The normal gate also runs the complete server contract suite.
 An exhausted limit leaves the result inconclusive and blocks release.

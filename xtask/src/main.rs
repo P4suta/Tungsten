@@ -1,4 +1,5 @@
 mod apple;
+mod container_reports;
 mod demo;
 mod linux;
 mod memory;

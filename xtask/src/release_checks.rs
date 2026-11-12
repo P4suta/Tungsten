@@ -1,4 +1,4 @@
-use crate::{output, proofs, run};
+use crate::{container_reports, output, proofs, run};
 use anyhow::{Context, Result, ensure};
 use clap::ValueEnum;
 use serde::Deserialize;
@@ -200,23 +200,16 @@ pub fn verify(root: &Path) -> Result<()> {
             && image[7..].bytes().all(|byte| byte.is_ascii_hexdigit()),
         "missing immutable release image identity"
     );
-    let reports = tempfile::Builder::new()
-        .prefix("release-check-")
-        .tempdir_in(root.join("target"))?
-        .keep();
-    let mount = format!("type=bind,source={},target=/reports", reports.display());
+    let reports = container_reports::directory(root, "release-check-")?;
     eprintln!(
         "operation=release-check image={image} reports={}",
         reports.display()
     );
     for check in NativeCheck::value_variants() {
         require_space(root, 8 * GIB)?;
-        run(
+        container_reports::run(
             root,
-            "docker",
             &[
-                "run",
-                "--rm",
                 "--init",
                 "--platform",
                 "linux/amd64",
@@ -230,8 +223,6 @@ pub fn verify(root: &Path) -> Result<()> {
                 "CARGO_PROFILE_DEV_DEBUG=0",
                 "--env",
                 "CARGO_PROFILE_TEST_DEBUG=0",
-                "--mount",
-                &mount,
                 &image,
                 "tungsten-xtask",
                 "release-native",
@@ -239,6 +230,7 @@ pub fn verify(root: &Path) -> Result<()> {
                 "--reports",
                 "/reports",
             ],
+            &reports,
         )?;
     }
     ensure!(

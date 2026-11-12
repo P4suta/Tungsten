@@ -69,6 +69,10 @@ Run `mise x -- just proofs --dry-run` to inspect the source inventory and resour
 Run `mise x -- just proofs` for the pinned Linux container with two CPUs, 4 GiB of RAM, no swap, no network, and a deadline of 890 seconds.
 The first image build downloads pinned tools and dependencies before the isolated verification run.
 Each harness has a timeout of 300 seconds.
+Containers write reports to private anonymous volumes.
+The runner copies reports after execution with [Docker's copy command](https://docs.docker.com/reference/cli/docker/container/cp/), which assigns local files to the invoking user.
+The runner collects partial reports after a failed check and removes its containers and volumes.
+Reports remain inside a private directory under `CARGO_TARGET_DIR` when set, or the project's `target` directory otherwise.
 The [C Bounded Model Checker (CBMC) pointer model](https://diffblue.github.io/cbmc/cprover-manual/md_memory-primitives.html) uses Kani's default of 16 object bits and rejects object exhaustion.
 The release gate uses the same native proof entry point before its separate fuzz and mutation checks.
 
