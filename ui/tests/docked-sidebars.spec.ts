@@ -57,6 +57,53 @@ async function centerLastLine(page: Page): Promise<void> {
     .toBeLessThan(2);
 }
 
+test("reserves the paper position before the editor module loads", async ({
+  page,
+  request,
+}, info) => {
+  const name = `Loading-paper-${info.project.name}-${info.repeatEachIndex}.md`;
+  expect((await request.post("/api/notes", { data: { name, body: "" } })).ok()).toBe(true);
+  for (const width of [390, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    let release: () => void = () => {};
+    let arrived: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const requested = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    await page.route("**/assets/app.js", async (route) => {
+      arrived();
+      await held;
+      await route.continue();
+    });
+    try {
+      await page.goto(`/?note=${name}`, { waitUntil: "commit" });
+      await requested;
+      await expect(page.locator("body")).toHaveCSS("position", "fixed");
+      const paper = page.locator("#paper-scroll");
+      await expect(paper).toBeVisible();
+      const before = await paper.boundingBox();
+      if (!before) throw new Error("The paper is unavailable before the editor loads.");
+      if (width === 1440 && info.project.name === "chromium")
+        await page.screenshot({
+          path: `../target/screenshots/loading-paper-${info.project.name}.png`,
+        });
+      release();
+      await expect(page.locator(".cm-content")).toBeEditable();
+      expect(await paper.boundingBox()).toEqual(before);
+      if (width === 1440 && info.project.name === "chromium")
+        await page.screenshot({
+          path: `../target/screenshots/loaded-paper-${info.project.name}.png`,
+        });
+    } finally {
+      release();
+      await page.unroute("**/assets/app.js");
+    }
+  }
+});
+
 test("keeps the paper centered and stationary across every wide sidebar combination", async ({
   page,
   request,
