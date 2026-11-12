@@ -30,6 +30,7 @@ FROM release-tools AS release-check
 ENV CARGO_NET_OFFLINE=false
 WORKDIR /project
 COPY Cargo.toml Cargo.lock ./
+COPY .cargo/config.toml .cargo/config.toml
 COPY xtask/ xtask/
 COPY linux/ linux/
 COPY src/ src/
