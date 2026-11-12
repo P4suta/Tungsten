@@ -8,7 +8,9 @@ pub fn valid_name(bytes: &[u8]) -> bool {
     let mut components = 1u8;
     let mut start = true;
     let mut previous = 0;
-    for &byte in bytes {
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
         if byte < 32 || matches!(byte, 127 | b'\\') {
             return false;
         }
@@ -25,6 +27,7 @@ pub fn valid_name(bytes: &[u8]) -> bool {
             start = false;
         }
         previous = byte;
+        index = index.saturating_add(1);
     }
     true
 }
