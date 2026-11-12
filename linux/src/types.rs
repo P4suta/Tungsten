@@ -7,7 +7,20 @@ pub struct ServerAddress(String);
 
 impl ServerAddress {
     pub fn parse(value: &str, development: bool) -> Result<Self> {
-        let url = reqwest::Url::parse(value.trim()).map_err(|_| Error::Address)?;
+        let value = value.trim();
+        let authority = value.split_once("://").ok_or(Error::Address)?.1;
+        let suffix = authority
+            .find(['/', '?', '#'])
+            .map(|start| &authority[start..])
+            .unwrap_or("");
+        if !matches!(suffix, "" | "/")
+            || value.chars().any(|character| {
+                character.is_whitespace() || character.is_control() || character == '\\'
+            })
+        {
+            return Err(Error::Address);
+        }
+        let url = reqwest::Url::parse(value).map_err(|_| Error::Address)?;
         let host = url.host_str().ok_or(Error::Address)?;
         let local = host == "localhost"
             || host

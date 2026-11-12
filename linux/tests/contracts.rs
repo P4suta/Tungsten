@@ -35,6 +35,10 @@ fn origins_reject_paths_credentials_insecure_remote_hosts_and_non_origins() {
         "https://a#x",
         "file:///a",
         "https://a:0",
+        "https://a/b/..",
+        "https://a/%2e/",
+        "https://a\\b",
+        "https://ex\tample.com",
     ] {
         assert!(ServerAddress::parse(value, true).is_err(), "{value}");
     }
