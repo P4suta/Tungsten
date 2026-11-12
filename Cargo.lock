@@ -1386,6 +1386,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "tungsten-linux-model"
+version = "0.1.0"
+
+[[package]]
 name = "twox-hash"
 version = "2.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
