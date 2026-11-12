@@ -123,6 +123,49 @@ fn path_validation_preserves_component_and_byte_boundaries() {
     }
 }
 #[test]
+fn identifiers_and_attachment_parts_validate_every_byte_independently() {
+    use tungsten::rules::{valid_attachment, valid_id};
+    for length in 0..=33 {
+        assert_eq!(valid_id(&vec![b'a'; length]), length == 32);
+    }
+    for position in 0..32 {
+        for byte in 0..=255u8 {
+            let mut id = [b'a'; 32];
+            id[position] = byte;
+            let accepted = b"0123456789abcdef".contains(&byte);
+            assert_eq!(valid_id(&id), accepted, "position={position} byte={byte}");
+            let mut attachment = id.to_vec();
+            attachment.extend_from_slice(b".png");
+            assert_eq!(valid_attachment(&attachment), accepted);
+        }
+    }
+    for length in 0..=13 {
+        let attachment = format!("{}.{}", "a".repeat(32), "a".repeat(length));
+        assert_eq!(
+            valid_attachment(attachment.as_bytes()),
+            (1..=12).contains(&length)
+        );
+    }
+    for position in 32..45 {
+        for byte in 0..=255u8 {
+            let mut attachment = [b'a'; 45];
+            attachment[32] = b'.';
+            attachment[position] = byte;
+            let accepted = if position == 32 {
+                byte == b'.'
+            } else {
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".contains(&byte)
+            };
+            assert_eq!(
+                valid_attachment(&attachment),
+                accepted,
+                "position={position} byte={byte}"
+            );
+        }
+    }
+}
+
+#[test]
 fn attribute_escaping_preserves_every_unicode_scalar_and_exact_entities() {
     for value in 0..=0x10ffff {
         let Some(character) = char::from_u32(value) else {

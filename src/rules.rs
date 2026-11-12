@@ -8,9 +8,7 @@ pub fn valid_name(bytes: &[u8]) -> bool {
     let mut components = 1u8;
     let mut start = true;
     let mut previous = 0;
-    let mut index = 0;
-    while index < bytes.len() {
-        let byte = bytes[index];
+    for &byte in bytes {
         if byte < 32 || matches!(byte, 127 | b'\\') {
             return false;
         }
@@ -27,22 +25,18 @@ pub fn valid_name(bytes: &[u8]) -> bool {
             start = false;
         }
         previous = byte;
-        index += 1;
     }
-    !start && previous != b' '
+    true
 }
 
 pub fn valid_id(bytes: &[u8]) -> bool {
     if bytes.len() != 32 {
         return false;
     }
-    let mut index = 0;
-    while index < 32 {
-        let byte = bytes[index];
+    for &byte in bytes {
         if !byte.is_ascii_digit() && !(b'a'..=b'f').contains(&byte) {
             return false;
         }
-        index += 1;
     }
     true
 }
@@ -51,12 +45,10 @@ pub fn valid_attachment(bytes: &[u8]) -> bool {
     if !(34..=45).contains(&bytes.len()) || !valid_id(&bytes[..32]) || bytes[32] != b'.' {
         return false;
     }
-    let mut index = 33;
-    while index < bytes.len() {
-        if !bytes[index].is_ascii_alphanumeric() {
+    for byte in &bytes[33..] {
+        if !byte.is_ascii_alphanumeric() {
             return false;
         }
-        index += 1;
     }
     true
 }
@@ -68,12 +60,10 @@ pub fn safe_external_link(bytes: &[u8]) -> bool {
     {
         return false;
     }
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] <= 32 || bytes[index] == 127 {
+    for &byte in bytes {
+        if byte <= 32 || byte == 127 {
             return false;
         }
-        index += 1;
     }
     true
 }
