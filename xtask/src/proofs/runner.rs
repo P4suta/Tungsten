@@ -6,7 +6,11 @@ use std::{collections::BTreeSet, fs, path::Path};
 const SOURCE_INPUTS: &[&str] = &[
     "Cargo.toml",
     "Cargo.lock",
+    ".cargo/config.toml",
+    "xtask/Cargo.toml",
     "src/domain.rs",
+    "linux/Cargo.toml",
+    "linux/model/Cargo.toml",
     "linux/model/src/lib.rs",
     "linux/src/editor.rs",
     "linux/src/drafts.rs",
@@ -194,6 +198,34 @@ pub fn native(root: &Path, reports: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn package_configuration_changes_invalidate_verification() {
+        let directory = tempfile::tempdir().unwrap();
+        for path in source_inputs() {
+            let target = directory.path().join(path);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::write(target, path).unwrap();
+        }
+        let configurations = [
+            "linux/model/Cargo.toml",
+            "linux/Cargo.toml",
+            "xtask/Cargo.toml",
+            ".cargo/config.toml",
+        ];
+        for path in configurations {
+            let target = directory.path().join(path);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::write(target, "original").unwrap();
+        }
+        let before = fingerprint(directory.path()).unwrap();
+        for path in configurations {
+            let target = directory.path().join(path);
+            fs::write(&target, "changed").unwrap();
+            assert_ne!(fingerprint(directory.path()).unwrap(), before, "{path}");
+            fs::write(target, "original").unwrap();
+        }
+    }
 
     #[test]
     fn changed_source_invalidates_the_verification_identity() {
