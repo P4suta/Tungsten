@@ -7,14 +7,37 @@ use tungsten_linux::{
 };
 
 async fn server() -> (tempfile::TempDir, Client, tokio::task::JoinHandle<()>) {
+    server_with_missing_acknowledgement(false).await
+}
+
+async fn server_with_missing_acknowledgement(
+    missing: bool,
+) -> (tempfile::TempDir, Client, tokio::task::JoinHandle<()>) {
     let directory = tempfile::tempdir().unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
-    let router = tungsten::api::app_with_origin(
+    let mut router = tungsten::api::app_with_origin(
         directory.path(),
         tungsten::api::ServerOrigin::development(&origin).unwrap(),
     )
     .unwrap();
+    if missing {
+        router = router.layer(axum::middleware::from_fn(
+            |request: axum::extract::Request, next: axum::middleware::Next| async move {
+                let lose = request.method() == axum::http::Method::POST
+                    && request.uri().path() == "/api/notes";
+                let mut response = next.run(request).await;
+                if lose && response.status().is_success() {
+                    response
+                        .headers_mut()
+                        .remove(axum::http::header::CONTENT_LENGTH);
+                    response.map(|_| axum::body::Body::empty())
+                } else {
+                    response
+                }
+            },
+        ));
+    }
     let task = tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
@@ -141,6 +164,95 @@ async fn revisions_conflicts_remote_deletion_workspaces_history_trash_and_origin
             .body,
         changed.body
     );
+    task.abort();
+}
+
+#[tokio::test]
+async fn a_committed_write_with_a_missing_response_survives_restart() {
+    let (_server, client, task) = server_with_missing_acknowledgement(true).await;
+    let directory = tempfile::tempdir().unwrap();
+    let store = DraftStore::at(directory.path().to_owned());
+    let mut editor = Editor::create(client.address().clone(), 1);
+    editor
+        .edit("# Recover the acknowledgement".into(), &store)
+        .unwrap();
+    let (ticket, outgoing) = editor.begin(&store).unwrap().unwrap();
+    assert!(
+        editor
+            .complete(ticket, client.save(&outgoing).await, &store)
+            .is_err()
+    );
+    assert!(editor.begin(&store).unwrap().is_none());
+    let draft = store
+        .recover(client.address())
+        .unwrap()
+        .drafts
+        .pop()
+        .unwrap();
+    let mut restarted = Editor::recover(draft, 2);
+    restarted
+        .edit(
+            "# Recover the acknowledgement\n\nLater writing".into(),
+            &store,
+        )
+        .unwrap();
+    restarted
+        .reconcile(client.read(&outgoing.name).await, &store)
+        .unwrap();
+    let (ticket, outgoing) = restarted.begin(&store).unwrap().unwrap();
+    restarted
+        .complete(ticket, client.save(&outgoing).await, &store)
+        .unwrap();
+    assert!(restarted.state().is_saved());
+    assert_eq!(
+        client.read(&outgoing.name).await.unwrap().body,
+        outgoing.body
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn workspace_and_membership_pages_cover_more_than_fifty_entries() {
+    let (_server, client, task) = server().await;
+    let workspace = client.create_workspace("Paged Notes").await.unwrap();
+    for index in 0..55 {
+        let draft = Draft {
+            format: 1,
+            server: client.address().clone(),
+            name: NoteName::parse(format!("Note-{index}.md")).unwrap(),
+            body: format!("# Note {index}"),
+            revision: None,
+            pending: None,
+        };
+        let note = client.save(&draft).await.unwrap();
+        client
+            .membership(&workspace.id, &note.name, true)
+            .await
+            .unwrap();
+        client
+            .create_workspace(&format!("Workspace {index}"))
+            .await
+            .unwrap();
+    }
+    let first = client.workspaces(None).await.unwrap();
+    assert_eq!(first.workspaces.len(), 50);
+    let second = client.workspaces(first.next.as_deref()).await.unwrap();
+    assert_eq!(second.workspaces.len(), 6);
+    assert!(second.next.is_none());
+    let first = client.workspace_notes(&workspace.id, None).await.unwrap();
+    assert_eq!(first.notes.len(), 50);
+    let second = client
+        .workspace_notes(&workspace.id, first.next.as_deref())
+        .await
+        .unwrap();
+    assert_eq!(second.notes.len(), 5);
+    assert!(second.next.is_none());
+    let renamed = client
+        .rename_workspace(&first.workspace, "Renamed")
+        .await
+        .unwrap();
+    client.delete_workspace(&renamed).await.unwrap();
+    assert_eq!(client.notes("", None).await.unwrap().total, 55);
     task.abort();
 }
 

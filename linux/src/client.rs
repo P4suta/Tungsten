@@ -149,6 +149,14 @@ impl Client {
             request = request.query(&[("after", after)]);
         }
         let page: WorkspacePage = Self::json(request).await?;
+        forward_cursor(page.next.as_deref(), after)?;
+        if page.next.as_deref().is_some_and(|next| {
+            page.workspaces
+                .last()
+                .is_none_or(|workspace| workspace.id.as_str() != next)
+        }) {
+            return Err(Error::Response);
+        }
         check_page(
             page.workspaces
                 .iter()
@@ -173,6 +181,7 @@ impl Client {
             request = request.query(&[("after", after)]);
         }
         let page: WorkspaceNotes = Self::json(request).await?;
+        forward_cursor(page.next.as_deref(), after)?;
         if &page.workspace.id != workspace {
             return Err(Error::Response);
         }
@@ -428,6 +437,21 @@ impl Client {
         file.sync_all().await.map_err(Error::Storage)?;
         Ok(path)
     }
+}
+
+fn forward_cursor(next: Option<&str>, previous: Option<&str>) -> Result<()> {
+    if let Some(next) = next {
+        let next = WorkspaceId::try_from(next.to_owned())?;
+        let next = next.as_str().parse::<i64>().map_err(|_| Error::Response)?;
+        let previous = previous
+            .unwrap_or("0")
+            .parse::<i64>()
+            .map_err(|_| Error::Response)?;
+        if next <= previous {
+            return Err(Error::Response);
+        }
+    }
+    Ok(())
 }
 
 fn record_id(record: &SavedNote) -> Result<()> {
