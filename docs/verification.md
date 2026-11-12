@@ -132,6 +132,8 @@ PDF rendering, formatting, syntax highlighting, graph simulation, and version di
 HTTP fixtures verify compression, conditional requests, immutable fingerprinted chunks, and private pages retaining `no-store`.
 Source files and retired settings and export routes remain unavailable.
 Chromium tests load 50 sidebar notes, measure twelve edits under sixfold CPU slowdown, and require the ninety-fifth percentile through the following rendering frame to stay below 200 milliseconds.
+Each sample starts at the browser's [event timestamp](https://dom.spec.whatwg.org/#dom-event-timestamp) and spans two [animation frame callbacks](https://html.spec.whatwg.org/multipage/imagebitmap-and-animations.html#animation-frames) to include queued rendering work.
+Regression fixtures exclude driver setup time and detect a blocked input handler.
 Other engines run the same editing behavior without claiming support for Chromium's CPU emulation.
 Lighthouse's [performance score](https://developer.chrome.com/docs/lighthouse/performance/performance-scoring) and synthetic latency budgets cover the specified fixture and emulation.
 Physical devices and networks can differ from the laboratory conditions.
