@@ -9,7 +9,7 @@ Follow [the native client decision](docs/adr/use-native-apple-clients-with-the-s
 
 Use GTK4 and libadwaita system design under `linux`.
 Follow the [Linux client decision](docs/adr/use-gtk-and-durable-drafts-for-the-linux-client.md) and [Linux app guide](docs/linux-apps.md).
-Adopt applicable platform recommendations as owner policy, preserving their original normative status.
+Adopt applicable platform recommendations as personal policy, preserving their original normative status.
 Use system appearance, fonts, accent colors, accessibility, and standard symbolic icons instead of shared monochrome styling.
 Keep save decisions independent of GTK, persist drafts before sending, and preserve the existing server contract.
 Run `mise x -- just linux source` on every host and `mise x -- just linux check` on Linux.

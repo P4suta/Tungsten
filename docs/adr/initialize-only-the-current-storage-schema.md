@@ -7,7 +7,7 @@ date: 2026-11-11
 ## Context
 
 Tungsten remains unreleased.
-The owner explicitly excludes compatibility with previous storage formats.
+The requirements explicitly exclude compatibility with previous storage formats.
 Workspace and search-index migrations add conversion paths outside the supported scope.
 
 ## Decision
@@ -21,7 +21,7 @@ This replaces the migration requirements in the [workspace](store-named-note-col
 
 ## Alternatives
 
-Retaining migrations preserves unreleased databases but adds conversion code and failure cases outside the owner's requirements.
+Retaining migrations preserves unreleased databases but adds conversion code and failure cases outside the requirements.
 
 ## Consequences
 

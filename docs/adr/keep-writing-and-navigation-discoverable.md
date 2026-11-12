@@ -28,7 +28,7 @@ A rich text engine offers inline rendering but expands the plain Markdown editin
 
 Routing and cursor measurement need browser checks.
 Manual scrolling remains available between edits.
-Reconsider the editor when inline rendered editing becomes an owner request.
+Reconsider the editor when inline rendered editing becomes an explicit request.
 
 ## Confirmation
 

@@ -6,7 +6,7 @@ date: 2026-11-09
 
 ## Context
 
-The owner switches between tabs and devices.
+Writing moves between tabs and devices.
 Revision preconditions prevent overwritten saves, but inactive views remain stale and shared draft storage can import another live tab's edits.
 
 ## Decision

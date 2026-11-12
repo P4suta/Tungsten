@@ -23,7 +23,7 @@ Keep existing metadata readable and include retained files in complete exports.
 ## Alternatives
 
 Immediate deletion races with pending uploads and offline drafts.
-Keeping a management page makes the owner identify unused files manually.
+Keeping a management page requires manual identification of unused files.
 Keeping files forever fails the requested automatic cleanup.
 
 ## Consequences

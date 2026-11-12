@@ -8,7 +8,7 @@ date: 2026-11-10
 
 The first comparison used sixteen notes and different search implementations.
 Its long-edit results combine engine costs with avoidable index allocation and rewriting.
-The owner requests a defensible evaluation before choosing storage.
+Storage selection requires a defensible evaluation.
 
 ## Decision
 

@@ -6,8 +6,8 @@ date: 2026-11-09
 
 ## Context
 
-The owner requests encrypted server storage without server-held decryption keys.
-The owner chooses one enrollment per device and rejects a full local index copy.
+The requested storage design uses encryption without server-held decryption keys.
+The requested model uses one enrollment per device and excludes a full local index copy.
 
 ## Decision
 
@@ -22,7 +22,7 @@ Bind wrapped-key ciphertext to its vault, object, purpose, and position.
 ## Alternatives
 
 Server-held keys expose content to the running service.
-Per-launch secret entry conflicts with the owner's chosen device experience.
+Per-launch secret entry conflicts with the requested device experience.
 
 ## Consequences
 

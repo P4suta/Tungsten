@@ -11,7 +11,7 @@ Fitting long button labels into the viewport prevents ordinary pointer selection
 
 ## Decision
 
-Keep each graph node's icon button at the owner's 48 CSS pixel target size.
+Keep each graph node's icon button at the required 48 CSS pixel target size.
 Render its title as a separate visual label that never intercepts pointer events.
 Show labels when space permits, with the full `accessible name`, native title, and selected-note heading available.
 Bound the visible neighborhood by viewport dimensions, up to 120 nodes.

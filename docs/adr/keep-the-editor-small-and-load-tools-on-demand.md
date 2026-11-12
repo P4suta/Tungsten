@@ -6,8 +6,8 @@ date: 2026-11-09
 
 ## Context
 
-The owner requests responsive writing, readable graphs, dedicated Trash, and useful recovery.
-The owner rejects [settings](limit-preferences-to-reading-choices.md), counts, separate relations, and [exports](stream-complete-exports-with-bounded-memory.md).
+The requested interface provides responsive writing, readable graphs, dedicated Trash, and useful recovery.
+The requirements exclude [settings](limit-preferences-to-reading-choices.md), counts, separate relations, and [exports](stream-complete-exports-with-bounded-memory.md).
 
 ## Decision
 

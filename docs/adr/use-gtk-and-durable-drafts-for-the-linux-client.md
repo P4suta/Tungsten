@@ -6,7 +6,7 @@ date: 2026-11-12
 
 ## Context
 
-The owner requests GTK4, libadwaita, shared-server access, and x86_64 and aarch64 Flatpak bundles.
+The Linux client must use GTK4 and libadwaita, connect to the shared server, and provide x86_64 and aarch64 Flatpak bundles.
 
 ## Decision
 
@@ -14,7 +14,7 @@ Keep save decisions in a dependency-free `no_std` model with HTTP, storage, and 
 Reuse `NoteName`, `Revision`, and the server API.
 Persist server-scoped drafts before transmission, reject stale responses, and stop autosave after uncertain delivery or conflicts.
 
-Adopt applicable [Human Interface Guidelines](https://developer.gnome.org/hig/) recommendations as owner policy.
+Adopt applicable [Human Interface Guidelines](https://developer.gnome.org/hig/) recommendations as personal policy.
 Use native navigation and editing with system appearance, fonts, accessibility, and icons, overriding monochrome defaults.
 The [Linux app guide](../linux-apps.md) records applicable sources and verification.
 

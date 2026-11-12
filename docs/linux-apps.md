@@ -34,9 +34,9 @@ File selection and opening originals use GTK's [FileDialog](https://docs.gtk.org
 
 ## System design policy
 
-Owner policy requires applicable [Human Interface Guidelines](https://developer.gnome.org/hig/) recommendations.
+Personal policy requires applicable [Human Interface Guidelines](https://developer.gnome.org/hig/) recommendations.
 The source documents remain recommendations, rather than specifications imposing universal requirements.
-Native system design takes precedence over the owner's shared monochrome and per-control icon defaults for Linux UI.
+Native system design takes precedence over shared monochrome styling and icon preferences in the Linux UI.
 The [UI styling guidance](https://developer.gnome.org/hig/guidelines/ui-styling.html) governs system Light and Dark appearance.
 The app leaves accent colors and High Contrast to libadwaita.
 The [typography guidance](https://developer.gnome.org/hig/guidelines/typography.html) requires system fonts and relative system styles.

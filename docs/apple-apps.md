@@ -34,7 +34,7 @@ Follow [accessibility guidance](https://developer.apple.com/design/human-interfa
 Use [page sizing](https://developer.apple.com/documentation/swiftui/view/presentationsizing(_:)) for list sheets and form sizing for settings and workspace forms.
 Move notes to Trash without an extra confirmation, and require confirmation before emptying Trash or removing an original attachment, following Apple's [guidance for alerts](https://developer.apple.com/design/human-interface-guidelines/alerts).
 Apple presents the design guidance as recommendations.
-Owner policy requires applicable recommendations.
+Personal policy requires applicable recommendations.
 
 ## Connection and recovery
 
@@ -98,7 +98,7 @@ Optional UI diagnostics use the separate TungstenMacInterfaceTests and TungstenI
 Project generation rejects standard schemes that include UI test bundles or omit unit tests.
 The optional UI workflow checks writing, relaunch, and Trash restoration using synthetic notes.
 Each iOS UI run creates and deletes its own simulator.
-Native UI tests take control of the desktop and require explicit owner permission and coordinated access with other machine users.
+Native UI tests take control of the desktop and require explicit permission and coordinated access with other machine users.
 The runner rejects UI commands before any effects unless `--allow-desktop-control` acknowledges authorized desktop access.
 Its repository lock only prevents concurrent runs from the same checkout.
 
@@ -114,7 +114,7 @@ mise x -- just apple ui ios --only tour --tour --appearance light --text-size en
 ```
 
 The Mac tour uses Light and Dark appearances at the system body size and 200% reading size.
-Only isolated debug test sessions choose [the app appearance](https://developer.apple.com/documentation/appkit/nsapplication/appearance), leaving the owner's system preferences untouched.
+Only isolated debug test sessions choose [the app appearance](https://developer.apple.com/documentation/appkit/nsapplication/appearance), leaving system preferences untouched.
 Use [accessibility containers](https://developer.apple.com/documentation/swiftui/accessibilitychildbehavior/contain) to name content areas while preserving child controls and their labels.
 The iOS tour uses Light and Dark appearances, Increase Contrast, and the largest accessibility text size.
 The tours perform XCTest accessibility audits and keep app screenshots in `target/apple-ui-*/*.xcresult`.

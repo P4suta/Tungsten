@@ -9,7 +9,7 @@ date: 2026-11-09
 Immutable encrypted pages leave obsolete objects after edits and failed uploads.
 The prototype remains unadopted.
 [Native encrypted storage](search-encrypted-storage-on-a-trusted-running-server.md) replaces the candidate.
-The owner rejects permanent accumulation and corpus-sized maintenance on devices.
+The requirements exclude permanent accumulation and corpus-sized maintenance on devices.
 
 ## Decision
 

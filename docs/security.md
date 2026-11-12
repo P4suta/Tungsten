@@ -2,11 +2,11 @@
 
 ## Intended deployment
 
-A single owner runs the app on trusted machines inside a private tailnet.
+One person runs the app on trusted machines inside a private tailnet.
 The design trusts the operating system, browser profile, server process, proxy, and software supply chain.
 The app has no accounts or content encryption keys.
 Every device allowed to reach the listener can read, edit, export, and delete notes.
-Use the tailnet policy to restrict access to the owner's devices.
+Use the tailnet policy to restrict access to authorized devices.
 Don't expose the listener to the public Internet.
 
 ## Stored content

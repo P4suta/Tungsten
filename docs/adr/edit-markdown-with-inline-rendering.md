@@ -6,7 +6,7 @@ date: 2026-11-08
 
 ## Context
 
-The owner now requests rendered editing, reconsidering the [separate source editor](keep-writing-and-navigation-discoverable.md).
+The current requirements replace the [separate source editor](keep-writing-and-navigation-discoverable.md) with rendered editing.
 Composition, recovery, and original Markdown must survive the change.
 
 ## Decision

@@ -98,7 +98,7 @@ They also check text spacing overrides, landscape input, and the notice when Jav
 Native controls preserve keyboard and assistive technology semantics.
 The graph provides keyboard movement, stops continuous animation when hidden or settled, and honors reduced-motion preferences.
 Timed tasks and authentication criteria have no matching features in the app.
-Black and white styling, 18 CSS pixel text, and 48 CSS pixel targets are owner preferences.
+Black and white styling, 18 CSS pixel text, and 48 CSS pixel targets are personal preferences.
 Automated results don't establish behavior in an untested assistive technology.
 
 ## Database capacity
@@ -228,7 +228,7 @@ The browser suite runs the complete selected accessibility rule set and rejects 
 The gate rejects child frames and uses the [documented analysis mode](https://github.com/dequelabs/axe-core-npm/blob/develop/packages/playwright/error-handling.md#axebuildersetlegacymodelegacy-boolean) that runs in the tested page, avoiding a second WebKit automation window.
 Media checks decode an image, play a recording, render PDF pixels and text, follow links, and select PDF pages.
 The viewer follows the [HTML media contract](https://html.spec.whatwg.org/multipage/media.html#media-elements) and the [PDF.js rendering API](https://mozilla.github.io/pdf.js/examples/).
-Media descriptions support transcripts supplied by the owner.
+Media descriptions support supplied transcripts.
 The service doesn't transcribe private uploads.
 Original user content needs its own captions and alternatives under the [Web Content Accessibility Guidelines media criteria](https://www.w3.org/TR/WCAG22/#time-based-media).
 Retired settings, appearance preferences, text counts, heading controls, and alternative views stay absent.
@@ -240,7 +240,7 @@ Firefox fixtures can't focus native anchors beneath an editable ancestor.
 Live links use focusable wrappers with [link activation](https://www.w3.org/WAI/ARIA/apg/patterns/link/) while retaining their native anchor URLs and pointer context menus.
 Keyboard navigation opens the target note and returns focus to its editor.
 Dialog and page checks verify the name and upper-right placement of close controls.
-Heading checks enforce the owner's single-title and continuous-rank policy while preserving literal code and Undo.
+Heading checks enforce the single-title and continuous-rank policy while preserving literal code and Undo.
 Matched-delimiter and fence checks preserve contents, unrelated blocks, and native Undo.
 Highlighting fixtures cover language aliases, common grammars, a deferred grammar, literal HTML, and an unknown language.
 Trash uses the [single-select listbox keyboard model](https://www.w3.org/WAI/ARIA/apg/patterns/listbox/) with indexed paging, selection, inline preview, and restoration inside navigation.

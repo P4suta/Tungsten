@@ -6,7 +6,7 @@ date: 2026-11-10
 
 ## Context
 
-The owner requests removal of app encryption.
+The requested server removes app encryption.
 Million-note search must avoid startup filesystem scans and device replicas.
 
 ## Decision

@@ -6,7 +6,7 @@ date: 2026-11-10
 
 ## Context
 
-The owner requires broader formal assurance for concurrent editing and input validation.
+Concurrent editing and input validation require broader formal assurance.
 Example tests can't check every decision input or operation ordering.
 Proofs must execute production decisions and preserve their language semantics.
 

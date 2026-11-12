@@ -6,7 +6,7 @@ date: 2026-11-08
 
 ## Context
 
-The owner wants writing without choosing fonts, spacing, completion, or file organization.
+Writing must work without choosing fonts, spacing, completion, or file organization.
 The expanded controls in [portable workflows](extend-files-with-portable-markdown-workflows.md) expose unwanted tasks.
 
 ## Decision
