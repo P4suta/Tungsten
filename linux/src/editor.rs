@@ -149,6 +149,12 @@ impl Editor {
         }
         let remote = match remote {
             Ok(note) => note,
+            Err(Error::Missing)
+                if self.draft.revision.is_none() && self.draft.pending.is_none() =>
+            {
+                self.state = self.state.blocked(Block::None);
+                return self.persist(store);
+            }
             Err(error) => {
                 self.state = self.state.blocked(if matches!(error, Error::Missing) {
                     Block::Missing
@@ -210,6 +216,11 @@ impl Editor {
         {
             return Err(Error::Busy);
         }
-        self.edit(body, store)
+        let previous = self.draft.clone();
+        let result = self.edit(body, store);
+        if result.is_err() {
+            self.draft = previous;
+        }
+        result
     }
 }

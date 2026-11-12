@@ -1,9 +1,10 @@
 use tungsten_linux::{
     Error, NoteName, Revision,
-    drafts::{Draft, DraftStore},
+    drafts::{Draft, DraftStore, PendingWrite},
     editor::Editor,
     types::{Note, ServerAddress},
 };
+use tungsten_linux_model::Block;
 
 fn server() -> ServerAddress {
     ServerAddress::parse("https://notes.example", false).unwrap()
@@ -38,6 +39,68 @@ fn history_reads_refuse_edits_even_if_text_returns_to_its_earlier_value() {
         .unwrap();
     assert_eq!(editor.draft().body, "Historical");
     assert_eq!(editor.draft().revision, Some(note("Original").revision));
+}
+
+#[test]
+fn failed_history_replacement_keeps_visible_writing_until_it_is_durable_again() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = DraftStore::at(directory.path().join("drafts"));
+    let blocked = directory.path().join("blocked");
+    std::fs::write(&blocked, b"unavailable").unwrap();
+    let unavailable = DraftStore::at(blocked);
+    let mut editor = Editor::loaded(server(), note("Original"), 1);
+    editor.edit("Visible writing".into(), &store).unwrap();
+    let read = editor.history_read();
+    assert!(
+        editor
+            .replace_from_history(&read, "Historical".into(), &unavailable)
+            .is_err()
+    );
+    assert_eq!(editor.draft().body, "Visible writing");
+    assert!(!editor.state().may_leave());
+    editor.persist(&store).unwrap();
+    assert!(editor.state().may_leave());
+    assert_eq!(
+        store.recover(&server()).unwrap().drafts[0].body,
+        "Visible writing"
+    );
+    assert!(editor.edit("Typed writing".into(), &unavailable).is_err());
+    assert_eq!(editor.draft().body, "Typed writing");
+    assert!(!editor.state().may_leave());
+}
+
+#[test]
+fn retry_only_creates_missing_notes_without_an_acknowledged_or_pending_write() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = DraftStore::at(directory.path().to_owned());
+    for acknowledged in [false, true] {
+        for pending in [false, true] {
+            let revision = acknowledged.then(|| note("Original").revision);
+            let draft = Draft {
+                format: 1,
+                server: server(),
+                name: note("").name,
+                body: "Local writing".into(),
+                revision: revision.clone(),
+                pending: pending.then(|| PendingWrite {
+                    body: "Earlier write".into(),
+                    revision,
+                }),
+            };
+            let mut editor = Editor::recover(draft, 1);
+            let result = editor.reconcile(Err(Error::Missing), &store);
+            if acknowledged || pending {
+                assert!(matches!(result, Err(Error::Missing)));
+                assert_eq!(editor.state().block(), Block::Missing);
+                assert!(editor.begin(&store).unwrap().is_none());
+            } else {
+                result.unwrap();
+                assert_eq!(editor.state().block(), Block::None);
+                assert!(editor.begin(&store).unwrap().is_some());
+            }
+            assert_eq!(editor.draft().body, "Local writing");
+        }
+    }
 }
 
 #[test]
