@@ -7,6 +7,37 @@ concurrency:
   group: checks-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  linux:
+    name: Verify Flatpak (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
+        with:
+          version: 2026.11.4
+      - run: sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder ostree xvfb dbus-x11
+      - run: flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+      - run: flatpak --user install --assumeyes --noninteractive flathub org.gnome.Platform//51 org.gnome.Sdk//51
+      - env:
+          ARCH: ${{ matrix.arch }}
+        run: mise x -- just linux bundle --arch "$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: flatpak-${{ matrix.arch }}
+          path: dist/linux
+          retention-days: 7
+          if-no-files-found: error
   apple:
     name: Verify Apple candidate
     runs-on: xcode-27

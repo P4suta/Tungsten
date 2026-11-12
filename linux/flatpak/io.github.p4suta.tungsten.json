@@ -1,0 +1,40 @@
+{
+  "app-id": "io.github.p4suta.tungsten",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "51",
+  "sdk": "org.gnome.Sdk",
+  "command": "tungsten-gtk",
+  "finish-args": [
+    "--share=network",
+    "--share=ipc",
+    "--socket=wayland",
+    "--socket=fallback-x11",
+    "--device=dri"
+  ],
+  "build-options": {
+    "append-path": "/app/bin",
+    "env": {
+      "CARGO_HOME": "/run/build/tungsten/cargo-home",
+      "CARGO_NET_OFFLINE": "true",
+      "CARGO_BUILD_JOBS": "2",
+      "CARGO_PROFILE_RELEASE_DEBUG": "0"
+    }
+  },
+  "modules": [
+    {
+      "name": "tungsten",
+      "buildsystem": "simple",
+      "build-commands": [
+        "cargo build --release --locked --offline --package tungsten-linux --features desktop --bin tungsten-gtk",
+        "install -Dm755 target/release/tungsten-gtk /app/bin/tungsten-gtk",
+        "install -Dm644 LICENSE-MIT /app/share/licenses/io.github.p4suta.tungsten/LICENSE-MIT",
+        "install -Dm644 LICENSE-APACHE /app/share/licenses/io.github.p4suta.tungsten/LICENSE-APACHE",
+        "cp -a licenses /app/share/licenses/io.github.p4suta.tungsten/dependencies",
+        "install -Dm644 linux/data/io.github.p4suta.tungsten.desktop /app/share/applications/io.github.p4suta.tungsten.desktop",
+        "install -Dm644 linux/data/io.github.p4suta.tungsten.metainfo.xml /app/share/metainfo/io.github.p4suta.tungsten.metainfo.xml",
+        "install -Dm644 linux/data/io.github.p4suta.tungsten.svg /app/share/icons/hicolor/scalable/apps/io.github.p4suta.tungsten.svg"
+      ],
+      "sources": [{ "type": "dir", "path": "source" }]
+    }
+  ]
+}

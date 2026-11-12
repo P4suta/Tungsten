@@ -1,5 +1,6 @@
 mod apple;
 mod demo;
+mod linux;
 mod memory;
 mod mutation;
 mod performance;
@@ -29,6 +30,10 @@ enum Task {
     Apple {
         #[command(subcommand)]
         action: apple::Action,
+    },
+    Linux {
+        #[command(subcommand)]
+        action: linux::Action,
     },
     StorageProfile(storage::Options),
     StorageSummary {
@@ -276,7 +281,14 @@ fn dependencies(root: &Path) -> Result<()> {
     run(
         root,
         "cargo",
-        &["deny", "--workspace", "--locked", "--offline", "check"],
+        &[
+            "deny",
+            "--workspace",
+            "--all-features",
+            "--locked",
+            "--offline",
+            "check",
+        ],
     )?;
     npm(root, &["audit", "--audit-level=high"])?;
     run(
@@ -289,6 +301,7 @@ fn dependencies(root: &Path) -> Result<()> {
 
 fn check(root: &Path) -> Result<()> {
     apple::source(root)?;
+    linux::source(root)?;
     run(root, "cargo", &["fmt", "--all", "--check"])?;
     run(
         root,
@@ -308,6 +321,8 @@ fn check(root: &Path) -> Result<()> {
             "--check",
             "Cargo.toml",
             "xtask/Cargo.toml",
+            "linux/Cargo.toml",
+            "linux/model/Cargo.toml",
             "mise.toml",
             ".cargo/config.toml",
             "repository.toml",
@@ -394,6 +409,7 @@ fn main() -> Result<()> {
     let root = root()?;
     match Options::parse().task {
         Task::Apple { action } => apple::run(&root, action)?,
+        Task::Linux { action } => linux::run(&root, action)?,
         Task::StorageProfile(options) => storage::run(&root, options)?,
         Task::StorageSummary {
             input,
@@ -493,6 +509,8 @@ fn main() -> Result<()> {
                     "fmt",
                     "Cargo.toml",
                     "xtask/Cargo.toml",
+                    "linux/Cargo.toml",
+                    "linux/model/Cargo.toml",
                     "deny.toml",
                     "repository.toml",
                     "deploy/gitleaks.toml",
@@ -589,6 +607,20 @@ fn main() -> Result<()> {
                     "tungsten",
                     "--file",
                     "src/rules.rs",
+                    "--",
+                    "--locked",
+                ],
+            )?;
+            run(
+                &root,
+                "cargo",
+                &[
+                    "mutants",
+                    "--in-place",
+                    "--package",
+                    "tungsten-linux-model",
+                    "--file",
+                    "linux/model/src/state.rs",
                     "--",
                     "--locked",
                 ],

@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       apple: ${{ steps.apple-scope.outputs.affected }}
+      linux: ${{ steps.linux-scope.outputs.affected }}
     env:
       PROSE_SOURCE: ${{ github.workspace }}/target/shared-tools
     steps:
@@ -46,6 +47,10 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: mise x -- cargo xtask apple affected --base "$BASE_SHA" --head "$GITHUB_SHA" --output "$GITHUB_OUTPUT"
+      - id: linux-scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: mise x -- just linux affected --base "$BASE_SHA" --head "$GITHUB_SHA" --output "$GITHUB_OUTPUT"
       - run: npm --prefix ui ci
       - run: npm --prefix ui exec -- playwright install --with-deps chromium firefox webkit
       - run: mise x -- just check
@@ -83,12 +88,37 @@ jobs:
           key: apple-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'apple/Package.swift', 'apple/project.yml', 'mise.toml') }}
       - run: mise x -- npm --prefix ui ci
       - run: mise x -- just apple check
+  linux:
+    name: Check Linux app
+    needs: check
+    if: needs.check.outputs.linux == 'true'
+    runs-on: ubuntu-24.04
+    container: registry.fedoraproject.org/fedora:44@sha256:f08613fffc95f5c85c019b2f4ac9e9fb9bb84b9cfd59275671b84169567b157e
+    timeout-minutes: 20
+    steps:
+      - run: dnf install -y gcc gcc-c++ cmake pkgconf-pkg-config gtk4-devel libadwaita-devel xorg-x11-server-Xvfb dbus-x11 desktop-file-utils appstream google-noto-sans-cjk-vf-fonts git tar gzip xz which unzip
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
+        with:
+          version: 2026.11.4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'linux/**', 'mise.toml') }}
+      - run: mise x -- npm --prefix ui ci
+      - run: mise x -- npm --prefix ui run build
+      - run: mise x -- just linux check
   complete:
     name: Check applicable targets
-    needs: [check, apple]
+    needs: [check, apple, linux]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
-      - if: needs.check.result != 'success' || (needs.apple.result != 'success' && needs.apple.result != 'skipped')
+      - if: needs.check.result != 'success' || (needs.apple.result != 'success' && needs.apple.result != 'skipped') || (needs.linux.result != 'success' && needs.linux.result != 'skipped')
         run: exit 1
