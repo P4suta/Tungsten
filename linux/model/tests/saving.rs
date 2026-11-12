@@ -67,3 +67,52 @@ fn local_failure_prevents_navigation_and_exit() {
     assert!(!edited.is_saved());
     assert!(edited.persisted().may_leave());
 }
+
+#[test]
+fn explicit_blocks_stop_writes_until_cleared() {
+    for block in [Block::Conflict, Block::Missing, Block::Uncertain] {
+        let clean = State::loaded(1).blocked(block);
+        assert_eq!(clean.block(), block);
+        assert!(!clean.is_saved());
+        let draft = State::draft(1).persisted().blocked(block);
+        assert_eq!(draft.block(), block);
+        assert!(draft.may_leave());
+        assert!(draft.begin().1.is_none());
+        let resumed = draft.blocked(Block::None);
+        assert_eq!(resumed.block(), Block::None);
+        assert!(resumed.begin().1.is_some());
+    }
+}
+
+#[test]
+fn tickets_identify_only_the_current_pending_write() {
+    let idle = State::draft(1).persisted();
+    let (writing, ticket) = idle.begin();
+    let ticket = ticket.unwrap();
+    let (_, other) = State::draft(2).persisted().begin();
+    let other = other.unwrap();
+    assert!(idle.pending().is_none());
+    assert!(!idle.accepts(ticket));
+    assert_eq!(writing.pending(), Some(ticket));
+    assert!(writing.accepts(ticket));
+    assert!(!writing.accepts(other));
+    let saved = writing.complete(ticket, Outcome::Acknowledged);
+    assert!(saved.pending().is_none());
+    assert!(!saved.accepts(ticket));
+    let (next, current) = saved.edited().unwrap().persisted().begin();
+    let current = current.unwrap();
+    assert_ne!(current, ticket);
+    assert_eq!(next.pending(), Some(current));
+    assert!(next.accepts(current));
+    assert!(!next.accepts(ticket));
+    for outcome in [
+        Outcome::Acknowledged,
+        Outcome::Conflict,
+        Outcome::Missing,
+        Outcome::Uncertain,
+    ] {
+        assert_eq!(writing.complete(other, outcome), writing);
+        assert_eq!(next.complete(ticket, outcome), next);
+    }
+    assert!(next.complete(current, Outcome::Acknowledged).is_saved());
+}

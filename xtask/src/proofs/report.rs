@@ -5,20 +5,24 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) struct ProofSource {
     pub path: &'static str,
     pub location_suffix: &'static str,
+    pub production_path: &'static str,
 }
 
 pub(super) const SOURCES: &[ProofSource] = &[
     ProofSource {
-        path: "src/rules.rs",
-        location_suffix: "src/rules.rs",
+        path: "src/rules/proofs.rs",
+        location_suffix: "src/rules/proofs.rs",
+        production_path: "src/rules.rs",
     },
     ProofSource {
         path: "proofs/src/browser.rs",
         location_suffix: "src/browser.rs",
+        production_path: "target/browser-proof.rs",
     },
     ProofSource {
-        path: "linux/model/src/state.rs",
-        location_suffix: "linux/model/src/state.rs",
+        path: "linux/model/src/proofs.rs",
+        location_suffix: "linux/model/src/proofs.rs",
+        production_path: "linux/model/src/state.rs",
     },
 ];
 
@@ -187,9 +191,11 @@ pub fn source_harnesses(source: &str) -> Result<BTreeSet<String>> {
 
 fn project_assertion(check: &Check) -> bool {
     check.category == "assertion"
-        && SOURCES
-            .iter()
-            .any(|source| check.location.file.ends_with(source.location_suffix))
+        && SOURCES.iter().any(|source| {
+            [source.location_suffix, source.production_path]
+                .iter()
+                .any(|path| check.location.file.ends_with(path))
+        })
 }
 
 pub fn check(inventory: &[u8], report: &[u8], expected: &BTreeSet<String>) -> Result<usize> {

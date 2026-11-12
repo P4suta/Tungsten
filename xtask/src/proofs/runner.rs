@@ -25,14 +25,14 @@ const SOURCE_INPUTS: &[&str] = &[
     "xtask/src/proofs.rs",
     "xtask/src/proofs/report.rs",
     "xtask/src/proofs/runner.rs",
-    "target/browser-proof.rs",
 ];
 
 fn source_inputs() -> impl Iterator<Item = &'static str> {
-    SOURCE_INPUTS
-        .iter()
-        .copied()
-        .chain(report::SOURCES.iter().map(|source| source.path))
+    SOURCE_INPUTS.iter().copied().chain(
+        report::SOURCES
+            .iter()
+            .flat_map(|source| [source.path, source.production_path]),
+    )
 }
 
 fn fingerprint(root: &Path) -> Result<tungsten::domain::Revision> {

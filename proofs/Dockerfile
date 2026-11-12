@@ -10,6 +10,7 @@ ENV CARGO_BUILD_JOBS=2
 RUN cargo install --locked --version 0.68.0 kani-verifier && cargo kani setup
 WORKDIR /project
 COPY src/rules.rs src/rules.rs
+COPY src/rules/ src/rules/
 COPY linux/model/src/ linux/model/src/
 COPY proofs/Cargo.toml proofs/Cargo.lock proofs/
 COPY proofs/src/ proofs/src/
