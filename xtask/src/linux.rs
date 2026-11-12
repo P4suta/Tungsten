@@ -558,6 +558,46 @@ fn checksum(path: &Path) -> Result<String> {
         .collect())
 }
 
+fn verified_rust_archive(
+    archive: &Path,
+    hash_file: &Path,
+    url: &str,
+    mut download: impl FnMut(&str, &Path) -> Result<()>,
+) -> Result<String> {
+    fn expected_hash(path: &Path) -> Result<String> {
+        let content = fs::read_to_string(path)?;
+        let hash = content
+            .split_whitespace()
+            .next()
+            .context("Rust archive checksum is empty")?;
+        ensure!(
+            hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()),
+            "Rust archive checksum is invalid"
+        );
+        Ok(hash.to_ascii_lowercase())
+    }
+    if let Ok(hash) = expected_hash(hash_file)
+        && checksum(archive).is_ok_and(|actual| actual == hash)
+    {
+        return Ok(hash);
+    }
+    let directory = archive.parent().context("Rust archive directory")?;
+    let downloaded_hash = tempfile::NamedTempFile::new_in(directory)?;
+    download(&format!("{url}.sha256"), downloaded_hash.path())?;
+    let hash = expected_hash(downloaded_hash.path())?;
+    if !checksum(archive).is_ok_and(|actual| actual == hash) {
+        let downloaded_archive = tempfile::NamedTempFile::new_in(directory)?;
+        download(url, downloaded_archive.path())?;
+        ensure!(
+            checksum(downloaded_archive.path())? == hash,
+            "Rust archive checksum differs"
+        );
+        downloaded_archive.persist(archive)?;
+    }
+    downloaded_hash.persist(hash_file)?;
+    Ok(hash)
+}
+
 fn rust_module(root: &Path, staging: &Path, arch: Architecture) -> Result<Value> {
     let mise: toml::Value = toml::from_str(&fs::read_to_string(root.join("mise.toml"))?)?;
     let version = mise["tools"]["rust"]["version"]
@@ -577,38 +617,26 @@ fn rust_module(root: &Path, staging: &Path, arch: Architecture) -> Result<Value>
         let file = format!("{component}-{version}-{target}.tar.xz");
         let archive = staging.join(&file);
         let hash_file = staging.join(format!("{file}.sha256"));
-        for (url, path) in [
-            (
-                format!("https://static.rust-lang.org/dist/{file}"),
-                &archive,
-            ),
-            (
-                format!("https://static.rust-lang.org/dist/{file}.sha256"),
-                &hash_file,
-            ),
-        ] {
-            if path.exists() {
-                continue;
-            }
-            super::run(
-                root,
-                "curl",
-                &[
-                    "--fail",
-                    "--silent",
-                    "--show-error",
-                    "--location",
-                    "--output",
-                    path.to_str().context("Rust source path")?,
-                    &url,
-                ],
-            )?;
-        }
-        let hash = checksum(&archive)?;
-        ensure!(
-            fs::read_to_string(hash_file)?.split_whitespace().next() == Some(&hash),
-            "Rust archive checksum differs"
-        );
+        let hash = verified_rust_archive(
+            &archive,
+            &hash_file,
+            &format!("https://static.rust-lang.org/dist/{file}"),
+            |url, path| {
+                super::run(
+                    root,
+                    "curl",
+                    &[
+                        "--fail",
+                        "--silent",
+                        "--show-error",
+                        "--location",
+                        "--output",
+                        path.to_str().context("Rust source path")?,
+                        url,
+                    ],
+                )
+            },
+        )?;
         sources
             .push(json!({"type": "archive", "path": archive, "sha256": hash, "dest": component}));
         commands.push(format!(
@@ -765,6 +793,117 @@ fn bundle(root: &Path, arch: Architecture, resume: Option<&Path>) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ARCHIVE_HASH: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+    #[test]
+    fn rust_archives_reject_bad_downloads_without_publishing_cache_files() {
+        for hash in ["invalid checksum", ARCHIVE_HASH] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("rust.tar.xz");
+            let hash_file = directory.path().join("rust.tar.xz.sha256");
+            assert!(
+                verified_rust_archive(
+                    &path,
+                    &hash_file,
+                    "https://example.invalid/rust.tar.xz",
+                    |url, target| {
+                        fs::write(
+                            target,
+                            if url.ends_with(".sha256") {
+                                hash
+                            } else {
+                                "wrong archive"
+                            },
+                        )?;
+                        Ok(())
+                    }
+                )
+                .is_err()
+            );
+            assert!(!path.exists());
+            assert!(!hash_file.exists());
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+        }
+    }
+
+    #[test]
+    fn rust_archive_resumption_repairs_incomplete_and_corrupt_cache_entries() {
+        for (archive, hash) in [
+            (Some("a"), Some(ARCHIVE_HASH)),
+            (Some("abc"), Some("partial checksum")),
+            (
+                Some("abc"),
+                Some("0000000000000000000000000000000000000000000000000000000000000000"),
+            ),
+            (Some("abc"), None),
+            (None, Some(ARCHIVE_HASH)),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("rust.tar.xz");
+            let hash_file = directory.path().join("rust.tar.xz.sha256");
+            if let Some(archive) = archive {
+                fs::write(&path, archive).unwrap();
+            }
+            if let Some(hash) = hash {
+                fs::write(&hash_file, hash).unwrap();
+            }
+            let result = verified_rust_archive(
+                &path,
+                &hash_file,
+                "https://example.invalid/rust.tar.xz",
+                |url, target| {
+                    fs::write(
+                        target,
+                        if url.ends_with(".sha256") {
+                            ARCHIVE_HASH.as_bytes()
+                        } else {
+                            b"abc"
+                        },
+                    )?;
+                    Ok(())
+                },
+            );
+            assert_eq!(result.unwrap(), ARCHIVE_HASH);
+            assert_eq!(fs::read(&path).unwrap(), b"abc");
+        }
+    }
+
+    #[test]
+    fn rust_archive_downloads_commit_verified_bytes_and_retry_after_interruption() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("rust.tar.xz");
+        let hash_file = directory.path().join("rust.tar.xz.sha256");
+        let url = "https://example.invalid/rust.tar.xz";
+        let failed = verified_rust_archive(&path, &hash_file, url, |url, target| {
+            if url.ends_with(".sha256") {
+                fs::write(target, ARCHIVE_HASH)?;
+                Ok(())
+            } else {
+                fs::write(target, "a")?;
+                anyhow::bail!("download interrupted")
+            }
+        });
+        assert!(failed.is_err());
+        assert!(!path.exists());
+        verified_rust_archive(&path, &hash_file, url, |url, target| {
+            fs::write(
+                target,
+                if url.ends_with(".sha256") {
+                    ARCHIVE_HASH.as_bytes()
+                } else {
+                    b"abc"
+                },
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let hash = verified_rust_archive(&path, &hash_file, url, |_, _| {
+            anyhow::bail!("valid cache requires no download")
+        })
+        .unwrap();
+        assert_eq!(hash, ARCHIVE_HASH);
+    }
 
     #[test]
     fn system_design_accepts_native_widgets_and_rejects_custom_styles() {
