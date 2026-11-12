@@ -1,5 +1,22 @@
 # Verify the service
 
+## Linux app
+
+Run `mise x -- just linux source` on every development host.
+Run `mise x -- just linux check` on Linux with GTK 4.18 or later, libadwaita 1.9 or later, Xvfb, D-Bus, desktop-file-utils, AppStream, and a Japanese system font.
+The gate checks strict Clippy, durable save decisions, real-server contracts, metadata, and native GTK interactions in isolated app directories.
+GTK workflows cover Undo and Redo, history restoration, composition guards, storage failure, navigation, enlarged text, and narrow layouts.
+Snapshots wait for GTK's rendered frame instead of assuming a fixed rendering delay.
+Separate processes exercise ordinary and High Contrast appearance with libadwaita's supported debug setting.
+Actual input methods, the screen keyboard, screen readers, and desktop integration require isolated sessions with `XDG_CURRENT_DESKTOP=GNOME` or `KDE`.
+
+Run `mise x -- just linux bundle --arch x86_64` and `mise x -- just linux bundle --arch aarch64` with Flatpak, flatpak-builder, OSTree, Xvfb, and `org.gnome.Platform//51` and `org.gnome.Sdk//51` installed for the selected architecture.
+Each command prefetches locked sources, builds offline, installs its bundle, and checks launch.
+The [Linux app guide](linux-apps.md) describes recovery, system design, sandbox permissions, and local distribution.
+Production save decisions also join the existing candidate proof and mutation gates.
+
+## Shared checks
+
 Run `mise x -- just check` for the required local gate.
 The gate builds the assets before checking Rust, TypeScript, HTTP behavior, browser workflows, dependencies, secrets, and prose.
 Native storage checks cover atomic rollback, revision conflicts, original byte ranges, corrupted storage, incomplete backups, and bounded space reclamation.
