@@ -5,6 +5,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -49,7 +50,10 @@ pub struct Recovery {
 #[derive(Clone)]
 pub struct DraftStore {
     directory: PathBuf,
+    directory_sync: Arc<DirectorySync>,
 }
+
+type DirectorySync = dyn Fn(&Path) -> std::io::Result<()> + Send + Sync;
 
 fn digest(value: &[u8]) -> String {
     Sha256::digest(value)
@@ -60,7 +64,17 @@ fn digest(value: &[u8]) -> String {
 
 impl DraftStore {
     pub fn at(directory: PathBuf) -> Self {
-        Self { directory }
+        Self::with_directory_sync(directory, sync_directory)
+    }
+
+    pub fn with_directory_sync(
+        directory: PathBuf,
+        directory_sync: impl Fn(&Path) -> std::io::Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            directory,
+            directory_sync: Arc::new(directory_sync),
+        }
     }
 
     pub fn xdg() -> Result<Self> {
@@ -86,9 +100,13 @@ impl DraftStore {
     }
 
     pub fn remember_server(&self, server: &ServerAddress) -> Result<()> {
-        private_directory(&self.directory)?;
+        private_directory(&self.directory, self.directory_sync.as_ref())?;
         let bytes = serde_json::to_vec(server).map_err(|_| Error::Recovery)?;
-        atomic(&self.directory.join("server.json"), &bytes)
+        atomic(
+            &self.directory.join("server.json"),
+            &bytes,
+            self.directory_sync.as_ref(),
+        )
     }
 
     fn server_directory(&self, server: &ServerAddress) -> PathBuf {
@@ -103,11 +121,11 @@ impl DraftStore {
     pub fn save(&self, draft: &Draft) -> Result<()> {
         draft.validate()?;
         let directory = self.server_directory(&draft.server);
-        private_directory(&directory)?;
+        private_directory(&directory, self.directory_sync.as_ref())?;
         let path = self.path(&draft.server, &draft.name);
         self.keep_damaged(&path, &draft.server, &draft.name)?;
         let bytes = serde_json::to_vec(draft).map_err(|_| Error::Recovery)?;
-        atomic(&path, &bytes)
+        atomic(&path, &bytes, self.directory_sync.as_ref())
     }
 
     fn keep_damaged(&self, path: &Path, server: &ServerAddress, name: &NoteName) -> Result<()> {
@@ -128,7 +146,7 @@ impl DraftStore {
             let preserved =
                 path.with_file_name(format!("damaged-{}.json", uuid::Uuid::new_v4().simple()));
             fs::rename(path, preserved).map_err(Error::Storage)?;
-            sync_directory(path.parent().ok_or(Error::Recovery)?)?;
+            (self.directory_sync)(path.parent().ok_or(Error::Recovery)?).map_err(Error::Storage)?;
         }
         Ok(())
     }
@@ -137,7 +155,9 @@ impl DraftStore {
         let path = self.path(server, name);
         self.keep_damaged(&path, server, name)?;
         match fs::remove_file(&path) {
-            Ok(()) => sync_directory(path.parent().ok_or(Error::Recovery)?),
+            Ok(()) => {
+                (self.directory_sync)(path.parent().ok_or(Error::Recovery)?).map_err(Error::Storage)
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(Error::Storage(error)),
         }
@@ -190,13 +210,11 @@ impl DraftStore {
     }
 }
 
-fn sync_directory(directory: &Path) -> Result<()> {
-    fs::File::open(directory)
-        .and_then(|file| file.sync_all())
-        .map_err(Error::Storage)
+fn sync_directory(directory: &Path) -> std::io::Result<()> {
+    fs::File::open(directory).and_then(|file| file.sync_all())
 }
 
-fn private_directory(directory: &Path) -> Result<()> {
+fn private_directory(directory: &Path, synchronize: &DirectorySync) -> Result<()> {
     let mut absent = Vec::new();
     let mut parent = directory;
     while !parent.exists() {
@@ -212,12 +230,12 @@ fn private_directory(directory: &Path) -> Result<()> {
     }
     builder.create(directory).map_err(Error::Storage)?;
     for path in absent {
-        sync_directory(path.parent().ok_or(Error::Recovery)?)?;
+        synchronize(path.parent().ok_or(Error::Recovery)?).map_err(Error::Storage)?;
     }
     Ok(())
 }
 
-fn atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+fn atomic(path: &Path, bytes: &[u8], synchronize: &DirectorySync) -> Result<()> {
     let directory = path.parent().ok_or(Error::Recovery)?;
     let mut temporary = tempfile::NamedTempFile::new_in(directory).map_err(Error::Storage)?;
     temporary.write_all(bytes).map_err(Error::Storage)?;
@@ -225,5 +243,5 @@ fn atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     temporary
         .persist(path)
         .map_err(|error| Error::Storage(error.error))?;
-    sync_directory(directory)
+    synchronize(directory).map_err(Error::Storage)
 }

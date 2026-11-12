@@ -216,11 +216,18 @@ impl Editor {
         {
             return Err(Error::Busy);
         }
-        let previous = self.draft.clone();
-        let result = self.edit(body, store);
-        if result.is_err() {
-            self.draft = previous;
+        if body == self.draft.body {
+            return self.persist(store);
         }
-        result
+        if body.len() > crate::MAX_NOTE_BYTES {
+            return Err(Error::TooLarge);
+        }
+        let preparing = self.state.edited().ok_or(Error::Generation)?;
+        let replacement = preparing.edited().ok_or(Error::Generation)?;
+        self.state = preparing;
+        self.persist(store)?;
+        self.state = replacement;
+        self.draft.body = body;
+        Ok(())
     }
 }

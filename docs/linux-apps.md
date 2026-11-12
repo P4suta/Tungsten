@@ -29,6 +29,8 @@ All Notes and Drafts support search.
 Workspaces and their notes use bounded server pages.
 Note Details exposes outgoing links, backlinks, original attachments, and saved versions.
 History restoration requires the same editor text and generation observed before loading the version.
+It first persists the current text, then changes the editor before persisting the historical replacement.
+Directory-sync failures preserve the text in the editor, including recovery after file replacement.
 Trash previews deleted text and restores a separate note without replacing a colliding name.
 File selection and opening originals use GTK's [FileDialog](https://docs.gtk.org/gtk4/class.FileDialog.html) and [FileLauncher](https://docs.gtk.org/gtk4/class.FileLauncher.html), which use desktop portals inside Flatpak.
 

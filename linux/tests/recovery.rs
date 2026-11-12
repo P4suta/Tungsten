@@ -70,6 +70,67 @@ fn failed_history_replacement_keeps_visible_writing_until_it_is_durable_again() 
 }
 
 #[test]
+fn history_sync_failure_after_replacement_recovers_the_visible_draft() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let store = DraftStore::at(directory.path().to_owned());
+    let mut editor = Editor::loaded(server(), note("Original"), 1);
+    editor.edit("Visible writing".into(), &store).unwrap();
+    let replaced = Arc::new(AtomicBool::new(false));
+    let observed = replaced.clone();
+    let interrupted = DraftStore::with_directory_sync(directory.path().to_owned(), move |path| {
+        assert!(std::fs::read_dir(path)?.next().is_some());
+        observed.store(true, Ordering::SeqCst);
+        Err(std::io::Error::other(
+            "directory sync failed after replacement",
+        ))
+    });
+    let read = editor.history_read();
+    assert!(
+        editor
+            .replace_from_history(&read, "Historical".into(), &interrupted)
+            .is_err()
+    );
+    assert!(replaced.load(Ordering::SeqCst));
+    assert_eq!(editor.draft().body, "Visible writing");
+    assert!(!editor.state().may_leave());
+    drop(editor);
+    let restarted = DraftStore::at(directory.path().to_owned());
+    assert_eq!(
+        restarted.recover(&server()).unwrap().drafts[0].body,
+        "Visible writing"
+    );
+}
+
+#[test]
+fn history_replacement_stays_unsaved_until_the_editor_presents_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = DraftStore::at(directory.path().to_owned());
+    let mut editor = Editor::loaded(server(), note("Original"), 1);
+    editor.edit("Visible writing".into(), &store).unwrap();
+    let read = editor.history_read();
+    editor
+        .replace_from_history(&read, "Historical".into(), &store)
+        .unwrap();
+    assert_eq!(editor.draft().body, "Historical");
+    assert!(!editor.state().may_leave());
+    assert_eq!(
+        store.recover(&server()).unwrap().drafts[0].body,
+        "Visible writing"
+    );
+    assert!(editor.begin(&store).unwrap().is_none());
+    editor.persist(&store).unwrap();
+    assert_eq!(
+        store.recover(&server()).unwrap().drafts[0].body,
+        "Historical"
+    );
+    assert!(editor.state().may_leave());
+}
+
+#[test]
 fn retry_only_creates_missing_notes_without_an_acknowledged_or_pending_write() {
     let directory = tempfile::tempdir().unwrap();
     let store = DraftStore::at(directory.path().to_owned());

@@ -1948,8 +1948,14 @@ impl Ui {
         buffer.insert_at_cursor(&body);
         buffer.end_user_action();
         self.changing.set(false);
+        let result = self
+            .editor
+            .borrow_mut()
+            .as_mut()
+            .ok_or(Error::Busy)?
+            .persist(&self.store);
         self.update_status();
-        Ok(())
+        result
     }
 
     fn open_attachment(self: &Rc<Self>, id: String) {
