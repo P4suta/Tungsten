@@ -1515,12 +1515,15 @@ impl Ui {
     }
 
     fn insert_link(&self, note: &Summary) {
-        let Ok(mut url) = reqwest::Url::parse("https://notes.invalid/") else {
+        let Some(source) = self
+            .editor
+            .borrow()
+            .as_ref()
+            .map(|editor| editor.draft().name.clone())
+        else {
             return;
         };
-        if let Ok(mut parts) = url.path_segments_mut() {
-            parts.extend(note.name.as_str().split('/'));
-        }
+        let path = tungsten::markdown::relative_note_path(&source, &note.name);
         let title: String = note
             .title
             .chars()
@@ -1529,10 +1532,9 @@ impl Ui {
                 character => character.to_string(),
             })
             .collect();
-        self.text.buffer().insert_at_cursor(&format!(
-            "[{title}]({})",
-            url.path().trim_start_matches('/')
-        ));
+        self.text
+            .buffer()
+            .insert_at_cursor(&format!("[{title}]({})", path));
     }
 
     fn attach(self: &Rc<Self>) {
