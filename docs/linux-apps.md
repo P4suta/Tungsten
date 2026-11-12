@@ -87,6 +87,8 @@ Deterministic model tests cover durable writes, concurrent edits, blocked autosa
 Real-server contract tests cover conditional writes, interrupted acknowledgements, recovery, Workspaces, history, Trash, Unicode paths, and original attachment bytes.
 Source checks reject prohibited styling, malformed metadata, excessive sandbox permissions, and invalid app identities with rejecting fixtures.
 Native interaction checks use an isolated session.
+Run one desktop session per test user to isolate portal, input method, and accessibility services.
+Enable X11 compositing when inspecting transparent window shadows.
 The native gate uses [libadwaita's High Contrast debug override](https://gitlab.gnome.org/GNOME/libadwaita/-/blob/1.9.4/src/adw-settings.c) in a separate process and checks the resulting system style.
 History replacement uses a single reversible [TextBuffer user action](https://docs.gtk.org/gtk4/method.TextBuffer.set_text.html), while opening another note clears the prior Undo history.
 Production save decisions join the existing bounded Kani inventory and release mutation gate.

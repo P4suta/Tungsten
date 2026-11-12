@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-12
 ---
 # Use native Linux editing with durable drafts
@@ -34,6 +34,6 @@ Reconsider synchronization for complete offline collections.
 
 ## Confirmation
 
-Require model, server, native, Flatpak, and project checks.
-Extend release proofs and mutation tests.
-Keep proposed until native and distribution checks pass.
+Model, server, native, Flatpak, and project checks pass.
+Input and accessibility checks pass in both supported desktops.
+Full proofs and mutation testing remain at the release gate.
