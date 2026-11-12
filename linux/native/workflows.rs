@@ -114,6 +114,8 @@ fn native_writing_navigation_recovery_input_and_adaptive_layout() {
         .flags(gio::ApplicationFlags::NON_UNIQUE)
         .build();
     application.register(gio::Cancellable::NONE).unwrap();
+    history_sync_failures_preserve_the_displayed_text(&application);
+    workspace_reads_keep_metadata_from_the_newer_observation(&application);
     draft_rows_preserve_current_writing_and_expose_uncertain_recovery(&application);
     links_resolve_from_the_current_note_folder(&application);
     let local = tempfile::tempdir().unwrap();
@@ -296,6 +298,198 @@ fn native_writing_navigation_recovery_input_and_adaptive_layout() {
     assert!(ui.persist());
     ui.window.close();
     server.abort();
+}
+
+fn history_sync_failures_preserve_the_displayed_text(application: &adw::Application) {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let fail_on = Arc::new(AtomicUsize::new(0));
+    let armed = fail_on.clone();
+    let store = DraftStore::with_directory_sync(directory.path().to_owned(), move |path| {
+        if armed
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                remaining.checked_sub(1)
+            })
+            .is_ok_and(|remaining| remaining == 1)
+        {
+            return Err(std::io::Error::other(
+                "directory sync failed after replacement",
+            ));
+        }
+        std::fs::File::open(path)?.sync_all()
+    });
+    let ui = build(application, store).unwrap();
+    ui.connect_signals();
+    let address = ServerAddress::parse("https://notes.example", false).unwrap();
+    let mut editor = Editor::create(address.clone(), ui.advance().unwrap());
+    editor.edit("Visible writing".into(), &ui.store).unwrap();
+    *ui.editor.borrow_mut() = Some(editor);
+    ui.show_editor();
+    let read = ui.editor.borrow().as_ref().unwrap().history_read();
+    fail_on.store(1, Ordering::SeqCst);
+    assert!(ui.restore_history(&read, "Historical".into()).is_err());
+    assert_eq!(
+        ui.editor.borrow().as_ref().unwrap().draft().body,
+        "Visible writing"
+    );
+    assert_eq!(
+        ui.text.buffer().text(
+            &ui.text.buffer().start_iter(),
+            &ui.text.buffer().end_iter(),
+            true
+        ),
+        "Visible writing"
+    );
+    assert_eq!(
+        ui.store.recover(&address).unwrap().drafts[0].body,
+        "Visible writing"
+    );
+    ui.editor
+        .borrow_mut()
+        .as_mut()
+        .unwrap()
+        .persist(&ui.store)
+        .unwrap();
+    let read = ui.editor.borrow().as_ref().unwrap().history_read();
+    fail_on.store(2, Ordering::SeqCst);
+    assert!(ui.restore_history(&read, "Historical".into()).is_err());
+    assert_eq!(
+        ui.editor.borrow().as_ref().unwrap().draft().body,
+        "Historical"
+    );
+    assert_eq!(
+        ui.text.buffer().text(
+            &ui.text.buffer().start_iter(),
+            &ui.text.buffer().end_iter(),
+            true
+        ),
+        "Historical"
+    );
+    assert!(!ui.editor.borrow().as_ref().unwrap().state().may_leave());
+    assert_eq!(
+        ui.store.recover(&address).unwrap().drafts[0].body,
+        "Historical"
+    );
+    ui.window.destroy();
+}
+
+fn workspace_reads_keep_metadata_from_the_newer_observation(application: &adw::Application) {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU8, Ordering},
+    };
+    struct Replies {
+        hold: AtomicU8,
+        ready: AtomicBool,
+        release: tokio::sync::Notify,
+    }
+    let replies = Arc::new(Replies {
+        hold: AtomicU8::new(0),
+        ready: AtomicBool::new(false),
+        release: tokio::sync::Notify::new(),
+    });
+    let directory = tempfile::tempdir().unwrap();
+    let ui = build(application, DraftStore::at(directory.path().join("drafts"))).unwrap();
+    ui.connect_signals();
+    let listener = ui
+        .runtime
+        .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
+        .unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let address = ServerAddress::parse(&origin, true).unwrap();
+    let client = Client::new(address.clone()).unwrap();
+    *ui.client.borrow_mut() = Some(client.clone());
+    let gate = replies.clone();
+    let router = tungsten::api::app_with_origin(
+        &directory.path().join("server"),
+        tungsten::api::ServerOrigin::development(&origin).unwrap(),
+    )
+    .unwrap()
+    .layer(axum::middleware::from_fn(
+        move |request: axum::extract::Request, next: axum::middleware::Next| {
+            let gate = gate.clone();
+            async move {
+                let kind = if request.method() != axum::http::Method::GET {
+                    0
+                } else if request.uri().path() == "/api/workspaces" {
+                    1
+                } else if request.uri().path().starts_with("/api/workspaces/")
+                    && request.uri().path().ends_with("/notes")
+                {
+                    2
+                } else {
+                    0
+                };
+                let held = kind != 0
+                    && gate
+                        .hold
+                        .compare_exchange(kind, 0, Ordering::SeqCst, Ordering::SeqCst)
+                        .is_ok();
+                let response = next.run(request).await;
+                if held {
+                    gate.ready.store(true, Ordering::SeqCst);
+                    gate.release.notified().await;
+                }
+                response
+            }
+        },
+    ));
+    let server = ui.runtime.spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let draft = Editor::create(address.clone(), 1).draft().clone();
+    let note = ui.runtime.block_on(client.save(&draft)).unwrap();
+    let workspace = ui
+        .runtime
+        .block_on(client.create_workspace("Response ordering"))
+        .unwrap();
+    ui.load_workspaces(None);
+    wait(|| ui.workspaces.borrow().len() == 1);
+    *ui.collection.borrow_mut() = Collection::Workspace(workspace.clone());
+    replies.hold.store(1, Ordering::SeqCst);
+    ui.load_workspaces(None);
+    wait(|| replies.ready.load(Ordering::SeqCst));
+    let populated = ui
+        .runtime
+        .block_on(client.membership(&workspace.id, &note.name, true))
+        .unwrap();
+    ui.refresh(false);
+    wait(
+        || matches!(&*ui.collection.borrow(), Collection::Workspace(current) if current.revision == populated.revision),
+    );
+    replies.release.notify_one();
+    wait(|| ui.workspaces.borrow().len() == 1);
+    assert_eq!(ui.workspaces.borrow()[0].revision, populated.revision);
+    assert!(
+        matches!(&*ui.collection.borrow(), Collection::Workspace(current) if current.revision == populated.revision)
+    );
+
+    replies.ready.store(false, Ordering::SeqCst);
+    replies.hold.store(2, Ordering::SeqCst);
+    ui.refresh(false);
+    wait(|| replies.ready.load(Ordering::SeqCst));
+    let removed = ui
+        .runtime
+        .block_on(client.membership(&workspace.id, &note.name, false))
+        .unwrap();
+    ui.load_workspaces(None);
+    wait(
+        || matches!(&*ui.collection.borrow(), Collection::Workspace(current) if current.revision == removed.revision),
+    );
+    replies.release.notify_one();
+    wait(|| ui.entries.borrow().is_empty() && ui.more.is_sensitive());
+    assert_eq!(ui.workspaces.borrow()[0].revision, removed.revision);
+    assert!(
+        matches!(&*ui.collection.borrow(), Collection::Workspace(current) if current.revision == removed.revision)
+    );
+    ui.runtime
+        .block_on(client.rename_workspace(&removed, "Ordered workspace"))
+        .unwrap();
+    server.abort();
+    ui.window.destroy();
 }
 
 fn links_resolve_from_the_current_note_folder(application: &adw::Application) {

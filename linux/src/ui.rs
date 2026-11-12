@@ -12,6 +12,7 @@ use tungsten_linux::{
     drafts::{Draft, DraftStore},
     editor::Editor,
     types::{self, Note, SavedNote, ServerAddress, Summary, Workspace},
+    workspaces::{WorkspaceCache, WorkspaceObservation},
 };
 use tungsten_linux_model::Block;
 
@@ -44,6 +45,7 @@ pub struct Ui {
     entries: RefCell<Vec<Entry>>,
     cursor: RefCell<Option<String>>,
     workspaces: RefCell<Vec<Workspace>>,
+    workspace_cache: RefCell<WorkspaceCache>,
     workspace_section: adw::SidebarSection,
     sidebar: adw::Sidebar,
     outer: adw::NavigationSplitView,
@@ -290,6 +292,7 @@ fn build(application: &adw::Application, store: DraftStore) -> Result<Rc<Ui>> {
         entries: RefCell::new(Vec::new()),
         cursor: RefCell::new(None),
         workspaces: RefCell::new(Vec::new()),
+        workspace_cache: RefCell::new(WorkspaceCache::default()),
         workspace_section,
         sidebar,
         outer,
@@ -620,6 +623,7 @@ impl Ui {
                 *self.client.borrow_mut() = Some(client);
                 *self.editor.borrow_mut() = None;
                 *self.collection.borrow_mut() = Collection::All;
+                *self.workspace_cache.borrow_mut() = WorkspaceCache::default();
                 self.show_editor();
                 self.refresh(false);
                 self.load_workspaces(None);
@@ -1042,6 +1046,7 @@ impl Ui {
             }
             return;
         }
+        let observed = self.workspace_cache.borrow().snapshot();
         self.task(
             async move {
                 match collection {
@@ -1081,7 +1086,17 @@ impl Ui {
                 match result {
                     Ok((entries, cursor, workspace)) => {
                         if let Some(workspace) = workspace {
-                            ui.remember_workspace(&workspace);
+                            match ui.remember_workspace(workspace.clone(), observed) {
+                                Ok(Some(current)) if current.revision == workspace.revision => {}
+                                Ok(_) => {
+                                    ui.refresh(false);
+                                    return;
+                                }
+                                Err(error) => {
+                                    ui.error(&error);
+                                    return;
+                                }
+                            }
                         }
                         ui.render_entries(entries, cursor, append);
                     }
@@ -1119,7 +1134,18 @@ impl Ui {
         *self.cursor.borrow_mut() = cursor;
     }
 
-    fn remember_workspace(&self, workspace: &Workspace) {
+    fn remember_workspace(
+        &self,
+        workspace: Workspace,
+        observed: WorkspaceObservation,
+    ) -> Result<Option<Workspace>> {
+        let Some(workspace) = self
+            .workspace_cache
+            .borrow_mut()
+            .observe(workspace, observed)?
+        else {
+            return Ok(None);
+        };
         if let Some((index, current)) = self
             .workspaces
             .borrow_mut()
@@ -1138,6 +1164,7 @@ impl Ui {
             *current = workspace.clone();
             self.list_title.set_title(&workspace.title);
         }
+        Ok(Some(workspace))
     }
 
     fn load_workspaces(self: &Rc<Self>, after: Option<String>) {
@@ -1155,6 +1182,7 @@ impl Ui {
             self.workspaces.borrow_mut().clear();
         }
         let listing = self.workspace_listing.get();
+        let observed = self.workspace_cache.borrow().snapshot();
         self.task(
             async move { client.workspaces(after.as_deref()).await },
             move |ui, result| {
@@ -1166,16 +1194,23 @@ impl Ui {
                 }
                 match result {
                     Ok(page) => {
-                        for workspace in &page.workspaces {
-                            ui.remember_workspace(workspace);
+                        for workspace in page.workspaces {
+                            let workspace = match ui.remember_workspace(workspace, observed) {
+                                Ok(Some(workspace)) => workspace,
+                                Ok(None) => continue,
+                                Err(error) => {
+                                    ui.error(&error);
+                                    return;
+                                }
+                            };
                             ui.workspace_section.append(
                                 adw::SidebarItem::builder()
                                     .title(&workspace.title)
                                     .icon_name("folder-symbolic")
                                     .build(),
                             );
+                            ui.workspaces.borrow_mut().push(workspace);
                         }
-                        ui.workspaces.borrow_mut().extend(page.workspaces);
                         if let Some(cursor) = page.next {
                             ui.load_workspaces(Some(cursor));
                         }
@@ -1245,13 +1280,13 @@ impl Ui {
             let Ok(client) = ui.client() else {
                 return;
             };
+            let observed = ui.workspace_cache.borrow().snapshot();
             ui.task(
                 async move { client.create_workspace(&title).await },
-                |ui, result| match result {
-                    Ok(workspace) => {
-                        ui.remember_workspace(&workspace);
-                        ui.load_workspaces(None);
-                    }
+                move |ui, result| match result
+                    .and_then(|workspace| ui.remember_workspace(workspace, observed))
+                {
+                    Ok(_) => ui.load_workspaces(None),
                     Err(error) => ui.error(&error),
                 },
             );
@@ -1272,11 +1307,13 @@ impl Ui {
                     return;
                 };
                 let workspace = workspace.clone();
+                let observed = ui.workspace_cache.borrow().snapshot();
                 ui.task(
                     async move { client.rename_workspace(&workspace, &title).await },
-                    |ui, result| match result {
-                        Ok(workspace) => {
-                            ui.remember_workspace(&workspace);
+                    move |ui, result| match result
+                        .and_then(|workspace| ui.remember_workspace(workspace, observed))
+                    {
+                        Ok(_) => {
                             ui.load_workspaces(None);
                             ui.refresh(false);
                         }
@@ -1306,6 +1343,10 @@ impl Ui {
                     async move { client.delete_workspace(&workspace).await },
                     move |ui, result| match result {
                         Ok(()) => {
+                            if let Err(error) = ui.workspace_cache.borrow_mut().remove(&id) {
+                                ui.error(&error);
+                                return;
+                            }
                             let selected = matches!(&*ui.collection.borrow(), Collection::Workspace(current) if current.id == id);
                             if selected {
                                 *ui.collection.borrow_mut() = Collection::All;
@@ -1335,11 +1376,13 @@ impl Ui {
         let Ok(client) = self.client() else {
             return;
         };
+        let observed = self.workspace_cache.borrow().snapshot();
         self.task(
             async move { client.membership(&workspace.id, &name, false).await },
-            |ui, result| match result {
-                Ok(workspace) => {
-                    ui.remember_workspace(&workspace);
+            move |ui, result| match result
+                .and_then(|workspace| ui.remember_workspace(workspace, observed))
+            {
+                Ok(_) => {
                     ui.load_workspaces(None);
                     ui.refresh(false);
                 }
@@ -1431,11 +1474,13 @@ impl Ui {
                 };
                 let id = workspace.id.clone();
                 let name = name.clone();
+                let observed = ui.workspace_cache.borrow().snapshot();
                 ui.task(
                     async move { client.membership(&id, &name, true).await },
-                    |ui, result| match result {
-                        Ok(workspace) => {
-                            ui.remember_workspace(&workspace);
+                    move |ui, result| match result
+                        .and_then(|workspace| ui.remember_workspace(workspace, observed))
+                    {
+                        Ok(_) => {
                             ui.load_workspaces(None);
                             ui.refresh(false);
                         }

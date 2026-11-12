@@ -2,6 +2,7 @@ pub mod client;
 pub mod drafts;
 pub mod editor;
 pub mod types;
+pub mod workspaces;
 
 pub use tungsten::domain::{NoteName, Revision};
 
