@@ -80,32 +80,15 @@ pub fn escape_attribute(text: &str) -> String {
     String::from_utf8(escaped).expect("Escaping must preserve UTF-8.")
 }
 
-struct AttributeSegments<'a> {
-    input: &'a [u8],
-}
-
-fn attribute_segments(input: &[u8]) -> AttributeSegments<'_> {
-    AttributeSegments { input }
-}
-
-impl<'a> Iterator for AttributeSegments<'a> {
-    type Item = &'a [u8];
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let input = self.input;
-        if input.is_empty() {
-            return None;
-        }
-        self.input = &input[1..];
-        Some(match input[0] {
-            b'&' => b"&amp;",
-            b'"' => b"&quot;",
-            b'\'' => b"&#39;",
-            b'<' => b"&lt;",
-            b'>' => b"&gt;",
-            _ => &input[..1],
-        })
-    }
+fn attribute_segments(input: &[u8]) -> impl Iterator<Item = &[u8]> {
+    input.chunks(1).map(|byte| match byte[0] {
+        b'&' => b"&amp;".as_slice(),
+        b'"' => b"&quot;",
+        b'\'' => b"&#39;",
+        b'<' => b"&lt;",
+        b'>' => b"&gt;",
+        _ => byte,
+    })
 }
 
 #[cfg(kani)]
