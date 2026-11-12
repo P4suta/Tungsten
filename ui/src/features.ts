@@ -432,9 +432,9 @@ export function initFeatures(port: EditorPort): FeatureController {
     library.changed(state);
     context.changed(state);
     live.sync(state.identity);
-    const changed =
-      state.identity !== lastIdentity || state.body !== lastText || state.name !== lastName;
-    if (state.identity !== lastIdentity) {
+    const identityChanged = state.identity !== lastIdentity;
+    const changed = identityChanged || state.body !== lastText || state.name !== lastName;
+    if (identityChanged) {
       formatIdentity = state.body !== state.savedBody ? state.identity : null;
       renderedState = null;
       renderedTasks = [];
@@ -448,9 +448,11 @@ export function initFeatures(port: EditorPort): FeatureController {
     if (changed) {
       ++previewGeneration;
       if (previewTimer !== null) window.clearTimeout(previewTimer);
-      previewTimer = window.setTimeout(() => {
-        void run(loadPreview);
-      }, 250);
+      if (identityChanged) void run(loadPreview);
+      else
+        previewTimer = window.setTimeout(() => {
+          void run(loadPreview);
+        }, 250);
     }
   }
 

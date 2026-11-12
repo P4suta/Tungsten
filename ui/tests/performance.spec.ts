@@ -3,6 +3,47 @@ import { expect, test } from "@playwright/test";
 import { pressShortcut } from "./editor.js";
 import { openNavigation, showPaper } from "./interface.js";
 
+test("renders a newly opened note without waiting for the typing debounce", async ({
+  page,
+  request,
+}, info) => {
+  const name = `Immediate-preview-${info.project.name}-${info.repeatEachIndex}.md`;
+  const source = "# Immediate preview\n\n**Visible text**\n";
+  expect((await request.post("/api/notes", { data: { name, body: source } })).ok()).toBe(true);
+  await page.clock.install();
+  const held = Promise.withResolvers<void>();
+  const requested = Promise.withResolvers<void>();
+  let previews = 0;
+  await page.route(
+    (url) => url.pathname === `/api/notes/${name}`,
+    async (route) => {
+      requested.resolve();
+      await held.promise;
+      await route.continue();
+    },
+  );
+  await page.route("**/api/preview", async (route) => {
+    const value: { body?: unknown } = route.request().postDataJSON();
+    if (value.body === source) previews++;
+    await route.continue();
+  });
+  try {
+    await page.goto(`/?note=${name}`);
+    await requested.promise;
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    held.resolve();
+    await expect(page.locator("#body")).toHaveValue(source);
+    await expect.poll(() => previews).toBe(1);
+    await page.clock.resume();
+    await expect(
+      page.getByRole("textbox", { name: "Note", exact: true }).locator("strong"),
+    ).toHaveText("Visible text");
+  } finally {
+    held.resolve();
+    await page.clock.resume();
+  }
+});
+
 test("loads only the editor before secondary tools and bounds cold JavaScript", async ({
   page,
 }) => {
