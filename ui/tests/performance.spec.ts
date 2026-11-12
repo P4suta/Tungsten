@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { pressShortcut } from "./editor.js";
-import { openNavigation, showPaper } from "./interface.js";
+import { newEmptyNote, openNavigation, showPaper } from "./interface.js";
 import { typingFrame } from "./typing-latency.js";
 
 test("renders a newly opened note without waiting for the typing debounce", async ({
@@ -77,8 +77,8 @@ test("measures input frames without driver setup time and detects blocked handle
   page,
 }) => {
   await page.goto("/");
+  await newEmptyNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.fill("");
   const setup = await typingFrame(editor, async () => {
     await page.evaluate(() => {
       const until = performance.now() + 250;
