@@ -707,6 +707,11 @@ impl Ui {
         if self.editor.borrow().as_ref().is_some_and(|editor| {
             editor.draft().server == draft.server && editor.draft().name == draft.name
         }) {
+            if let Err(error) = self.advance() {
+                self.error(&error);
+                return;
+            }
+            self.text.set_editable(true);
             self.outer.set_show_content(true);
             self.inner.set_show_content(true);
             self.text.grab_focus();

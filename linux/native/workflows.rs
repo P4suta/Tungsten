@@ -174,6 +174,24 @@ fn native_writing_navigation_recovery_input_and_adaptive_layout() {
             .iter()
             .any(|entry| matches!(entry, Entry::Note(note) if note.name == name))
     });
+    let current = ui.editor.borrow().as_ref().unwrap().draft().clone();
+    let replacement = Editor::create(ui.client().unwrap().address().clone(), 100)
+        .draft()
+        .clone();
+    let replacement = ui
+        .runtime
+        .block_on(ui.client().unwrap().save(&replacement))
+        .unwrap();
+    ui.open(replacement.name);
+    let loading = ui.generation.get();
+    assert!(!ui.text.is_editable());
+    ui.recover(current.clone());
+    assert!(ui.text.is_editable());
+    assert_ne!(ui.generation.get(), loading);
+    assert_eq!(
+        ui.editor.borrow().as_ref().unwrap().draft().body,
+        current.body
+    );
     workspace_responses_refresh_selected_and_cached_revisions(&ui, &name);
     assert_eq!(
         ui.runtime
