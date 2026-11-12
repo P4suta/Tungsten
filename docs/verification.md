@@ -195,6 +195,7 @@ Browser geometry, media, storage, and native composition keep their integration 
 Run `mise x -- just release-check` for a candidate release.
 The command first runs the local gate, then runs native stages in bounded Linux containers.
 Each native stage has 4 GiB of memory, no swap, two CPUs, 256 processes, and a deadline of 890 seconds.
+The host needs 12 GiB of free space before image creation and 8 GiB before each native container starts.
 Proofs, fuzzing, server rule mutations, and Linux model mutations run sequentially in separate containers and keep separate reports.
 The server rule mutation check runs the dedicated domain contract tests without server or storage features.
 The normal gate also runs the complete server contract suite.

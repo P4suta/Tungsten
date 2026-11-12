@@ -43,5 +43,5 @@ COPY target/browser-proof.rs target/browser-proof.rs
 COPY ui/ ui/
 COPY --from=ui /ui/dist/ ui/dist/
 COPY --from=ui /ui/node_modules/pdfjs-dist/ ui/node_modules/pdfjs-dist/
-RUN cargo build --locked --package xtask
-CMD ["cargo", "xtask", "release-native"]
+RUN cargo build --locked --package xtask && install --mode=755 target/debug/xtask /usr/local/bin/tungsten-xtask && cargo clean --profile dev
+CMD ["tungsten-xtask", "release-native"]

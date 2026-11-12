@@ -4,6 +4,21 @@ use clap::ValueEnum;
 use serde::Deserialize;
 use std::{collections::BTreeSet, fs, path::Path};
 
+const GIB: u64 = 1024 * 1024 * 1024;
+
+fn check_space(available: u64, minimum: u64) -> Result<()> {
+    ensure!(
+        available >= minimum,
+        "native release checks need {minimum} free bytes; {available} are available"
+    );
+    Ok(())
+}
+
+fn require_space(root: &Path, minimum: u64) -> Result<()> {
+    let capacity = rustix::fs::statvfs(root)?;
+    check_space(capacity.f_bavail.saturating_mul(capacity.f_frsize), minimum)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum NativeCheck {
     Proofs,
@@ -154,6 +169,7 @@ fn check_mutations(inventory: &[u8], results: &[u8], target: NativeCheck) -> Res
 }
 
 pub fn verify(root: &Path) -> Result<()> {
+    require_space(root, 12 * GIB)?;
     proofs::generate(root)?;
     let source = proofs::fingerprint(root)?;
     run(
@@ -197,6 +213,7 @@ pub fn verify(root: &Path) -> Result<()> {
         reports.display()
     );
     for check in NativeCheck::value_variants() {
+        require_space(root, 8 * GIB)?;
         run(
             root,
             "docker",
@@ -219,8 +236,7 @@ pub fn verify(root: &Path) -> Result<()> {
                 "--mount",
                 &mount,
                 &image,
-                "cargo",
-                "xtask",
+                "tungsten-xtask",
                 "release-native",
                 check.argument(),
                 "--reports",
@@ -301,6 +317,15 @@ pub fn native(root: &Path, selected: Option<NativeCheck>, reports: &Path) -> Res
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn native_jobs_require_the_build_and_execution_storage_reserves() {
+        assert!(check_space(0, 12 * GIB).is_err());
+        assert!(check_space(8 * GIB, 12 * GIB).is_err());
+        assert!(check_space(12 * GIB, 12 * GIB).is_ok());
+        assert!(check_space(8 * GIB - 1, 8 * GIB).is_err());
+        assert!(check_space(8 * GIB, 8 * GIB).is_ok());
+    }
 
     #[test]
     fn mutation_checks_require_complete_nonempty_matching_outcomes() {
