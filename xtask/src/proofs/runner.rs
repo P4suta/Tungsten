@@ -6,10 +6,8 @@ use std::{collections::BTreeSet, fs, path::Path};
 const SOURCE_INPUTS: &[&str] = &[
     "Cargo.toml",
     "Cargo.lock",
-    "src/rules.rs",
     "src/domain.rs",
     "linux/model/src/lib.rs",
-    "linux/model/src/state.rs",
     "linux/src/editor.rs",
     "linux/src/drafts.rs",
     "linux/src/client.rs",
@@ -22,7 +20,6 @@ const SOURCE_INPUTS: &[&str] = &[
     "proofs/Cargo.toml",
     "proofs/Cargo.lock",
     "proofs/src/lib.rs",
-    "proofs/src/browser.rs",
     "proofs/Dockerfile",
     ".dockerignore",
     "xtask/src/proofs.rs",
@@ -31,9 +28,16 @@ const SOURCE_INPUTS: &[&str] = &[
     "target/browser-proof.rs",
 ];
 
+fn source_inputs() -> impl Iterator<Item = &'static str> {
+    SOURCE_INPUTS
+        .iter()
+        .copied()
+        .chain(report::SOURCES.iter().map(|source| source.path))
+}
+
 fn fingerprint(root: &Path) -> Result<tungsten::domain::Revision> {
     let mut inputs = Vec::new();
-    for path in SOURCE_INPUTS {
+    for path in source_inputs() {
         let bytes = fs::read(root.join(path))?;
         inputs.push(format!("{path}:{}:", bytes.len()).into_bytes());
         inputs.push(bytes);
@@ -44,12 +48,8 @@ fn fingerprint(root: &Path) -> Result<tungsten::domain::Revision> {
 
 fn inventory(root: &Path) -> Result<BTreeSet<String>> {
     let mut names = BTreeSet::new();
-    for path in [
-        "src/rules.rs",
-        "proofs/src/browser.rs",
-        "linux/model/src/state.rs",
-    ] {
-        for name in report::source_harnesses(&fs::read_to_string(root.join(path))?)? {
+    for source in report::SOURCES {
+        for name in report::source_harnesses(&fs::read_to_string(root.join(source.path))?)? {
             ensure!(names.insert(name), "duplicate source harness identity");
         }
     }
@@ -198,13 +198,13 @@ mod tests {
     #[test]
     fn changed_source_invalidates_the_verification_identity() {
         let directory = tempfile::tempdir().unwrap();
-        for path in SOURCE_INPUTS {
+        for path in source_inputs() {
             let target = directory.path().join(path);
             fs::create_dir_all(target.parent().unwrap()).unwrap();
             fs::write(target, path).unwrap();
         }
         let before = fingerprint(directory.path()).unwrap();
-        for path in SOURCE_INPUTS {
+        for path in source_inputs() {
             let target = directory.path().join(path);
             fs::write(&target, format!("{path} changed")).unwrap();
             assert_ne!(fingerprint(directory.path()).unwrap(), before, "{path}");

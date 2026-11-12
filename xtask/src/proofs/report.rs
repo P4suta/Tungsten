@@ -2,6 +2,26 @@ use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+pub(super) struct ProofSource {
+    pub path: &'static str,
+    pub location_suffix: &'static str,
+}
+
+pub(super) const SOURCES: &[ProofSource] = &[
+    ProofSource {
+        path: "src/rules.rs",
+        location_suffix: "src/rules.rs",
+    },
+    ProofSource {
+        path: "proofs/src/browser.rs",
+        location_suffix: "src/browser.rs",
+    },
+    ProofSource {
+        path: "linux/model/src/state.rs",
+        location_suffix: "linux/model/src/state.rs",
+    },
+];
+
 #[derive(Deserialize)]
 struct Inventory {
     #[serde(rename = "kani-version")]
@@ -167,9 +187,9 @@ pub fn source_harnesses(source: &str) -> Result<BTreeSet<String>> {
 
 fn project_assertion(check: &Check) -> bool {
     check.category == "assertion"
-        && ["src/rules.rs", "src/browser.rs"]
+        && SOURCES
             .iter()
-            .any(|path| check.location.file.ends_with(path))
+            .any(|source| check.location.file.ends_with(source.location_suffix))
 }
 
 pub fn check(inventory: &[u8], report: &[u8], expected: &BTreeSet<String>) -> Result<usize> {
@@ -328,7 +348,10 @@ mod tests {
             check(&inventory, &serde_json::to_vec(&valid).unwrap(), &expected).unwrap(),
             1
         );
-        for path in ["src/browser.rs", "src/../../src/rules.rs"] {
+        for path in SOURCES.iter().map(|source| source.location_suffix).chain([
+            "src/../../src/rules.rs",
+            "src/../../linux/model/src/state.rs",
+        ]) {
             let mut relative = valid.clone();
             relative["verification_results"]["results"][0]["checks"][0]["location"]["file"] =
                 json!(path);
@@ -339,6 +362,16 @@ mod tests {
                     &expected
                 )
                 .is_ok()
+            );
+            relative["verification_results"]["results"][0]["checks"][0]["status"] =
+                json!("Unreachable");
+            assert!(
+                check(
+                    &inventory,
+                    &serde_json::to_vec(&relative).unwrap(),
+                    &expected
+                )
+                .is_err()
             );
         }
         for pointer in [
