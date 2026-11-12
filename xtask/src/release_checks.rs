@@ -61,12 +61,9 @@ impl NativeCheck {
         .map(str::to_owned)
         .to_vec();
         args.push(reports.to_str().context("mutation report path")?.to_owned());
+        args.push("--cargo-arg=--locked".into());
         if self == Self::Rules {
-            args.push("--no-default-features".into());
-        }
-        args.extend(["--", "--locked"].map(str::to_owned));
-        if self == Self::Rules {
-            args.extend(["--test", "domain"].map(str::to_owned));
+            args.extend(["--no-default-features", "--cargo-arg=--test=domain"].map(str::to_owned));
         }
         Ok(args)
     }
@@ -394,8 +391,9 @@ mod tests {
                 .windows(2)
                 .any(|args| args == ["--file", "src/rules.rs"])
         );
+        assert!(rules.iter().any(|arg| arg == "--cargo-arg=--locked"));
         assert!(rules.iter().any(|arg| arg == "--no-default-features"));
-        assert!(rules.ends_with(&["--test".into(), "domain".into()]));
+        assert!(rules.iter().any(|arg| arg == "--cargo-arg=--test=domain"));
         let model = NativeCheck::LinuxModel
             .mutation_arguments(Path::new("/reports/linux-model"))
             .unwrap();
@@ -404,7 +402,12 @@ mod tests {
                 .windows(2)
                 .any(|args| args == ["--file", "linux/model/src/state.rs"])
         );
+        assert!(model.iter().any(|arg| arg == "--cargo-arg=--locked"));
         assert!(!model.iter().any(|arg| arg == "--no-default-features"));
-        assert!(!model.iter().any(|arg| arg == "--lib" || arg == "--test"));
+        assert!(
+            !model
+                .iter()
+                .any(|arg| arg.contains("--lib") || arg.contains("--test"))
+        );
     }
 }
