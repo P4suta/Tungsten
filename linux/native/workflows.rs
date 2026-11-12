@@ -36,6 +36,76 @@ fn draw(window: &adw::ApplicationWindow, path: &Path) {
     texture.save_to_png(path).unwrap();
 }
 
+fn draft_rows_preserve_current_writing_and_expose_uncertain_recovery(
+    application: &adw::Application,
+) {
+    let directory = tempfile::tempdir().unwrap();
+    let ui = build(application, DraftStore::at(directory.path().to_owned())).unwrap();
+    ui.install_actions(application);
+    ui.connect_signals();
+    let address = ServerAddress::parse("https://notes.example", false).unwrap();
+    *ui.client.borrow_mut() = Some(Client::new(address.clone()).unwrap());
+    let mut editor = Editor::create(address.clone(), ui.advance().unwrap());
+    editor.edit("Listed writing".into(), &ui.store).unwrap();
+    *ui.editor.borrow_mut() = Some(editor);
+    ui.show_editor();
+    *ui.collection.borrow_mut() = Collection::Drafts;
+    ui.refresh(false);
+    let row = ui.list.row_at_index(0).unwrap();
+    let (ticket, _) = ui
+        .editor
+        .borrow_mut()
+        .as_mut()
+        .unwrap()
+        .begin(&ui.store)
+        .unwrap()
+        .unwrap();
+    ui.text.buffer().set_text("Latest writing");
+    ui.list.emit_by_name::<()>("row-activated", &[&row]);
+    assert_eq!(
+        ui.editor.borrow().as_ref().unwrap().draft().body,
+        "Latest writing"
+    );
+    assert_eq!(
+        ui.editor.borrow().as_ref().unwrap().state().pending(),
+        Some(ticket)
+    );
+    assert!(ui.persist());
+    assert_eq!(
+        ui.store.recover(&address).unwrap().drafts[0].body,
+        "Latest writing"
+    );
+
+    let draft = ui.editor.borrow().as_ref().unwrap().draft().clone();
+    *ui.editor.borrow_mut() = Some(Editor::recover(draft, ui.advance().unwrap()));
+    ui.show_editor();
+    assert!(ui.banner.is_revealed());
+    assert_eq!(ui.banner.button_label().as_deref(), Some("Retry"));
+    assert!(ui.banner.title().contains("uncertain"));
+
+    let mut other = Editor::create(address.clone(), 100);
+    other
+        .edit("Cached other writing".into(), &ui.store)
+        .unwrap();
+    let mut selected = other.draft().clone();
+    ui.refresh(false);
+    let position = ui
+        .entries
+        .borrow()
+        .iter()
+        .position(|entry| matches!(entry, Entry::Draft(draft) if draft.name == selected.name))
+        .unwrap();
+    let row = ui.list.row_at_index(position as i32).unwrap();
+    selected.body = "Latest other writing".into();
+    ui.store.save(&selected).unwrap();
+    ui.list.emit_by_name::<()>("row-activated", &[&row]);
+    assert_eq!(
+        ui.editor.borrow().as_ref().unwrap().draft().body,
+        selected.body
+    );
+    ui.window.destroy();
+}
+
 #[test]
 fn native_writing_navigation_recovery_input_and_adaptive_layout() {
     adw::init().unwrap();
@@ -44,6 +114,7 @@ fn native_writing_navigation_recovery_input_and_adaptive_layout() {
         .flags(gio::ApplicationFlags::NON_UNIQUE)
         .build();
     application.register(gio::Cancellable::NONE).unwrap();
+    draft_rows_preserve_current_writing_and_expose_uncertain_recovery(&application);
     let local = tempfile::tempdir().unwrap();
     let drafts = local.path().join("drafts");
     let ui = build(&application, DraftStore::at(drafts.clone())).unwrap();

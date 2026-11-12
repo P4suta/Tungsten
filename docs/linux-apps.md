@@ -51,6 +51,8 @@ Each narrow breakpoint sets both split views because libadwaita applies only the
 Collection rows combine icons and labels.
 Header controls use recognizable icons and a descriptive `accessible name`.
 [Dialog guidance](https://developer.gnome.org/hig/patterns/feedback/dialogs.html) governs explicit cancellation, safe defaults, and destructive confirmations.
+The [banner guidance](https://developer.gnome.org/hig/patterns/feedback/banners.html) governs persistent recovery states and their visible action.
+The [writing style guidance](https://developer.gnome.org/hig/guidelines/writing-style.html) governs concise English copy and informal banner headings.
 
 The [accessibility guidance](https://developer.gnome.org/hig/guidelines/accessibility.html) applies to names, keyboard access, visible focus, High Contrast, and enlarged text.
 Every interactive element uses standard GTK semantics.

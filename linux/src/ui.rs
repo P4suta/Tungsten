@@ -576,7 +576,15 @@ impl Ui {
             self.text.set_editable(false);
         }
         self.changing.set(false);
-        self.banner.set_revealed(false);
+        let uncertain = self
+            .editor
+            .borrow()
+            .as_ref()
+            .is_some_and(|editor| editor.state().block() == Block::Uncertain);
+        if uncertain {
+            self.banner.set_title("Delivery is uncertain");
+        }
+        self.banner.set_revealed(uncertain);
         self.update_status();
         self.outer.set_show_content(true);
         self.inner.set_show_content(true);
@@ -696,12 +704,36 @@ impl Ui {
         if !self.persist() {
             return;
         }
-        match self.advance() {
-            Ok(scope) => {
-                *self.editor.borrow_mut() = Some(Editor::recover(draft, scope));
-                self.show_editor();
+        if self.editor.borrow().as_ref().is_some_and(|editor| {
+            editor.draft().server == draft.server && editor.draft().name == draft.name
+        }) {
+            self.outer.set_show_content(true);
+            self.inner.set_show_content(true);
+            self.text.grab_focus();
+            return;
+        }
+        let result = (|| {
+            if self.client()?.address() != &draft.server {
+                return Err(Error::Identity);
             }
-            Err(error) => self.error(&error),
+            let recovery = self.store.recover(&draft.server)?;
+            if let Some(latest) = recovery
+                .drafts
+                .into_iter()
+                .find(|latest| latest.name == draft.name)
+            {
+                *self.editor.borrow_mut() = Some(Editor::recover(latest, self.advance()?));
+                self.show_editor();
+            } else {
+                self.refresh(false);
+            }
+            if !recovery.damaged.is_empty() {
+                return Err(Error::Recovery);
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.error(&error);
         }
     }
 
