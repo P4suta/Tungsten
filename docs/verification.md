@@ -73,6 +73,11 @@ Regression cases clear complete notes with Backspace and Delete, restore their s
 Regression cases delete paired syntax, immediately undo, and continue editing across browser profiles.
 Centered typing measures the browser's caret after the editor completes layout, with CodeMirror coordinates as a fallback for empty ranges.
 Link completion checks cover title filtering, keyboard insertion, cancellation, and stable stored targets.
+Changing the query in `Open note` removes the previous results before requesting replacements.
+Its results list uses [aria-busy](https://www.w3.org/TR/wai-aria-1.2/#aria-busy) until the current request completes, including failure.
+Browser tests hold search responses and check selection, continued editing, and recovery after failure.
+A background refresh preserves result buttons when their order, note identities, and displayed titles match.
+A browser test completes a refresh between mouse press and release and checks that selection still opens the note.
 Formatting checks cover blur, keyboard activation, undo, original code spacing, and stale asynchronous results.
 Automatic formatting stops when the writer returns to the editor or changes the selection.
 Identity checks cover duplicate titles and heading changes without changing stored addresses.
