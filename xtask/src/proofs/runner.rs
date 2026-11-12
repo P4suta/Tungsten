@@ -25,6 +25,13 @@ const SOURCE_INPUTS: &[&str] = &[
     "xtask/src/proofs.rs",
     "xtask/src/proofs/report.rs",
     "xtask/src/proofs/runner.rs",
+    "xtask/src/main.rs",
+    "xtask/src/release_checks.rs",
+    "tests/domain.rs",
+    "linux/model/tests/saving.rs",
+    "fuzz/Cargo.toml",
+    "fuzz/Cargo.lock",
+    "fuzz/fuzz_targets/rules.rs",
 ];
 
 fn source_inputs() -> impl Iterator<Item = &'static str> {
@@ -35,7 +42,7 @@ fn source_inputs() -> impl Iterator<Item = &'static str> {
     )
 }
 
-fn fingerprint(root: &Path) -> Result<tungsten::domain::Revision> {
+pub(crate) fn fingerprint(root: &Path) -> Result<tungsten::domain::Revision> {
     let mut inputs = Vec::new();
     for path in source_inputs() {
         let bytes = fs::read(root.join(path))?;
