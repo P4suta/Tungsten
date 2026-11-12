@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { pressShortcut } from "./editor.js";
+import { pressShortcut, selectAllMarkdown } from "./editor.js";
 import { newEmptyNote } from "./interface.js";
 
 test("clears the complete Markdown source and restores it through native undo", async ({
@@ -11,17 +11,7 @@ test("clears the complete Markdown source and restores it through native undo", 
   await editor.fill(original);
   await expect(page.locator("#save-status")).toHaveText("Saved");
   for (const key of ["Backspace", "Delete"]) {
-    await pressShortcut(editor, "a");
-    await expect
-      .poll(() =>
-        page
-          .locator("#body")
-          .evaluate(
-            (node: HTMLTextAreaElement) =>
-              node.selectionStart === 0 && node.selectionEnd === node.value.length,
-          ),
-      )
-      .toBe(true);
+    await selectAllMarkdown(editor);
     await editor.press(key);
     await expect(page.locator("#body")).toHaveValue("");
     await pressShortcut(editor, "z");
