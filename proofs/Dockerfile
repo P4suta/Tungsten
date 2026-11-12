@@ -10,6 +10,7 @@ ENV CARGO_BUILD_JOBS=2
 RUN cargo install --locked --version 0.68.0 kani-verifier && cargo kani setup
 WORKDIR /project
 COPY src/rules.rs src/rules.rs
+COPY linux/model/src/ linux/model/src/
 COPY proofs/Cargo.toml proofs/Cargo.lock proofs/
 COPY proofs/src/ proofs/src/
 COPY target/browser-proof.rs target/browser-proof.rs
@@ -25,6 +26,7 @@ RUN rustup toolchain install nightly-2026-10-01 --profile minimal
 WORKDIR /project
 COPY Cargo.toml Cargo.lock ./
 COPY xtask/ xtask/
+COPY linux/ linux/
 COPY src/ src/
 COPY tests/ tests/
 COPY fuzz/ fuzz/

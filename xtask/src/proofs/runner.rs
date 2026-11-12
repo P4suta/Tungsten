@@ -8,6 +8,11 @@ const SOURCE_INPUTS: &[&str] = &[
     "Cargo.lock",
     "src/rules.rs",
     "src/domain.rs",
+    "linux/model/src/lib.rs",
+    "linux/model/src/state.rs",
+    "linux/src/editor.rs",
+    "linux/src/drafts.rs",
+    "linux/src/client.rs",
     "src/store.rs",
     "src/store/database.rs",
     "src/api.rs",
@@ -39,7 +44,11 @@ fn fingerprint(root: &Path) -> Result<tungsten::domain::Revision> {
 
 fn inventory(root: &Path) -> Result<BTreeSet<String>> {
     let mut names = BTreeSet::new();
-    for path in ["src/rules.rs", "proofs/src/browser.rs"] {
+    for path in [
+        "src/rules.rs",
+        "proofs/src/browser.rs",
+        "linux/model/src/state.rs",
+    ] {
         for name in report::source_harnesses(&fs::read_to_string(root.join(path))?)? {
             ensure!(names.insert(name), "duplicate source harness identity");
         }

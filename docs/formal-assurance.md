@@ -5,6 +5,7 @@
 The proof gate checks executable Rust with [Kani 0.68.0](https://github.com/model-checking/kani/releases/tag/kani-0.68.0).
 Native proofs call the production path, identifier, revision, destination, and attribute rules in `src/rules.rs`.
 Browser proofs call generated Rust functions translated from the production Boolean decisions in `ui/src/model.ts`.
+Linux proofs import the production save state machine from `linux/model/src/state.rs`.
 The translator accepts explicit Boolean parameters, Boolean returns, identifiers, literals, negation, conjunction, and disjunction.
 It rejects extra or missing functions, changed parameter meanings, side effects, implicit coercions, and unsupported syntax.
 
@@ -34,6 +35,10 @@ Different local writing causes a conflict instead of replacement.
 Automatic draft recovery excludes a living owner and requires coordination for owned drafts.
 Legacy drafts remain recoverable.
 
+Linux transmission requires the current edit to be durable, dirty, idle, and unblocked.
+Acknowledgements preserve later edits and only complete the matching editor ticket.
+Conflicts, missing remote notes, and uncertain delivery stop automatic writes while preserving durable drafts.
+
 ## Bounds and correspondence
 
 Boolean decision proofs cover every parameter combination.
@@ -50,6 +55,10 @@ Navigation counters remain within the declared sequence bound.
 The traces verify compositions of production decisions under the harness's adapter model.
 They don't prove the browser event loop, network transport, storage APIs, or every production event handler.
 Browser tests exercise delayed replies, live sibling drafts, hidden pages, competing writes, independent profiles, and restarts at those boundaries.
+
+Linux harnesses cover persistence alternatives, one concurrent edit, every failure outcome, and two distinct editor scopes with explicit unwind bounds of two.
+The scope representatives exercise equality decisions without claiming unbounded navigation histories or counter exhaustion.
+GTK scheduling, HTTP responses, atomic filesystem operations, and recovery serialization remain adapter boundaries covered by native and real-server tests.
 
 Allocation, filesystem durability, SQLite transactions, HTTP delivery, and browser coordination keep integration checks.
 The proof gate covers bounded execution and trusts the running server.
