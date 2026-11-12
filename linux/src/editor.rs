@@ -133,7 +133,7 @@ impl Editor {
             }
             Err(error) => {
                 let outcome = match error {
-                    Error::Conflict => Outcome::Conflict,
+                    Error::Conflict | Error::Exists => Outcome::Conflict,
                     Error::Missing => Outcome::Missing,
                     _ => Outcome::Uncertain,
                 };

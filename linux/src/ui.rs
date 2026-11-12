@@ -1808,7 +1808,7 @@ impl Ui {
                         ui.task(
                             async move {
                                 match client.restore_trash(&record, &name).await {
-                                    Err(Error::Conflict) => {
+                                    Err(Error::Exists) => {
                                         client
                                             .restore_trash(&record, &types::generated_name())
                                             .await

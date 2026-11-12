@@ -17,6 +17,8 @@ pub enum Error {
     Response,
     #[error("The item changed on another device. Reload it or save the draft as a new note.")]
     Conflict,
+    #[error("The name is already in use. Choose another name.")]
+    Exists,
     #[error("The item is no longer available. Save the draft as a new note.")]
     Missing,
     #[error("The server could not complete the request (HTTP {0}).")]

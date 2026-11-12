@@ -75,6 +75,57 @@ fn origins_reject_paths_credentials_insecure_remote_hosts_and_non_origins() {
     assert!(ServerAddress::parse("http://[::1]:8080", true).is_ok());
 }
 
+#[test]
+fn note_titles_follow_parsed_headings_and_preserve_plain_text_fallbacks() {
+    assert_eq!(
+        tungsten_linux::types::title("```md\n# Fake\n```\n\n# **Real** title"),
+        "Real title"
+    );
+    assert_eq!(
+        tungsten_linux::types::title("Intro\n\n## Actual heading"),
+        "Actual heading"
+    );
+    assert_eq!(
+        tungsten_linux::types::title("\n  Plain text  \nOther text"),
+        "Plain text"
+    );
+    assert_eq!(tungsten_linux::types::title("\n\n"), "Untitled Note");
+}
+
+#[tokio::test]
+async fn name_collisions_and_stale_revisions_keep_distinct_recovery_paths() {
+    let (_server, client, task) = server().await;
+    let workspace = client.create_workspace("Shared title").await.unwrap();
+    let collision = client.create_workspace("Shared title").await.unwrap_err();
+    assert!(!matches!(collision, Error::Conflict));
+    assert!(collision.to_string().contains("name"));
+    client
+        .rename_workspace(&workspace, "Renamed")
+        .await
+        .unwrap();
+    assert!(matches!(
+        client.rename_workspace(&workspace, "Stale rename").await,
+        Err(Error::Conflict)
+    ));
+    let directory = tempfile::tempdir().unwrap();
+    let store = DraftStore::at(directory.path().to_owned());
+    let mut editor = Editor::create(client.address().clone(), 1);
+    editor
+        .edit("Keep the local writing".into(), &store)
+        .unwrap();
+    let (ticket, outgoing) = editor.begin(&store).unwrap().unwrap();
+    client.save(&outgoing).await.unwrap();
+    let duplicate = client.save(&outgoing).await;
+    assert!(!matches!(duplicate, Err(Error::Conflict)));
+    assert!(editor.complete(ticket, duplicate, &store).is_err());
+    assert_eq!(
+        editor.state().block(),
+        tungsten_linux_model::Block::Conflict
+    );
+    assert_eq!(editor.draft().body, "Keep the local writing");
+    task.abort();
+}
+
 #[tokio::test]
 async fn interrupted_writes_and_concurrent_edits_recover_against_the_real_server() {
     let (_server, client, task) = server().await;

@@ -55,7 +55,8 @@ impl Client {
         let response = request.send().await.map_err(Error::Network)?;
         match response.status().as_u16() {
             200..=299 => Ok(response),
-            409 | 412 => Err(Error::Conflict),
+            409 => Err(Error::Exists),
+            412 => Err(Error::Conflict),
             404 => Err(Error::Missing),
             413 => Err(Error::TooLarge),
             status => Err(Error::Status(status)),

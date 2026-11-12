@@ -78,10 +78,13 @@ impl Note {
 }
 
 pub fn title(body: &str) -> String {
-    body.lines()
-        .find_map(|line| line.strip_prefix("# "))
-        .or_else(|| body.lines().find(|line| !line.trim().is_empty()))
-        .unwrap_or("Untitled Note")
+    tungsten::markdown::first_heading(body)
+        .or_else(|| {
+            body.lines()
+                .find(|line| !line.trim().is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "Untitled Note".into())
         .trim()
         .to_owned()
 }
