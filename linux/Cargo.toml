@@ -10,6 +10,11 @@ publish = false
 default = []
 desktop = ["dep:adw", "dep:gtk"]
 
+[[bin]]
+name = "tungsten-gtk"
+path = "src/main.rs"
+required-features = ["desktop"]
+
 [dependencies]
 adw = { package = "libadwaita", version = "=0.9.2", optional = true, features = [
   "v1_9",
