@@ -115,6 +115,7 @@ fn native_writing_navigation_recovery_input_and_adaptive_layout() {
         .build();
     application.register(gio::Cancellable::NONE).unwrap();
     draft_rows_preserve_current_writing_and_expose_uncertain_recovery(&application);
+    links_resolve_from_the_current_note_folder(&application);
     let local = tempfile::tempdir().unwrap();
     let drafts = local.path().join("drafts");
     let ui = build(&application, DraftStore::at(drafts.clone())).unwrap();
@@ -173,6 +174,7 @@ fn native_writing_navigation_recovery_input_and_adaptive_layout() {
             .iter()
             .any(|entry| matches!(entry, Entry::Note(note) if note.name == name))
     });
+    workspace_responses_refresh_selected_and_cached_revisions(&ui, &name);
     assert_eq!(
         ui.runtime
             .block_on(ui.client().unwrap().read(&name))
@@ -276,4 +278,152 @@ fn native_writing_navigation_recovery_input_and_adaptive_layout() {
     assert!(ui.persist());
     ui.window.close();
     server.abort();
+}
+
+fn links_resolve_from_the_current_note_folder(application: &adw::Application) {
+    let directory = tempfile::tempdir().unwrap();
+    let ui = build(application, DraftStore::at(directory.path().to_owned())).unwrap();
+    ui.connect_signals();
+    let address = ServerAddress::parse("https://notes.example", false).unwrap();
+    for (source, target) in [
+        ("Folder/Source.md", "Folder/Target.md"),
+        ("Folder/Source.md", "Target.md"),
+        ("Folder/Source.md", "Other/Target.md"),
+        ("Source.md", "Folder/Target.md"),
+        ("日本語/原文.md", "日本語/空白 #?[]%.md"),
+        ("Target.md/Source.md", "Target.md"),
+    ] {
+        let scope = ui.advance().unwrap();
+        let mut draft = Editor::create(address.clone(), scope).draft().clone();
+        draft.name = tungsten_linux::NoteName::parse(source.to_owned()).unwrap();
+        *ui.editor.borrow_mut() = Some(Editor::recover(draft, scope));
+        ui.show_editor();
+        ui.insert_link(&Summary {
+            name: tungsten_linux::NoteName::parse(target.to_owned()).unwrap(),
+            title: "Target [label]".into(),
+            snippet: String::new(),
+        });
+        let body = ui.editor.borrow().as_ref().unwrap().draft().body.clone();
+        assert_eq!(
+            tungsten::markdown::preview(source, &body).links,
+            vec![target],
+            "{source}: {body}"
+        );
+    }
+    ui.window.destroy();
+}
+
+fn action_row(widget: gtk::Widget) -> Option<adw::ActionRow> {
+    if let Some(row) = widget.downcast_ref::<adw::ActionRow>() {
+        return Some(row.clone());
+    }
+    let mut child = widget.first_child();
+    while let Some(widget) = child {
+        child = widget.next_sibling();
+        if let Some(row) = action_row(widget) {
+            return Some(row);
+        }
+    }
+    None
+}
+
+fn workspace_responses_refresh_selected_and_cached_revisions(
+    ui: &Rc<Ui>,
+    name: &tungsten_linux::NoteName,
+) {
+    let client = ui.client().unwrap();
+    let original = ui
+        .runtime
+        .block_on(client.create_workspace("Writing workspace"))
+        .unwrap();
+    let populated = ui
+        .runtime
+        .block_on(client.membership(&original.id, name, true))
+        .unwrap();
+    ui.workspace_listing.set(ui.workspace_listing.get() + 1);
+    *ui.workspaces.borrow_mut() = vec![original.clone()];
+    *ui.collection.borrow_mut() = Collection::Workspace(original.clone());
+    ui.entries.borrow_mut().clear();
+    ui.refresh(false);
+    wait(|| {
+        ui.entries
+            .borrow()
+            .iter()
+            .any(|entry| matches!(entry, Entry::Note(note) if &note.name == name))
+    });
+    let Collection::Workspace(selected) = ui.collection.borrow().clone() else {
+        panic!("workspace selection changed");
+    };
+    assert_eq!(selected.revision, populated.revision);
+    assert_eq!(ui.workspaces.borrow()[0].revision, populated.revision);
+
+    ui.rename_workspace();
+    let dialog = ui
+        .window
+        .visible_dialog()
+        .and_downcast::<adw::AlertDialog>()
+        .unwrap();
+    dialog
+        .extra_child()
+        .and_downcast::<gtk::Entry>()
+        .unwrap()
+        .set_text("Renamed workspace");
+    dialog.emit_by_name::<()>("response", &[&"accept"]);
+    wait(
+        || matches!(&*ui.collection.borrow(), Collection::Workspace(workspace) if workspace.title == "Renamed workspace"),
+    );
+    let renamed = ui
+        .runtime
+        .block_on(client.workspace_notes(&original.id, None))
+        .unwrap()
+        .workspace;
+    wait(|| {
+        ui.workspaces
+            .borrow()
+            .first()
+            .is_some_and(|workspace| workspace.revision == renamed.revision)
+    });
+
+    ui.remove_membership();
+    wait(|| ui.entries.borrow().is_empty());
+    let removed = ui
+        .runtime
+        .block_on(client.workspace_notes(&original.id, None))
+        .unwrap()
+        .workspace;
+    assert_ne!(removed.revision, renamed.revision);
+    wait(|| {
+        ui.workspaces
+            .borrow()
+            .first()
+            .is_some_and(|workspace| workspace.revision == removed.revision)
+    });
+    assert!(
+        matches!(&*ui.collection.borrow(), Collection::Workspace(workspace) if workspace.revision == removed.revision)
+    );
+
+    ui.membership();
+    let dialog = ui.window.visible_dialog().unwrap();
+    action_row(dialog.child().unwrap())
+        .unwrap()
+        .emit_by_name::<()>("activated", &[]);
+    wait(
+        || matches!(&*ui.collection.borrow(), Collection::Workspace(workspace) if workspace.revision != removed.revision),
+    );
+    let added = ui
+        .runtime
+        .block_on(client.workspace_notes(&original.id, None))
+        .unwrap()
+        .workspace;
+    wait(|| {
+        ui.workspaces
+            .borrow()
+            .first()
+            .is_some_and(|workspace| workspace.revision == added.revision)
+    });
+    ui.runtime
+        .block_on(client.delete_workspace(&added))
+        .unwrap();
+    *ui.collection.borrow_mut() = Collection::All;
+    ui.refresh(false);
 }

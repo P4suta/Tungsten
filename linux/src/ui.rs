@@ -1042,19 +1042,28 @@ impl Ui {
                 match collection {
                     Collection::All => {
                         let page = client.notes(&query, cursor.as_deref()).await?;
-                        Ok((page.notes.into_iter().map(Entry::Note).collect(), page.next))
+                        Ok((
+                            page.notes.into_iter().map(Entry::Note).collect(),
+                            page.next,
+                            None,
+                        ))
                     }
                     Collection::Workspace(workspace) => {
                         let page = client
                             .workspace_notes(&workspace.id, cursor.as_deref())
                             .await?;
-                        Ok((page.notes.into_iter().map(Entry::Note).collect(), page.next))
+                        Ok((
+                            page.notes.into_iter().map(Entry::Note).collect(),
+                            page.next,
+                            Some(page.workspace),
+                        ))
                     }
                     Collection::Trash => {
                         let page = client.trash(cursor.as_deref()).await?;
                         Ok((
                             page.entries.into_iter().map(Entry::Trash).collect(),
                             page.next,
+                            None,
                         ))
                     }
                     Collection::Drafts => unreachable!(),
@@ -1065,7 +1074,12 @@ impl Ui {
                     return;
                 }
                 match result {
-                    Ok((entries, cursor)) => ui.render_entries(entries, cursor, append),
+                    Ok((entries, cursor, workspace)) => {
+                        if let Some(workspace) = workspace {
+                            ui.remember_workspace(&workspace);
+                        }
+                        ui.render_entries(entries, cursor, append);
+                    }
                     Err(error) => {
                         ui.more.set_sensitive(true);
                         ui.error(&error);
@@ -1100,6 +1114,27 @@ impl Ui {
         *self.cursor.borrow_mut() = cursor;
     }
 
+    fn remember_workspace(&self, workspace: &Workspace) {
+        if let Some((index, current)) = self
+            .workspaces
+            .borrow_mut()
+            .iter_mut()
+            .enumerate()
+            .find(|(_, current)| current.id == workspace.id)
+        {
+            *current = workspace.clone();
+            if let Some(item) = self.workspace_section.item(index as u32) {
+                item.set_title(Some(&workspace.title));
+            }
+        }
+        if let Collection::Workspace(current) = &mut *self.collection.borrow_mut()
+            && current.id == workspace.id
+        {
+            *current = workspace.clone();
+            self.list_title.set_title(&workspace.title);
+        }
+    }
+
     fn load_workspaces(self: &Rc<Self>, after: Option<String>) {
         let Ok(client) = self.client() else {
             return;
@@ -1127,6 +1162,7 @@ impl Ui {
                 match result {
                     Ok(page) => {
                         for workspace in &page.workspaces {
+                            ui.remember_workspace(workspace);
                             ui.workspace_section.append(
                                 adw::SidebarItem::builder()
                                     .title(&workspace.title)
@@ -1207,7 +1243,10 @@ impl Ui {
             ui.task(
                 async move { client.create_workspace(&title).await },
                 |ui, result| match result {
-                    Ok(_) => ui.load_workspaces(None),
+                    Ok(workspace) => {
+                        ui.remember_workspace(&workspace);
+                        ui.load_workspaces(None);
+                    }
                     Err(error) => ui.error(&error),
                 },
             );
@@ -1232,10 +1271,7 @@ impl Ui {
                     async move { client.rename_workspace(&workspace, &title).await },
                     |ui, result| match result {
                         Ok(workspace) => {
-                            let selected = matches!(&*ui.collection.borrow(), Collection::Workspace(current) if current.id == workspace.id);
-                            if selected {
-                                *ui.collection.borrow_mut() = Collection::Workspace(workspace);
-                            }
+                            ui.remember_workspace(&workspace);
                             ui.load_workspaces(None);
                             ui.refresh(false);
                         }
@@ -1297,7 +1333,11 @@ impl Ui {
         self.task(
             async move { client.membership(&workspace.id, &name, false).await },
             |ui, result| match result {
-                Ok(_) => ui.refresh(false),
+                Ok(workspace) => {
+                    ui.remember_workspace(&workspace);
+                    ui.load_workspaces(None);
+                    ui.refresh(false);
+                }
                 Err(error) => ui.error(&error),
             },
         );
@@ -1388,10 +1428,13 @@ impl Ui {
                 let name = name.clone();
                 ui.task(
                     async move { client.membership(&id, &name, true).await },
-                    |ui, result| {
-                        if let Err(error) = result {
-                            ui.error(&error);
+                    |ui, result| match result {
+                        Ok(workspace) => {
+                            ui.remember_workspace(&workspace);
+                            ui.load_workspaces(None);
+                            ui.refresh(false);
                         }
+                        Err(error) => ui.error(&error),
                     },
                 );
                 target.close();
