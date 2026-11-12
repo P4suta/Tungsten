@@ -288,7 +288,11 @@ test("leaves a remotely deleted clean note and protects a deleted dirty note", a
     else await route.continue();
   });
   const draft = "# Dirty\n\nUnsaved version";
-  await page.getByRole("textbox", { name: "Note", exact: true }).fill(draft);
+  const editor = page.getByRole("textbox", { name: "Note", exact: true });
+  await expect(editor).toHaveMarkdown(dirty.body);
+  await selectAllMarkdown(editor);
+  await page.keyboard.insertText(draft);
+  await expect(editor).toHaveMarkdown(draft);
   await expect(page.locator("#save-status")).toHaveText("Save failed");
   expect(
     (
@@ -319,7 +323,11 @@ test("keeps drafts available when ownership coordination is unavailable", async 
     else await route.continue();
   });
   const draft = "# Shared\n\nUncoordinated writing";
-  await page.getByRole("textbox", { name: "Note", exact: true }).fill(draft);
+  const editor = page.getByRole("textbox", { name: "Note", exact: true });
+  await expect(editor).toHaveMarkdown(note.body);
+  await selectAllMarkdown(editor);
+  await page.keyboard.insertText(draft);
+  await expect(editor).toHaveMarkdown(draft);
   await expect(page.locator("#save-status")).toHaveText("Save failed");
   const other = await context.newPage();
   try {
