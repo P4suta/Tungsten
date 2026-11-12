@@ -1194,15 +1194,21 @@ impl Ui {
                 }
                 match result {
                     Ok(page) => {
+                        let mut reload = false;
                         for workspace in page.workspaces {
+                            let revision = workspace.revision.clone();
                             let workspace = match ui.remember_workspace(workspace, observed) {
                                 Ok(Some(workspace)) => workspace,
-                                Ok(None) => continue,
+                                Ok(None) => {
+                                    reload = true;
+                                    continue;
+                                }
                                 Err(error) => {
                                     ui.error(&error);
                                     return;
                                 }
                             };
+                            reload |= workspace.revision != revision;
                             ui.workspace_section.append(
                                 adw::SidebarItem::builder()
                                     .title(&workspace.title)
@@ -1211,7 +1217,9 @@ impl Ui {
                             );
                             ui.workspaces.borrow_mut().push(workspace);
                         }
-                        if let Some(cursor) = page.next {
+                        if reload {
+                            ui.load_workspaces(None);
+                        } else if let Some(cursor) = page.next {
                             ui.load_workspaces(Some(cursor));
                         }
                     }

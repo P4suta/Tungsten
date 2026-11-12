@@ -1,6 +1,7 @@
 use super::*;
 use std::{path::Path, time::Instant};
 
+#[track_caller]
 fn wait(mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
@@ -383,17 +384,21 @@ fn workspace_reads_keep_metadata_from_the_newer_observation(application: &adw::A
     };
     struct Replies {
         hold: AtomicU8,
+        defer_read: AtomicBool,
         ready: AtomicBool,
         release: tokio::sync::Notify,
     }
     let replies = Arc::new(Replies {
         hold: AtomicU8::new(0),
+        defer_read: AtomicBool::new(false),
         ready: AtomicBool::new(false),
         release: tokio::sync::Notify::new(),
     });
     let directory = tempfile::tempdir().unwrap();
     let ui = build(application, DraftStore::at(directory.path().join("drafts"))).unwrap();
     ui.connect_signals();
+    ui.window.present();
+    wait(|| ui.window.is_mapped());
     let listener = ui
         .runtime
         .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
@@ -428,8 +433,13 @@ fn workspace_reads_keep_metadata_from_the_newer_observation(application: &adw::A
                         .hold
                         .compare_exchange(kind, 0, Ordering::SeqCst, Ordering::SeqCst)
                         .is_ok();
+                let deferred = held && gate.defer_read.swap(false, Ordering::SeqCst);
+                if deferred {
+                    gate.ready.store(true, Ordering::SeqCst);
+                    gate.release.notified().await;
+                }
                 let response = next.run(request).await;
-                if held {
+                if held && !deferred {
                     gate.ready.store(true, Ordering::SeqCst);
                     gate.release.notified().await;
                 }
@@ -485,9 +495,60 @@ fn workspace_reads_keep_metadata_from_the_newer_observation(application: &adw::A
     assert!(
         matches!(&*ui.collection.borrow(), Collection::Workspace(current) if current.revision == removed.revision)
     );
-    ui.runtime
-        .block_on(client.rename_workspace(&removed, "Ordered workspace"))
+    replies.ready.store(false, Ordering::SeqCst);
+    replies.defer_read.store(true, Ordering::SeqCst);
+    replies.hold.store(1, Ordering::SeqCst);
+    ui.load_workspaces(None);
+    wait(|| replies.ready.load(Ordering::SeqCst));
+    let populated = ui
+        .runtime
+        .block_on(client.membership(&workspace.id, &note.name, true))
         .unwrap();
+    ui.refresh(false);
+    wait(
+        || matches!(&*ui.collection.borrow(), Collection::Workspace(current) if current.revision == populated.revision),
+    );
+    let changed = ui
+        .runtime
+        .block_on(client.rename_workspace(&populated, "Changed while reading"))
+        .unwrap();
+    replies.release.notify_one();
+    wait(|| ui.workspaces.borrow().len() == 1);
+    assert_eq!(ui.workspaces.borrow()[0].revision, changed.revision);
+    assert!(
+        matches!(&*ui.collection.borrow(), Collection::Workspace(current) if current.revision == changed.revision)
+    );
+    ui.rename_workspace();
+    let dialog = ui
+        .window
+        .visible_dialog()
+        .and_downcast::<adw::AlertDialog>()
+        .unwrap();
+    dialog
+        .extra_child()
+        .and_downcast::<gtk::Entry>()
+        .unwrap()
+        .set_text("Renamed through UI");
+    dialog.emit_by_name::<()>("response", &[&"accept"]);
+    wait(
+        || matches!(&*ui.collection.borrow(), Collection::Workspace(current) if current.title == "Renamed through UI"),
+    );
+    wait(|| {
+        ui.more.is_sensitive()
+            && ui
+                .workspaces
+                .borrow()
+                .first()
+                .is_some_and(|current| current.title == "Renamed through UI")
+    });
+    assert_eq!(
+        ui.runtime
+            .block_on(client.workspace_notes(&workspace.id, None))
+            .unwrap()
+            .workspace
+            .title,
+        "Renamed through UI"
+    );
     server.abort();
     ui.window.destroy();
 }

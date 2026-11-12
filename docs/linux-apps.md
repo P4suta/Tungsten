@@ -28,6 +28,7 @@ Local persistence failure prevents leaving the editor or closing the window.
 All Notes and Drafts support search.
 Workspaces and their notes use bounded server pages.
 Workspace responses preserve metadata observed after the request began.
+If overlapping responses disagree, the client fetches the workspace list again.
 The client reloads a stale notes page before displaying its contents.
 Note Details exposes outgoing links, backlinks, original attachments, and saved versions.
 History restoration requires the same editor text and generation observed before loading the version.
