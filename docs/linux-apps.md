@@ -80,6 +80,8 @@ The bundle contains project licenses and vendored dependency notices.
 The generated Rust toolchain module disables debug extraction to preserve the prebuilt compiler's Executable and Linkable Format (ELF) segments.
 An interrupted build can resume with `--resume` and its generated directory under `target/linux`.
 Resumption refreshes project sources and verifies cached Rust archive checksums.
+Rust downloads require HTTPS for the initial URL and redirects under [curl's protocol controls](https://curl.se/docs/manpage.html#--proto-redir).
+They limit connection setup to 30 seconds and stop transfers after 60 seconds below 1 KiB/s under [curl's transfer controls](https://curl.se/docs/manpage.html#--speed-time).
 Flathub publication requires a separate operation.
 
 The [sandbox permission guidance](https://docs.flatpak.org/en/latest/sandbox-permissions.html) governs the manifest.

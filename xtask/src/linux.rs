@@ -6,6 +6,7 @@ use std::{
     collections::BTreeSet,
     fs,
     io::{Read, Write},
+    num::NonZeroU64,
     path::{Path, PathBuf},
 };
 use syn::visit::Visit;
@@ -622,18 +623,16 @@ fn rust_module(root: &Path, staging: &Path, arch: Architecture) -> Result<Value>
             &hash_file,
             &format!("https://static.rust-lang.org/dist/{file}"),
             |url, path| {
+                let args = rust_download_arguments(
+                    url,
+                    path,
+                    NonZeroU64::new(30).unwrap(),
+                    NonZeroU64::new(60).unwrap(),
+                )?;
                 super::run(
                     root,
                     "curl",
-                    &[
-                        "--fail",
-                        "--silent",
-                        "--show-error",
-                        "--location",
-                        "--output",
-                        path.to_str().context("Rust source path")?,
-                        url,
-                    ],
+                    &args.iter().map(String::as_str).collect::<Vec<_>>(),
                 )
             },
         )?;
@@ -646,6 +645,37 @@ fn rust_module(root: &Path, staging: &Path, arch: Architecture) -> Result<Value>
     Ok(
         json!({"name": "rust-toolchain", "buildsystem": "simple", "build-options": {"no-debuginfo": true, "strip": false}, "build-commands": commands, "sources": sources}),
     )
+}
+
+fn rust_download_arguments(
+    url: &str,
+    path: &Path,
+    connect_seconds: NonZeroU64,
+    stall_seconds: NonZeroU64,
+) -> Result<Vec<String>> {
+    let mut args = [
+        "--disable",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--location",
+        "--proto",
+        "=https",
+        "--proto-redir",
+        "=https",
+        "--speed-limit",
+        "1024",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    args.extend([
+        "--connect-timeout".to_owned(),
+        connect_seconds.get().to_string(),
+        "--speed-time".to_owned(),
+        stall_seconds.get().to_string(),
+    ]);
+    args.extend(["--output", path.to_str().context("Rust source path")?, url].map(str::to_owned));
+    Ok(args)
 }
 
 fn bundle(root: &Path, arch: Architecture, resume: Option<&Path>) -> Result<()> {
@@ -793,6 +823,134 @@ fn bundle(root: &Path, arch: Architecture, resume: Option<&Path>) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        net::{SocketAddr, TcpListener, TcpStream},
+        process::{Command, Output},
+        sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        },
+        thread,
+        time::{Duration, Instant},
+    };
+
+    fn curl_fixture(
+        scheme: &str,
+        allow_initial_http: bool,
+        mut respond: impl FnMut(&mut TcpStream, SocketAddr) + Send + 'static,
+    ) -> (Output, usize) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let done = Arc::new(AtomicBool::new(false));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let stopped = done.clone();
+        let observed = requests.clone();
+        let server = thread::spawn(move || {
+            loop {
+                let (mut stream, _) = listener.accept().unwrap();
+                if stopped.load(Ordering::SeqCst) {
+                    break;
+                }
+                observed.fetch_add(1, Ordering::SeqCst);
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                respond(&mut stream, address);
+            }
+        });
+        let directory = tempfile::tempdir().unwrap();
+        let args = rust_download_arguments(
+            &format!("{scheme}://{address}/download"),
+            &directory.path().join("download"),
+            NonZeroU64::new(1).unwrap(),
+            NonZeroU64::new(1).unwrap(),
+        )
+        .unwrap();
+        let mut command = Command::new("curl");
+        command.args(args).args(["--noproxy", "*"]);
+        if allow_initial_http {
+            command.args(["--proto", "=http,https"]);
+        }
+        let output = command.output();
+        done.store(true, Ordering::SeqCst);
+        TcpStream::connect(address).unwrap();
+        server.join().unwrap();
+        (output.unwrap(), requests.load(Ordering::SeqCst))
+    }
+
+    fn http_request(stream: &mut TcpStream) -> String {
+        let mut request = Vec::new();
+        let mut byte = [0];
+        while !request.ends_with(b"\r\n\r\n") {
+            assert!(request.len() < 16 * 1024);
+            assert_eq!(stream.read(&mut byte).unwrap(), 1);
+            request.push(byte[0]);
+        }
+        String::from_utf8(request).unwrap()
+    }
+
+    #[test]
+    fn rust_downloads_refuse_plain_http() {
+        let (output, requests) = curl_fixture("http", false, |stream, _| {
+            http_request(stream);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ndata")
+                .unwrap();
+        });
+        assert_eq!(output.status.code(), Some(1));
+        assert_eq!(requests, 0);
+    }
+
+    #[test]
+    fn rust_downloads_refuse_redirects_to_plain_http() {
+        let (output, requests) = curl_fixture("http", true, |stream, address| {
+            if http_request(stream).starts_with("GET /download ") {
+                write!(stream, "HTTP/1.1 302 Found\r\nLocation: http://{address}/unsafe\r\nContent-Length: 0\r\n\r\n").unwrap();
+            } else {
+                stream
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ndata")
+                    .unwrap();
+            }
+        });
+        assert_eq!(output.status.code(), Some(1));
+        assert_eq!(requests, 1);
+    }
+
+    #[test]
+    fn rust_downloads_stop_sustained_slow_transfers() {
+        let (output, requests) = curl_fixture("http", true, |stream, _| {
+            http_request(stream);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n")
+                .unwrap();
+            let end = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < end {
+                if stream.write_all(b"x").is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+        });
+        assert_eq!(output.status.code(), Some(28));
+        assert_eq!(requests, 1);
+    }
+
+    #[test]
+    fn rust_downloads_stop_incomplete_tls_handshakes() {
+        let (output, requests) = curl_fixture("https", false, |stream, _| {
+            let mut buffer = [0; 4096];
+            while let Ok(count) = stream.read(&mut buffer) {
+                if count == 0 {
+                    break;
+                }
+            }
+        });
+        assert_eq!(output.status.code(), Some(28));
+        assert_eq!(requests, 1);
+    }
 
     const ARCHIVE_HASH: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
