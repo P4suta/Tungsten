@@ -203,7 +203,7 @@ test("removes results from the previous query while note search is pending", asy
   const held = Promise.withResolvers<void>();
   const arrived = Promise.withResolvers<void>();
   await page.route(
-    (url) => url.pathname === "/api/notes" && url.searchParams.get("q") === title.toLowerCase(),
+    (url) => url.pathname === "/api/notes" && url.searchParams.get("q") === title,
     async (route) => {
       const response = await route.fetch();
       arrived.resolve();
@@ -243,11 +243,11 @@ test("clears pending note results when a search request fails", async ({ page, r
   const results = page.locator("#quick-results");
   await expect(results.getByRole("button", { name: title, exact: true })).toBeVisible();
   await page.route(
-    (url) => url.pathname === "/api/notes" && url.searchParams.get("q") === "unavailable",
+    (url) => url.pathname === "/api/notes" && url.searchParams.get("q") === "Unavailable",
     (route) => route.abort(),
   );
   const failed = page.waitForEvent("requestfailed", {
-    predicate: (request) => new URL(request.url()).searchParams.get("q") === "unavailable",
+    predicate: (request) => new URL(request.url()).searchParams.get("q") === "Unavailable",
   });
   await search.fill("Unavailable");
   await failed;
@@ -257,6 +257,27 @@ test("clears pending note results when a search request fails", async ({ page, r
   await search.fill(title);
   await results.getByRole("button", { name: title, exact: true }).click();
   await expect(page.locator("#body")).toHaveValue(`# ${title}`);
+});
+
+test("matches note searches with leading and trailing spaces", async ({ page, request }, info) => {
+  const title = `Space query ${info.project.name}`;
+  const response = await request.post("/api/notes", {
+    data: { name: `space-query-${info.project.name}.md`, body: `# ${title}` },
+  });
+  expect(response.status()).toBe(201);
+  await page.goto("/");
+  await newEmptyNote(page);
+  const editor = page.getByRole("textbox", { name: "Note", exact: true });
+  for (const query of [` ${title}`, `${title} `, `  ${title}  `, `Space ${info.project.name}`]) {
+    await pressShortcut(editor, "p");
+    await page.locator("#quick-search").fill(query);
+    const results = page.locator("#quick-results");
+    const choice = results.getByRole("button", { name: title, exact: true });
+    await expect(choice).toBeVisible();
+    await expect(results).toHaveAttribute("aria-busy", "false");
+    await choice.click();
+    await expect(page.locator("#body")).toHaveValue(`# ${title}`);
+  }
 });
 
 test("keeps the selected note button during an unchanged search refresh", async ({

@@ -76,6 +76,8 @@ Link completion checks cover title filtering, keyboard insertion, cancellation, 
 Changing the query in `Open note` removes the previous results before requesting replacements.
 Its results list uses [aria-busy](https://www.w3.org/TR/wai-aria-1.2/#aria-busy) until the current request completes, including failure.
 Browser tests hold search responses and check selection, continued editing, and recovery after failure.
+The server normalizes search queries and matches note titles.
+Search checks cover surrounding spaces and separate title terms.
 A background refresh preserves result buttons when their order, note identities, and displayed titles match.
 A browser test completes a refresh between mouse press and release and checks that selection still opens the note.
 Formatting checks cover blur, keyboard activation, undo, original code spacing, and stale asynchronous results.

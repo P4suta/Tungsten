@@ -532,20 +532,15 @@ export function initFeatures(port: EditorPort): FeatureController {
     if (quickTimer !== null) window.clearTimeout(quickTimer);
     quickTimer = null;
     const generation = ++quickGeneration;
-    const needle = quickSearch.value.toLocaleLowerCase();
+    const needle = quickSearch.value;
     quickList.setAttribute("aria-busy", "true");
     try {
       const result = summaries(
         await port.api(`/api/notes?titles=true&limit=50&q=${encodeURIComponent(needle)}`),
       );
-      if (generation !== quickGeneration || quickSearch.value.toLocaleLowerCase() !== needle)
-        return;
+      if (generation !== quickGeneration || quickSearch.value !== needle) return;
       notes = result;
-      const visible = notes
-        .filter((note) =>
-          (note.title || noteTitle(note.snippet)).toLocaleLowerCase().includes(needle),
-        )
-        .slice(0, 50);
+      const visible = notes.slice(0, 50);
       const rendered = JSON.stringify(
         visible.map((note) => [note.name, note.title || noteTitle(note.snippet)]),
       );
