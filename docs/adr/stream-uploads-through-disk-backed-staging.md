@@ -6,7 +6,7 @@ date: 2026-11-10
 
 ## Context
 
-The owner prioritizes a small self-hosted memory footprint.
+The requirements favor a small self-hosted memory footprint.
 Buffering a 64 MiB upload and binding its SQLite value creates file-sized allocations.
 
 ## Decision

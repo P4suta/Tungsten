@@ -40,15 +40,37 @@ pub struct Block {
     pub html: String,
 }
 
+pub fn relative_note_path(source: &NoteName, target: &NoteName) -> String {
+    let parent: Vec<_> = source
+        .as_str()
+        .rsplit_once('/')
+        .map_or_else(Vec::new, |(parent, _)| parent.split('/').collect());
+    let destination: Vec<_> = target.as_str().split('/').collect();
+    let common = parent
+        .iter()
+        .zip(destination.iter().take(destination.len().saturating_sub(1)))
+        .take_while(|(left, right)| left == right)
+        .count();
+    const ENCODING: &percent_encoding::AsciiSet = &NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'.')
+        .remove(b'_')
+        .remove(b'~');
+    "../".repeat(parent.len() - common)
+        + &destination[common..]
+            .iter()
+            .map(|part| utf8_percent_encode(part, ENCODING).to_string())
+            .collect::<Vec<_>>()
+            .join("/")
+}
+
 pub fn resolve_note(source: &str, target: &str, wiki: bool) -> Option<String> {
-    let decoded = percent_decode_str(target.split('#').next()?)
-        .decode_utf8()
-        .ok()?;
-    if decoded.is_empty()
-        || decoded.contains(':')
-        || decoded.starts_with('/')
-        || decoded.contains('\\')
-    {
+    let target = target.split('#').next()?;
+    if target.contains(':') {
+        return None;
+    }
+    let decoded = percent_decode_str(target).decode_utf8().ok()?;
+    if decoded.is_empty() || decoded.starts_with('/') || decoded.contains('\\') {
         return None;
     }
     if !wiki && !decoded.ends_with(".md") {
@@ -528,6 +550,61 @@ pub fn preview(name: &str, body: &str) -> Preview {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relative_note_paths_round_trip_through_the_shared_resolver() {
+        for (source, target, expected) in [
+            ("Folder/Source.md", "Folder/Target.md", "Target.md"),
+            ("Folder/Source.md", "Target.md", "../Target.md"),
+            ("Folder/Source.md", "Other/Target.md", "../Other/Target.md"),
+            ("Source.md", "Folder/Target.md", "Folder/Target.md"),
+            ("Folder/Source.md", "Folder/Source.md", "Source.md"),
+            ("Target.md/Source.md", "Target.md", "../Target.md"),
+            ("Source.md", "Meeting: Notes.md", "Meeting%3A%20Notes.md"),
+            ("Source.md", "https:Notes.md", "https%3ANotes.md"),
+            ("Source.md", "javascript:Notes.md", "javascript%3ANotes.md"),
+            (
+                "Area: Notes/Source.md",
+                "Area: Notes/Target: Note.md",
+                "Target%3A%20Note.md",
+            ),
+            (
+                "Folder/Source.md",
+                "Folder/Space #?[]%.md",
+                "Space%20%23%3F%5B%5D%25.md",
+            ),
+        ] {
+            let path = relative_note_path(
+                &NoteName::parse(source.to_owned()).unwrap(),
+                &NoteName::parse(target.to_owned()).unwrap(),
+            );
+            assert_eq!(path, expected);
+            assert_eq!(resolve_note(source, &path, false).as_deref(), Some(target));
+            let rendered = preview(source, &format!("[Note]({path})"));
+            assert_eq!(rendered.links, [target]);
+            assert!(!rendered.html.contains("href=\"javascript:"));
+        }
+    }
+
+    #[test]
+    fn raw_uri_schemes_never_resolve_as_note_names() {
+        assert_eq!(
+            resolve_note("Source.md", "Target.md#section:one", false).as_deref(),
+            Some("Target.md")
+        );
+        for target in [
+            "https://example.com/Note.md",
+            "javascript:Note.md",
+            "mailto:Note.md",
+            "file:///Note.md",
+            "custom:Note.md",
+        ] {
+            assert!(
+                resolve_note("Source.md", target, false).is_none(),
+                "{target}"
+            );
+        }
+    }
 
     #[test]
     fn index_metadata_matches_rendering_without_constructing_html_or_offsets() {

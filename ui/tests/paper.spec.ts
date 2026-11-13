@@ -1,4 +1,4 @@
-import { expect, markdownValue, pressShortcut, test } from "./editor.js";
+import { clearMarkdown, expect, markdownValue, pressShortcut, test } from "./editor.js";
 import { newEmptyNote, newNote, openNavigation } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
@@ -89,10 +89,10 @@ test("completes delimiters and wraps a selection without using a toolbar", async
   await expect(note).toHaveMarkdown("**selected text**");
   await pressShortcut(note, "b");
   await expect(note).toHaveMarkdown("selected text");
-  await note.fill("");
+  await clearMarkdown(note);
   await note.pressSequentially("**bold**");
   await expect(note).toHaveMarkdown("**bold**");
-  await note.fill("");
+  await clearMarkdown(note);
   await note.press("[");
   await note.pressSequentially("Example");
   await note.press("]");

@@ -6,7 +6,7 @@ date: 2026-11-10
 
 ## Context
 
-The owner chose named note collections for task switching.
+The requested design uses named note collections for task switching.
 Collections must survive browser replacement.
 Membership describes a working set rather than a semantic Markdown link.
 
@@ -31,7 +31,7 @@ Index notes reuse Markdown links but make working-set changes alter authored con
 Database backups preserve workspaces.
 Deleting a workspace keeps its notes.
 Restoring a note keeps its content but resets collection membership.
-Reconsider separate metadata if the owner requests collections as authored index pages.
+Reconsider separate metadata if requests for collections include authored index pages.
 
 ## Confirmation
 

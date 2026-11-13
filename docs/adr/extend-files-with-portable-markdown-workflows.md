@@ -12,7 +12,7 @@ The decision extends the flat layout in [file storage](store-notes-as-markdown.m
 ## Context
 
 Reading, links, attachments, and recovery must share the existing file-based save protocol.
-The app still serves one owner without accounts.
+The app still serves one person without accounts.
 
 ## Decision
 

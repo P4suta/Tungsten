@@ -26,7 +26,7 @@ Building from source needs the pinned Rust and Node.js tools.
 Access depends on the existing tailnet policy.
 Native textarea semantics follow the [HTML Standard](https://html.spec.whatwg.org/multipage/form-elements.html#the-textarea-element).
 Labels, keyboard access, reflow, and status announcements follow the [Web Content Accessibility Guidelines](https://www.w3.org/TR/WCAG22/).
-Black and white styling and 48 CSS pixel controls are owner policy.
+Black and white styling and 48 CSS pixel controls are personal policy.
 
 ## Alternatives
 

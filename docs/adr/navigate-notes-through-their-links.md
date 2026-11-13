@@ -6,7 +6,7 @@ date: 2026-11-09
 
 ## Context
 
-The owner wants topic exploration to replace the collection navigation in [writing and navigation](keep-writing-and-navigation-discoverable.md).
+The requested navigation replaces the collection navigation in [writing and navigation](keep-writing-and-navigation-discoverable.md) with topic exploration.
 An index note linking everything would add connections without subject meaning.
 
 ## Decision

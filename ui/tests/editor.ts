@@ -18,6 +18,26 @@ export async function markdownValue(editor: Locator): Promise<string> {
   return editor.page().locator("#body").inputValue();
 }
 
+export async function selectAllMarkdown(editor: Locator): Promise<void> {
+  await pressShortcut(editor, "a");
+  await baseExpect
+    .poll(() =>
+      editor
+        .page()
+        .locator("#body")
+        .evaluate(
+          (node: HTMLTextAreaElement) =>
+            node.selectionStart === 0 && node.selectionEnd === node.value.length,
+        ),
+    )
+    .toBe(true);
+}
+
+export async function clearMarkdown(editor: Locator): Promise<void> {
+  await selectAllMarkdown(editor);
+  await editor.press("Backspace");
+}
+
 export async function selectMarkdown(editor: Locator, from: number, to = from): Promise<void> {
   const source = await markdownValue(editor);
   if (from < 0 || to < from || to > source.length) throw new Error("Invalid Markdown selection");

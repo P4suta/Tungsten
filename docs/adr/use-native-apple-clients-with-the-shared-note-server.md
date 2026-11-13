@@ -6,7 +6,7 @@ date: 2026-11-11
 
 ## Context
 
-The owner requests native macOS and iOS apps with the shared server.
+The requested macOS and iOS apps use the shared server.
 Preserve saved Markdown, stable note identities, conditional writes, and recovery.
 
 ## Decision
@@ -21,7 +21,7 @@ Require HTTPS outside development loopback connections.
 
 ## Alternatives
 
-A browser wrapper retains the interface the owner wants replaced.
+A browser wrapper keeps the browser interface that the native clients replace.
 Device-local databases introduce a synchronization protocol and replace the chosen shared server.
 Keep the browser client available during adoption.
 

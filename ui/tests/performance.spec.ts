@@ -1,7 +1,49 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { pressShortcut } from "./editor.js";
-import { openNavigation, showPaper } from "./interface.js";
+import { newEmptyNote, openNavigation, showPaper } from "./interface.js";
+import { typingFrame } from "./typing-latency.js";
+
+test("renders a newly opened note without waiting for the typing debounce", async ({
+  page,
+  request,
+}, info) => {
+  const name = `Immediate-preview-${info.project.name}-${info.repeatEachIndex}.md`;
+  const source = "# Immediate preview\n\n**Visible text**\n";
+  expect((await request.post("/api/notes", { data: { name, body: source } })).ok()).toBe(true);
+  await page.clock.install();
+  const held = Promise.withResolvers<void>();
+  const requested = Promise.withResolvers<void>();
+  let previews = 0;
+  await page.route(
+    (url) => url.pathname === `/api/notes/${name}`,
+    async (route) => {
+      requested.resolve();
+      await held.promise;
+      await route.continue();
+    },
+  );
+  await page.route("**/api/preview", async (route) => {
+    const value: { body?: unknown } = route.request().postDataJSON();
+    if (value.body === source) previews++;
+    await route.continue();
+  });
+  try {
+    await page.goto(`/?note=${name}`);
+    await requested.promise;
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    held.resolve();
+    await expect(page.locator("#body")).toHaveValue(source);
+    await expect.poll(() => previews).toBe(1);
+    await page.clock.resume();
+    await expect(
+      page.getByRole("textbox", { name: "Note", exact: true }).locator("strong"),
+    ).toHaveText("Visible text");
+  } finally {
+    held.resolve();
+    await page.clock.resume();
+  }
+});
 
 test("loads only the editor before secondary tools and bounds cold JavaScript", async ({
   page,
@@ -31,6 +73,35 @@ test("loads only the editor before secondary tools and bounds cold JavaScript", 
   expect(scripts.reduce((sum, script) => sum + script.decoded, 0)).toBeLessThan(420 * 1024);
 });
 
+test("measures input frames without driver setup time and detects blocked handlers", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await newEmptyNote(page);
+  const editor = page.getByRole("textbox", { name: "Note", exact: true });
+  const setup = await typingFrame(editor, async () => {
+    await page.evaluate(() => {
+      const until = performance.now() + 250;
+      while (performance.now() < until) {}
+    });
+    await editor.press("x");
+  });
+  expect(setup).toBeLessThan(200);
+  await editor.evaluate((node) => {
+    node.addEventListener(
+      "keydown",
+      () => {
+        const until = performance.now() + 250;
+        while (performance.now() < until) {}
+      },
+      { once: true },
+    );
+  });
+  const blocked = await typingFrame(editor, () => editor.press("x"));
+  expect(blocked).toBeGreaterThanOrEqual(250);
+  await expect(page.locator("#body")).toHaveValue("xx");
+});
+
 test("keeps typing responsive under CPU slowdown", async ({ page, request, browserName }, info) => {
   test.skip(browserName !== "chromium", "CPU emulation requires the Chrome DevTools Protocol");
   for (let index = 0; index < 55; index++)
@@ -48,20 +119,22 @@ test("keeps typing responsive under CPU slowdown", async ({ page, request, brows
   await editor.fill(`# Input latency\n\n${"A line connecting thoughts.\n\n".repeat(300)}`);
   await pressShortcut(editor, "End");
   const session = await page.context().newCDPSession(page);
-  await session.send("Emulation.setCPUThrottlingRate", { rate: 6 });
-  const timings: number[] = [];
-  for (let index = 0; index < 12; index++) {
-    const start = performance.now();
-    await editor.press("x");
-    await page.evaluate(
-      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+  try {
+    await session.send("Emulation.setCPUThrottlingRate", { rate: 6 });
+    const timings: number[] = [];
+    for (let index = 0; index < 12; index++) {
+      timings.push(await typingFrame(editor, () => editor.press("x")));
+    }
+    timings.sort((a, b) => a - b);
+    const p95 = timings[Math.ceil(timings.length * 0.95) - 1];
+    console.log(
+      `operation=typing_latency samples_ms=${timings.map((value) => value.toFixed(1)).join(",")} p95_ms=${p95}`,
     );
-    timings.push(performance.now() - start);
+    expect(p95).toBeLessThan(200);
+  } finally {
+    await session.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    await session.detach();
   }
-  timings.sort((a, b) => a - b);
-  expect(timings[10]).toBeLessThan(200);
-  await session.send("Emulation.setCPUThrottlingRate", { rate: 1 });
-  await session.detach();
   await expect(page.locator("#body")).toHaveValue(/x{12}$/);
 });
 

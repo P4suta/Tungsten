@@ -6,7 +6,7 @@ date: 2026-11-10
 
 ## Context
 
-The owner requests persistent sidebars and a stationary writing page.
+The requested desktop layout uses persistent sidebars and a stationary writing page.
 The drawer proposal in [the previous decision](put-note-actions-in-a-collapsible-sidebar.md) doesn't meet that interaction.
 
 ## Decision

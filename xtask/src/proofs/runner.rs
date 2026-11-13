@@ -1,13 +1,20 @@
 use super::{generate, report};
-use crate::{output, run};
+use crate::{container_reports, output, run};
 use anyhow::{Result, ensure};
 use std::{collections::BTreeSet, fs, path::Path};
 
 const SOURCE_INPUTS: &[&str] = &[
     "Cargo.toml",
     "Cargo.lock",
-    "src/rules.rs",
+    ".cargo/config.toml",
+    "xtask/Cargo.toml",
     "src/domain.rs",
+    "linux/Cargo.toml",
+    "linux/model/Cargo.toml",
+    "linux/model/src/lib.rs",
+    "linux/src/editor.rs",
+    "linux/src/drafts.rs",
+    "linux/src/client.rs",
     "src/store.rs",
     "src/store/database.rs",
     "src/api.rs",
@@ -17,18 +24,32 @@ const SOURCE_INPUTS: &[&str] = &[
     "proofs/Cargo.toml",
     "proofs/Cargo.lock",
     "proofs/src/lib.rs",
-    "proofs/src/browser.rs",
     "proofs/Dockerfile",
     ".dockerignore",
     "xtask/src/proofs.rs",
     "xtask/src/proofs/report.rs",
     "xtask/src/proofs/runner.rs",
-    "target/browser-proof.rs",
+    "xtask/src/main.rs",
+    "xtask/src/container_reports.rs",
+    "xtask/src/release_checks.rs",
+    "tests/domain.rs",
+    "linux/model/tests/saving.rs",
+    "fuzz/Cargo.toml",
+    "fuzz/Cargo.lock",
+    "fuzz/fuzz_targets/rules.rs",
 ];
 
-fn fingerprint(root: &Path) -> Result<tungsten::domain::Revision> {
+fn source_inputs() -> impl Iterator<Item = &'static str> {
+    SOURCE_INPUTS.iter().copied().chain(
+        report::SOURCES
+            .iter()
+            .flat_map(|source| [source.path, source.production_path]),
+    )
+}
+
+pub(crate) fn fingerprint(root: &Path) -> Result<tungsten::domain::Revision> {
     let mut inputs = Vec::new();
-    for path in SOURCE_INPUTS {
+    for path in source_inputs() {
         let bytes = fs::read(root.join(path))?;
         inputs.push(format!("{path}:{}:", bytes.len()).into_bytes());
         inputs.push(bytes);
@@ -39,8 +60,8 @@ fn fingerprint(root: &Path) -> Result<tungsten::domain::Revision> {
 
 fn inventory(root: &Path) -> Result<BTreeSet<String>> {
     let mut names = BTreeSet::new();
-    for path in ["src/rules.rs", "proofs/src/browser.rs"] {
-        for name in report::source_harnesses(&fs::read_to_string(root.join(path))?)? {
+    for source in report::SOURCES {
+        for name in report::source_harnesses(&fs::read_to_string(root.join(source.path))?)? {
             ensure!(names.insert(name), "duplicate source harness identity");
         }
     }
@@ -91,18 +112,12 @@ pub fn verify(root: &Path, dry_run: bool) -> Result<()> {
             && image[7..].bytes().all(|byte| byte.is_ascii_hexdigit()),
         "missing immutable proof image identity"
     );
-    let reports = tempfile::Builder::new()
-        .prefix("proofs-")
-        .tempdir_in(root.join("target"))?
-        .keep();
-    let mount = format!("type=bind,source={},target=/reports", reports.display());
+    let reports = container_reports::directory(root, "proofs-")?;
     eprintln!(
         "operation=proofs phase=verify image={image} reports={}",
         reports.display()
     );
     let mut args = vec![
-        "run",
-        "--rm",
         "--init",
         "--platform",
         "linux/amd64",
@@ -113,8 +128,6 @@ pub fn verify(root: &Path, dry_run: bool) -> Result<()> {
         "--pids-limit=256",
         "--cap-drop=ALL",
         "--security-opt=no-new-privileges",
-        "--mount",
-        &mount,
         &image,
     ];
     let list_args = [
@@ -127,9 +140,9 @@ pub fn verify(root: &Path, dry_run: bool) -> Result<()> {
         "json",
     ];
     args.extend(list_args);
-    run(root, "docker", &args)?;
+    container_reports::run(root, &args, &reports)?;
     args.truncate(args.len() - list_args.len());
-    run(root, "docker", &args)?;
+    container_reports::run(root, &args, &reports)?;
     ensure!(
         fingerprint(root)? == source,
         "proof inputs changed during verification; rerun the gate"
@@ -187,15 +200,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn package_configuration_changes_invalidate_verification() {
+        let directory = tempfile::tempdir().unwrap();
+        for path in source_inputs() {
+            let target = directory.path().join(path);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::write(target, path).unwrap();
+        }
+        let configurations = [
+            "linux/model/Cargo.toml",
+            "linux/Cargo.toml",
+            "xtask/Cargo.toml",
+            ".cargo/config.toml",
+        ];
+        for path in configurations {
+            let target = directory.path().join(path);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::write(target, "original").unwrap();
+        }
+        let before = fingerprint(directory.path()).unwrap();
+        for path in configurations {
+            let target = directory.path().join(path);
+            fs::write(&target, "changed").unwrap();
+            assert_ne!(fingerprint(directory.path()).unwrap(), before, "{path}");
+            fs::write(target, "original").unwrap();
+        }
+    }
+
+    #[test]
     fn changed_source_invalidates_the_verification_identity() {
         let directory = tempfile::tempdir().unwrap();
-        for path in SOURCE_INPUTS {
+        for path in source_inputs() {
             let target = directory.path().join(path);
             fs::create_dir_all(target.parent().unwrap()).unwrap();
             fs::write(target, path).unwrap();
         }
         let before = fingerprint(directory.path()).unwrap();
-        for path in SOURCE_INPUTS {
+        for path in source_inputs() {
             let target = directory.path().join(path);
             fs::write(&target, format!("{path} changed")).unwrap();
             assert_ne!(fingerprint(directory.path()).unwrap(), before, "{path}");

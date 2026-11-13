@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.p4suta.tungsten</id>
+  <name>Tungsten</name>
+  <summary>Write Markdown notes on your shared server</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <developer id="io.github.p4suta">
+    <name>P4suta</name>
+  </developer>
+  <description>
+    <p>Write and search Markdown notes using your Tungsten server, with local drafts that protect writing during interrupted saves.</p>
+    <p>Organize notes in Workspaces, follow links, attach original files, and recover saved versions or deleted notes.</p>
+  </description>
+  <launchable type="desktop-id">io.github.p4suta.tungsten.desktop</launchable>
+  <url type="homepage">https://github.com/P4suta/Tungsten</url>
+  <url type="bugtracker">https://github.com/P4suta/Tungsten/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-12"/>
+  </releases>
+  <requires>
+    <internet>always</internet>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+</component>

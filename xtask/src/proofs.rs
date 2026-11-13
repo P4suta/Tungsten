@@ -4,6 +4,7 @@ use tree_sitter::{Node, Parser};
 
 mod report;
 mod runner;
+pub(crate) use runner::fingerprint;
 pub use runner::{native, verify};
 
 fn text<'a>(node: Node<'_>, source: &'a str) -> Result<&'a str> {

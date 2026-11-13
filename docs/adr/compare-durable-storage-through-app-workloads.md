@@ -6,7 +6,7 @@ date: 2026-11-10
 
 ## Context
 
-The owner requests portable recovery and storage comparisons for text-heavy and attachment-heavy use.
+The requested evaluation covers portable recovery and storage comparisons under heavy text and attachment workloads.
 
 ## Decision
 

@@ -837,9 +837,11 @@ video {
   min-height: 0;
   overflow: clip;
 }
-body[data-layout="wide"] {
-  --navigation-column: var(--sidebar-width);
-  --context-column: var(--sidebar-width);
+@media (min-width: 64rem) {
+  body {
+    --navigation-column: var(--sidebar-width);
+    --context-column: var(--sidebar-width);
+  }
 }
 body[data-layout="compact"] #app-shell {
   display: block;

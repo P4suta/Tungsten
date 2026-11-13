@@ -60,7 +60,7 @@ Leaving the editor formats Markdown with bundled [Prettier standalone](https://p
 Alt+Shift+F formats immediately without a formatting button.
 Formatting preserves prose wrapping and fenced code contents.
 The first heading becomes the single level-one heading, and later headings can't skip a descending rank.
-The stricter heading policy follows the owner's instruction beyond [CommonMark's syntax](https://spec.commonmark.org/0.31.2/#atx-headings).
+The stricter heading policy follows an explicit request beyond [CommonMark's syntax](https://spec.commonmark.org/0.31.2/#atx-headings).
 Notes exceeding 65536 UTF-16 code units keep their source without automatic formatting to bound foreground work.
 Undo restores the previous source.
 A delayed formatting result can't replace newer text, another note, or composing input.

@@ -1,6 +1,6 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, pressShortcut, test } from "./editor.js";
+import { clearMarkdown, expect, pressShortcut, test } from "./editor.js";
 import {
   closeNavigation,
   exploreNotes,
@@ -565,7 +565,7 @@ test("recovers a cleared draft when creation was not acknowledged", async ({ pag
   });
   await page.getByLabel("Note", { exact: true }).fill("text to clear");
   await seen;
-  await page.getByLabel("Note", { exact: true }).fill("");
+  await clearMarkdown(page.getByLabel("Note", { exact: true }));
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("");
   await page.reload();
   release();

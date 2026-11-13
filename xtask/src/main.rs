@@ -1,9 +1,12 @@
 mod apple;
+mod container_reports;
 mod demo;
+mod linux;
 mod memory;
 mod mutation;
 mod performance;
 mod proofs;
+mod release_checks;
 mod scale;
 mod secrets;
 mod storage;
@@ -29,6 +32,10 @@ enum Task {
     Apple {
         #[command(subcommand)]
         action: apple::Action,
+    },
+    Linux {
+        #[command(subcommand)]
+        action: linux::Action,
     },
     StorageProfile(storage::Options),
     StorageSummary {
@@ -71,7 +78,12 @@ enum Task {
     },
     ReleaseCheck,
     #[command(hide = true)]
-    ReleaseNative,
+    ReleaseNative {
+        #[arg(value_enum)]
+        check: Option<release_checks::NativeCheck>,
+        #[arg(long, default_value = "/reports")]
+        reports: PathBuf,
+    },
     Artifacts,
     EditingAssurance {
         #[arg(long)]
@@ -276,7 +288,14 @@ fn dependencies(root: &Path) -> Result<()> {
     run(
         root,
         "cargo",
-        &["deny", "--workspace", "--locked", "--offline", "check"],
+        &[
+            "deny",
+            "--workspace",
+            "--all-features",
+            "--locked",
+            "--offline",
+            "check",
+        ],
     )?;
     npm(root, &["audit", "--audit-level=high"])?;
     run(
@@ -289,6 +308,7 @@ fn dependencies(root: &Path) -> Result<()> {
 
 fn check(root: &Path) -> Result<()> {
     apple::source(root)?;
+    linux::source(root)?;
     run(root, "cargo", &["fmt", "--all", "--check"])?;
     run(
         root,
@@ -308,6 +328,8 @@ fn check(root: &Path) -> Result<()> {
             "--check",
             "Cargo.toml",
             "xtask/Cargo.toml",
+            "linux/Cargo.toml",
+            "linux/model/Cargo.toml",
             "mise.toml",
             ".cargo/config.toml",
             "repository.toml",
@@ -394,6 +416,7 @@ fn main() -> Result<()> {
     let root = root()?;
     match Options::parse().task {
         Task::Apple { action } => apple::run(&root, action)?,
+        Task::Linux { action } => linux::run(&root, action)?,
         Task::StorageProfile(options) => storage::run(&root, options)?,
         Task::StorageSummary {
             input,
@@ -493,6 +516,8 @@ fn main() -> Result<()> {
                     "fmt",
                     "Cargo.toml",
                     "xtask/Cargo.toml",
+                    "linux/Cargo.toml",
+                    "linux/model/Cargo.toml",
                     "deny.toml",
                     "repository.toml",
                     "deploy/gitleaks.toml",
@@ -513,86 +538,10 @@ fn main() -> Result<()> {
             performance::verify(&root, false)?;
             memory::verify(&root, false)?;
             storage::release(&root)?;
-            run(
-                &root,
-                "docker",
-                &[
-                    "build",
-                    "--platform",
-                    "linux/amd64",
-                    "--file",
-                    "proofs/Dockerfile",
-                    "--tag",
-                    "tungsten-proofs:local",
-                    ".",
-                ],
-            )?;
-            let image = output(
-                &root,
-                "docker",
-                &[
-                    "image",
-                    "inspect",
-                    "tungsten-proofs:local",
-                    "--format",
-                    "{{.Id}}",
-                ],
-            )?;
-            ensure!(
-                image.starts_with("sha256:"),
-                "missing immutable proof image identity"
-            );
-            run(
-                &root,
-                "docker",
-                &[
-                    "run",
-                    "--rm",
-                    "--init",
-                    "--platform",
-                    "linux/amd64",
-                    "--memory=4g",
-                    "--memory-swap=4g",
-                    "--cpus=2",
-                    "--pids-limit=256",
-                    &image,
-                ],
-            )?;
+            release_checks::verify(&root)?;
         }
-        Task::ReleaseNative => {
-            ensure!(
-                std::env::consts::OS == "linux",
-                "run the release gate in the bounded Linux proof container or hosted Linux runner"
-            );
-            proofs::native(&root, &root.join("target/proof-results"))?;
-            run(
-                &root,
-                "cargo",
-                &[
-                    "+nightly-2026-10-01",
-                    "fuzz",
-                    "run",
-                    "rules",
-                    "--",
-                    "-runs=20000",
-                    "-seed=1",
-                    "-max_len=512",
-                ],
-            )?;
-            run(
-                &root,
-                "cargo",
-                &[
-                    "mutants",
-                    "--in-place",
-                    "--package",
-                    "tungsten",
-                    "--file",
-                    "src/rules.rs",
-                    "--",
-                    "--locked",
-                ],
-            )?;
+        Task::ReleaseNative { check, reports } => {
+            release_checks::native(&root, check, &reports)?;
         }
         Task::Artifacts => {
             run(

@@ -6,7 +6,7 @@ date: 2026-11-08
 
 ## Context
 
-The owner wants a blank page while preserving files and recovery.
+The requested writing surface starts blank while preserving files and recovery.
 
 ## Decision
 
@@ -27,7 +27,7 @@ A rich text editor adds an editing model beyond Markdown source.
 
 Secondary operations need an explicit dialog or keyboard shortcut.
 Empty notes fit narrow layouts and enlarged text without scrolling.
-Reconsider the interaction model when the owner requests inline rendered editing.
+Reconsider the interaction model when inline rendered editing becomes an explicit request.
 
 ## Confirmation
 

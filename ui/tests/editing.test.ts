@@ -457,6 +457,10 @@ test("the input adapter respects cancellation, composition, modifiers, and focus
     ["deleteContentForward", "*word*", 5, 5, "word"],
     ["deleteByCut", "**word**", 0, 2, "word"],
     ["deleteWordBackward", "*word*", 1, 1, "*word*"],
+    ["deleteWordBackwarddeleteContentBackward", "*word*", 1, 1, "*word*"],
+    ["deleteWordForwarddeleteContentForward", "*word*", 1, 1, "*word*"],
+    ["deleteContentBackwardByWord", "*word*", 1, 1, "*word*"],
+    ["deleteContentForwardByWord", "*word*", 1, 1, "*word*"],
     ["deleteContentForward", "word", 0, 0, "word"],
   ] as const) {
     body.value = source;

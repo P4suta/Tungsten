@@ -10,7 +10,7 @@ Accepted in the implementation plan.
 
 ## Context
 
-A single owner writes notes through browsers on a private tailnet.
+One person writes notes through browsers on a private tailnet.
 Notes must remain readable without the service.
 
 ## Decision

@@ -6,7 +6,7 @@ date: 2026-11-09
 
 ## Context
 
-The owner requires complete exports.
+The requirements include complete exports.
 The earlier ZIP implementation buffered every file and rejected collections exceeding 10000 files or 256 MiB.
 
 ## Decision

@@ -6,7 +6,7 @@ date: 2026-11-10
 
 ## Context
 
-The owner requests a sidebar instead of scattered top-bar actions.
+The requested interface places note actions in a sidebar.
 Writing remains the primary task.
 
 ## Decision

@@ -7,7 +7,7 @@ date: 2026-11-09
 ## Context
 
 Count-limited history without expiry can keep attachments indefinitely in quiet notes.
-The owner wants recovery from mistakes without permanent file storage.
+The requested behavior supports recovery from mistakes without permanent file storage.
 
 ## Decision
 
@@ -17,7 +17,7 @@ Replace checkpoint identities when combining changes so a viewed identity never 
 Preserve capture timestamps through metadata changes.
 Use directory timestamps for existing records without capture metadata.
 Follow expiry with the attachment grace period in [automatic collection](collect-unreferenced-attachments-after-a-grace-period.md).
-Offer permanent deletion from an embedded attachment when the owner wants to retract an upload immediately.
+Offer permanent deletion from an embedded attachment for immediate upload retraction.
 Explain that retained note versions also lose access to the original file.
 
 ## Alternatives

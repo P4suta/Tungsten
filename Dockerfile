@@ -11,6 +11,7 @@ ARG TARGETARCH
 ENV CARGO_BUILD_JOBS=2
 COPY Cargo.toml Cargo.lock ./
 COPY xtask/ xtask/
+COPY linux/ linux/
 COPY src/ src/
 COPY ui/ ui/
 COPY --from=ui /ui/dist/ ui/dist/

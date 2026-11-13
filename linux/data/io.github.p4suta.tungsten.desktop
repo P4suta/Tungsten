@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Tungsten
+Comment=Write Markdown notes on your shared server
+Exec=tungsten-gtk
+Icon=io.github.p4suta.tungsten
+Terminal=false
+Categories=GNOME;GTK;Utility;TextEditor;
+Keywords=Notes;Markdown;Writing;
+StartupNotify=true
+DBusActivatable=false

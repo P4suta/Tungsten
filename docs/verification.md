@@ -1,5 +1,22 @@
 # Verify the service
 
+## Linux app
+
+Run `mise x -- just linux source` on every development host.
+Run `mise x -- just linux check` on Linux with GTK 4.18 or later, libadwaita 1.9 or later, Xvfb, D-Bus, desktop-file-utils, AppStream, and a Japanese system font.
+The gate checks strict Clippy, durable save decisions, real-server contracts, metadata, and native GTK interactions in isolated app directories.
+GTK workflows cover Undo and Redo, history restoration, composition guards, storage failure, navigation, enlarged text, and narrow layouts.
+Snapshots wait for GTK's rendered frame instead of assuming a fixed rendering delay.
+Separate processes exercise ordinary and High Contrast appearance with libadwaita's supported debug setting.
+Actual input methods, the screen keyboard, screen readers, and desktop integration require isolated sessions with `XDG_CURRENT_DESKTOP=GNOME` or `KDE`.
+
+Run `mise x -- just linux bundle --arch x86_64` and `mise x -- just linux bundle --arch aarch64` with Flatpak, flatpak-builder, OSTree, Xvfb, and `org.gnome.Platform//51` and `org.gnome.Sdk//51` installed for the selected architecture.
+Each command prefetches locked sources, builds offline, installs its bundle, and checks launch.
+The [Linux app guide](linux-apps.md) describes recovery, system design, sandbox permissions, and local distribution.
+Production save decisions also join the existing candidate proof and mutation gates.
+
+## Shared checks
+
 Run `mise x -- just check` for the required local gate.
 The gate builds the assets before checking Rust, TypeScript, HTTP behavior, browser workflows, dependencies, secrets, and prose.
 Native storage checks cover atomic rollback, revision conflicts, original byte ranges, corrupted storage, incomplete backups, and bounded space reclamation.
@@ -56,6 +73,13 @@ Regression cases clear complete notes with Backspace and Delete, restore their s
 Regression cases delete paired syntax, immediately undo, and continue editing across browser profiles.
 Centered typing measures the browser's caret after the editor completes layout, with CodeMirror coordinates as a fallback for empty ranges.
 Link completion checks cover title filtering, keyboard insertion, cancellation, and stable stored targets.
+Changing the query in `Open note` removes the previous results before requesting replacements.
+Its results list uses [aria-busy](https://www.w3.org/TR/wai-aria-1.2/#aria-busy) until the current request completes, including failure.
+Browser tests hold search responses and check selection, continued editing, and recovery after failure.
+The server normalizes search queries and matches note titles.
+Search checks cover surrounding spaces and separate title terms.
+A background refresh preserves result buttons when their order, note identities, and displayed titles match.
+A browser test completes a refresh between mouse press and release and checks that selection still opens the note.
 Formatting checks cover blur, keyboard activation, undo, original code spacing, and stale asynchronous results.
 Automatic formatting stops when the writer returns to the editor or changes the selection.
 Identity checks cover duplicate titles and heading changes without changing stored addresses.
@@ -81,7 +105,7 @@ They also check text spacing overrides, landscape input, and the notice when Jav
 Native controls preserve keyboard and assistive technology semantics.
 The graph provides keyboard movement, stops continuous animation when hidden or settled, and honors reduced-motion preferences.
 Timed tasks and authentication criteria have no matching features in the app.
-Black and white styling, 18 CSS pixel text, and 48 CSS pixel targets are owner preferences.
+Black and white styling, 18 CSS pixel text, and 48 CSS pixel targets are personal preferences.
 Automated results don't establish behavior in an untested assistive technology.
 
 ## Database capacity
@@ -115,6 +139,8 @@ PDF rendering, formatting, syntax highlighting, graph simulation, and version di
 HTTP fixtures verify compression, conditional requests, immutable fingerprinted chunks, and private pages retaining `no-store`.
 Source files and retired settings and export routes remain unavailable.
 Chromium tests load 50 sidebar notes, measure twelve edits under sixfold CPU slowdown, and require the ninety-fifth percentile through the following rendering frame to stay below 200 milliseconds.
+Each sample starts at the browser's [event timestamp](https://dom.spec.whatwg.org/#dom-event-timestamp) and spans two [animation frame callbacks](https://html.spec.whatwg.org/multipage/imagebitmap-and-animations.html#animation-frames) to include queued rendering work.
+Regression fixtures exclude driver setup time and detect a blocked input handler.
 Other engines run the same editing behavior without claiming support for Chromium's CPU emulation.
 Lighthouse's [performance score](https://developer.chrome.com/docs/lighthouse/performance/performance-scoring) and synthetic latency budgets cover the specified fixture and emulation.
 Physical devices and networks can differ from the laboratory conditions.
@@ -176,8 +202,14 @@ Coverage and mutation results cover those rules.
 Browser geometry, media, storage, and native composition keep their integration checks.
 
 Run `mise x -- just release-check` for a candidate release.
-The command first runs the local gate, then uses the bounded Linux proof container.
-The container has 4 GiB of memory, no swap, two CPUs, 256 processes, and a safety limit of 900 seconds.
+The command first runs the local gate, then runs native stages in bounded Linux containers.
+Each native stage has 4 GiB of memory, no swap, two CPUs, 256 processes, and a deadline of 890 seconds.
+The host needs 12 GiB of free space before image creation and 8 GiB before each native container starts.
+Proofs, fuzzing, server rule mutations, and Linux model mutations run sequentially in separate containers and keep separate reports.
+Containers write to private anonymous volumes, and the runner copies reports to the host before removing its containers and volumes.
+Reports remain inside a private directory under `CARGO_TARGET_DIR` when set, or the project's `target` directory otherwise.
+The server rule mutation check runs the dedicated domain contract tests without server or storage features.
+The normal gate also runs the complete server contract suite.
 An exhausted limit leaves the result inconclusive and blocks release.
 Proofs and fuzzing use fixed input bounds and run counts.
 
@@ -205,7 +237,7 @@ The browser suite runs the complete selected accessibility rule set and rejects 
 The gate rejects child frames and uses the [documented analysis mode](https://github.com/dequelabs/axe-core-npm/blob/develop/packages/playwright/error-handling.md#axebuildersetlegacymodelegacy-boolean) that runs in the tested page, avoiding a second WebKit automation window.
 Media checks decode an image, play a recording, render PDF pixels and text, follow links, and select PDF pages.
 The viewer follows the [HTML media contract](https://html.spec.whatwg.org/multipage/media.html#media-elements) and the [PDF.js rendering API](https://mozilla.github.io/pdf.js/examples/).
-Media descriptions support transcripts supplied by the owner.
+Media descriptions support supplied transcripts.
 The service doesn't transcribe private uploads.
 Original user content needs its own captions and alternatives under the [Web Content Accessibility Guidelines media criteria](https://www.w3.org/TR/WCAG22/#time-based-media).
 Retired settings, appearance preferences, text counts, heading controls, and alternative views stay absent.
@@ -217,7 +249,7 @@ Firefox fixtures can't focus native anchors beneath an editable ancestor.
 Live links use focusable wrappers with [link activation](https://www.w3.org/WAI/ARIA/apg/patterns/link/) while retaining their native anchor URLs and pointer context menus.
 Keyboard navigation opens the target note and returns focus to its editor.
 Dialog and page checks verify the name and upper-right placement of close controls.
-Heading checks enforce the owner's single-title and continuous-rank policy while preserving literal code and Undo.
+Heading checks enforce the single-title and continuous-rank policy while preserving literal code and Undo.
 Matched-delimiter and fence checks preserve contents, unrelated blocks, and native Undo.
 Highlighting fixtures cover language aliases, common grammars, a deferred grammar, literal HTML, and an unknown language.
 Trash uses the [single-select listbox keyboard model](https://www.w3.org/WAI/ARIA/apg/patterns/listbox/) with indexed paging, selection, inline preview, and restoration inside navigation.

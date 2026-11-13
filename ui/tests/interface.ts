@@ -1,5 +1,5 @@
 import type { FileChooser, Locator, Page } from "@playwright/test";
-import { expect, markdownValue, pressShortcut } from "./editor.js";
+import { clearMarkdown, expect, markdownValue, pressShortcut } from "./editor.js";
 
 export async function openNavigation(page: Page): Promise<Locator> {
   await expect
@@ -108,17 +108,6 @@ export async function newEmptyNote(page: Page): Promise<void> {
   await newNote(page);
   await closeNavigation(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await pressShortcut(editor, "a");
-  await expect
-    .poll(() =>
-      page
-        .locator("#body")
-        .evaluate(
-          (node: HTMLTextAreaElement) =>
-            node.selectionStart === 0 && node.selectionEnd === node.value.length,
-        ),
-    )
-    .toBe(true);
-  await editor.press("Backspace");
+  await clearMarkdown(editor);
   await expect(page.locator("#body")).toHaveValue("");
 }

@@ -13,6 +13,9 @@ check:
 apple *args:
     mise x -- cargo xtask apple {{ args }}
 
+linux *args:
+    mise x -- cargo xtask linux {{ args }}
+
 format:
     mise x -- cargo xtask format
 

@@ -151,6 +151,7 @@ export function initFeatures(port: EditorPort): FeatureController {
   const notice = control("feature-status", HTMLParagraphElement);
   const switcher = control("switcher-dialog", HTMLDialogElement);
   const quickSearch = control("quick-search", HTMLInputElement);
+  const quickList = control("quick-results", HTMLUListElement);
   const fileLinks = initFileLinkGuard({ state: port.state, api: port.api, replace: replaceBody });
   const home = initHome({ state: port.state, api: port.api, navigate, blank: port.blank });
   initTrash({ api: port.api, navigate, refresh: port.refresh, sidebar });
@@ -432,9 +433,9 @@ export function initFeatures(port: EditorPort): FeatureController {
     library.changed(state);
     context.changed(state);
     live.sync(state.identity);
-    const changed =
-      state.identity !== lastIdentity || state.body !== lastText || state.name !== lastName;
-    if (state.identity !== lastIdentity) {
+    const identityChanged = state.identity !== lastIdentity;
+    const changed = identityChanged || state.body !== lastText || state.name !== lastName;
+    if (identityChanged) {
       formatIdentity = state.body !== state.savedBody ? state.identity : null;
       renderedState = null;
       renderedTasks = [];
@@ -448,9 +449,11 @@ export function initFeatures(port: EditorPort): FeatureController {
     if (changed) {
       ++previewGeneration;
       if (previewTimer !== null) window.clearTimeout(previewTimer);
-      previewTimer = window.setTimeout(() => {
-        void run(loadPreview);
-      }, 250);
+      if (identityChanged) void run(loadPreview);
+      else
+        previewTimer = window.setTimeout(() => {
+          void run(loadPreview);
+        }, 250);
     }
   }
 
@@ -517,37 +520,50 @@ export function initFeatures(port: EditorPort): FeatureController {
   });
 
   let quickGeneration = 0;
+  let quickTimer: number | null = null;
+  let renderedQuickResults: string | null = null;
+  function clearQuickResults(): void {
+    ++quickGeneration;
+    renderedQuickResults = null;
+    quickList.replaceChildren();
+    quickList.setAttribute("aria-busy", "true");
+  }
   async function quickResults(): Promise<void> {
+    if (quickTimer !== null) window.clearTimeout(quickTimer);
+    quickTimer = null;
     const generation = ++quickGeneration;
-    const needle = quickSearch.value.toLocaleLowerCase();
+    const needle = quickSearch.value;
+    quickList.setAttribute("aria-busy", "true");
     try {
       const result = summaries(
         await port.api(`/api/notes?titles=true&limit=50&q=${encodeURIComponent(needle)}`),
       );
-      if (generation !== quickGeneration || quickSearch.value.toLocaleLowerCase() !== needle)
-        return;
+      if (generation !== quickGeneration || quickSearch.value !== needle) return;
       notes = result;
-      relatedList(
-        "quick-results",
-        notes
-          .filter((note) =>
-            (note.title || noteTitle(note.snippet)).toLocaleLowerCase().includes(needle),
-          )
-          .slice(0, 50)
-          .map((note) => note.name),
-        (name) => {
-          switcher.close();
-          void run(() => navigate(name));
-        },
+      const visible = notes.slice(0, 50);
+      const rendered = JSON.stringify(
+        visible.map((note) => [note.name, note.title || noteTitle(note.snippet)]),
       );
+      if (rendered !== renderedQuickResults) {
+        relatedList(
+          "quick-results",
+          visible.map((note) => note.name),
+          (name) => {
+            switcher.close();
+            void run(() => navigate(name));
+          },
+        );
+        renderedQuickResults = rendered;
+      }
     } catch (error) {
       if (generation === quickGeneration)
         report(error instanceof Error ? error.message : "Search is unavailable.", true);
+    } finally {
+      if (generation === quickGeneration) quickList.setAttribute("aria-busy", "false");
     }
   }
-  let quickTimer: number | null = null;
   quickSearch.addEventListener("input", () => {
-    ++quickGeneration;
+    clearQuickResults();
     if (quickTimer !== null) window.clearTimeout(quickTimer);
     quickTimer = window.setTimeout(() => {
       void quickResults();
@@ -723,6 +739,7 @@ export function initFeatures(port: EditorPort): FeatureController {
     if (key === "p" && !event.shiftKey) {
       event.preventDefault();
       quickSearch.value = "";
+      clearQuickResults();
       quickResults();
       openDialog(switcher);
       quickSearch.focus();

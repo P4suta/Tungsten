@@ -6,7 +6,7 @@ date: 2026-11-08
 
 ## Context
 
-The owner wants a flat collection of titled notes connected by links.
+The requested design keeps titled notes in a flat collection connected by links.
 Storage paths and classification controls create unwanted decisions.
 
 ## Decision
@@ -19,13 +19,13 @@ Remove note filename, tag, folder, pin, and template controls and their browser 
 Keep existing Markdown paths, references, metadata, and archive compatibility.
 Attachment folders remain a file-management concern.
 Replace branding with Home navigation.
-Give interactive controls icons under owner policy and preserve [visible labels and names for assistive technology](https://www.w3.org/WAI/WCAG22/Techniques/aria/ARIA14).
+Give interactive controls icons under personal policy and preserve [visible labels and names for assistive technology](https://www.w3.org/WAI/WCAG22/Techniques/aria/ARIA14).
 Redundant icons follow [decorative-image guidance](https://www.w3.org/WAI/tutorials/images/decorative/).
 
 ## Alternatives
 
 Heading-derived filenames are readable on disk but require renaming and link maintenance.
-Keeping optional organization controls preserves choices the owner has excluded.
+Keeping optional organization controls preserves excluded choices.
 
 ## Consequences
 

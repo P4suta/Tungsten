@@ -6,8 +6,8 @@ date: 2026-11-09
 
 ## Context
 
-The owner rejects plaintext search indexes and complete index copies on devices.
-The owner also rejects disclosure of search equivalence and frequency.
+The requirements exclude plaintext search indexes and complete index copies on devices.
+The requirements also exclude disclosure of search equivalence and frequency.
 
 ## Decision
 
