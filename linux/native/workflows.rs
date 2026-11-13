@@ -562,6 +562,8 @@ fn links_resolve_from_the_current_note_folder(application: &adw::Application) {
         ("Folder/Source.md", "Folder/Target.md"),
         ("Folder/Source.md", "Target.md"),
         ("Folder/Source.md", "Other/Target.md"),
+        ("Source.md", "Meeting: Notes.md"),
+        ("Area: Notes/Source.md", "Area: Notes/Target: Note.md"),
         ("Source.md", "Folder/Target.md"),
         ("日本語/原文.md", "日本語/空白 #?[]%.md"),
         ("Target.md/Source.md", "Target.md"),

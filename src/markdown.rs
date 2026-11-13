@@ -65,14 +65,12 @@ pub fn relative_note_path(source: &NoteName, target: &NoteName) -> String {
 }
 
 pub fn resolve_note(source: &str, target: &str, wiki: bool) -> Option<String> {
-    let decoded = percent_decode_str(target.split('#').next()?)
-        .decode_utf8()
-        .ok()?;
-    if decoded.is_empty()
-        || decoded.contains(':')
-        || decoded.starts_with('/')
-        || decoded.contains('\\')
-    {
+    let target = target.split('#').next()?;
+    if target.contains(':') {
+        return None;
+    }
+    let decoded = percent_decode_str(target).decode_utf8().ok()?;
+    if decoded.is_empty() || decoded.starts_with('/') || decoded.contains('\\') {
         return None;
     }
     if !wiki && !decoded.ends_with(".md") {
@@ -562,6 +560,14 @@ mod tests {
             ("Source.md", "Folder/Target.md", "Folder/Target.md"),
             ("Folder/Source.md", "Folder/Source.md", "Source.md"),
             ("Target.md/Source.md", "Target.md", "../Target.md"),
+            ("Source.md", "Meeting: Notes.md", "Meeting%3A%20Notes.md"),
+            ("Source.md", "https:Notes.md", "https%3ANotes.md"),
+            ("Source.md", "javascript:Notes.md", "javascript%3ANotes.md"),
+            (
+                "Area: Notes/Source.md",
+                "Area: Notes/Target: Note.md",
+                "Target%3A%20Note.md",
+            ),
             (
                 "Folder/Source.md",
                 "Folder/Space #?[]%.md",
@@ -574,6 +580,29 @@ mod tests {
             );
             assert_eq!(path, expected);
             assert_eq!(resolve_note(source, &path, false).as_deref(), Some(target));
+            let rendered = preview(source, &format!("[Note]({path})"));
+            assert_eq!(rendered.links, [target]);
+            assert!(!rendered.html.contains("href=\"javascript:"));
+        }
+    }
+
+    #[test]
+    fn raw_uri_schemes_never_resolve_as_note_names() {
+        assert_eq!(
+            resolve_note("Source.md", "Target.md#section:one", false).as_deref(),
+            Some("Target.md")
+        );
+        for target in [
+            "https://example.com/Note.md",
+            "javascript:Note.md",
+            "mailto:Note.md",
+            "file:///Note.md",
+            "custom:Note.md",
+        ] {
+            assert!(
+                resolve_note("Source.md", target, false).is_none(),
+                "{target}"
+            );
         }
     }
 
