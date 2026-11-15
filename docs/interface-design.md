@@ -59,6 +59,7 @@ Each native source gate runs the asset check without requiring a raster renderer
 Windows uses all fourteen target sizes in default, light, and dark forms, plus the five scale factors in Microsoft's [icon construction guidance](https://learn.microsoft.com/en-us/windows/apps/design/iconography/app-icon-construction).
 The executable embeds the default `.ico` file, and the window selects contrasting title-bar artwork from the system appearance.
 High contrast uses the default artwork with its white keyline.
+Contrast changes use the Windows App SDK's window-bound [ThemeSettings](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.system.themesettings?view=windows-app-sdk-2.0).
 The Apple vector remains unmasked in Icon Composer, letting the system render Default, Dark, Clear, and Tinted appearances under Apple's [app icon guidance](https://developer.apple.com/design/human-interface-guidelines/app-icons).
 
 The Linux regular icon uses the desktop's [128-pixel canvas and baseline](https://developer.gnome.org/hig/guidelines/app-icons.html).

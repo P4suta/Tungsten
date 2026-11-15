@@ -1,18 +1,20 @@
+using Microsoft.UI.System;
 using Microsoft.UI.Xaml;
-using Windows.UI.ViewManagement;
 
 namespace Tungsten;
 
 public sealed partial class MainWindow : Window
 {
-    private readonly AccessibilitySettings accessibility = new();
+    private readonly ThemeSettings themes;
     private bool closing;
     public MainWindow()
     {
         InitializeComponent();
+        themes = ThemeSettings.CreateForWindowId(AppWindow.Id);
         AppWindow.TitleBar.PreferredTheme = Microsoft.UI.Windowing.TitleBarTheme.UseDefaultAppMode;
         Page.ActualThemeChanged += (_, _) => UpdateIcon();
-        accessibility.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdateIcon);
+        themes.Changed += ThemeChanged;
+        Closed += (_, _) => themes.Changed -= ThemeChanged;
         UpdateIcon();
         AppWindow.Closing += async (_, args) =>
         {
@@ -28,7 +30,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateIcon()
     {
-        var file = accessibility.HighContrast ? "AppIcon.ico" : Page.ActualTheme == ElementTheme.Dark ? "AppIconDark.ico" : "AppIconLight.ico";
+        var file = themes.HighContrast ? "AppIcon.ico" : Page.ActualTheme == ElementTheme.Dark ? "AppIconDark.ico" : "AppIconLight.ico";
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", file));
     }
+
+    private void ThemeChanged(ThemeSettings sender, object args) => DispatcherQueue.TryEnqueue(UpdateIcon);
 }

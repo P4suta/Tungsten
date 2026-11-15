@@ -1277,6 +1277,10 @@ fn csharp(source: &str) -> Result<()> {
         }
         if node.kind() == "identifier" {
             ensure!(
+                text != "AccessibilitySettings",
+                "use Windows App SDK ThemeSettings for desktop contrast"
+            );
+            ensure!(
                 ![
                     "WebView",
                     "WebView2",
@@ -1554,6 +1558,16 @@ mod tests {
     fn malformed_sources_never_receive_a_clean_result() {
         assert!(xaml("<Grid>").is_err());
         assert!(csharp("class {").is_err());
+    }
+    #[test]
+    fn desktop_contrast_uses_window_bound_theme_settings() {
+        assert!(csharp("using Microsoft.UI.System; class Screen { ThemeSettings settings; void Bind(Microsoft.UI.WindowId id) { settings = ThemeSettings.CreateForWindowId(id); } }").is_ok());
+        for source in [
+            "using Windows.UI.ViewManagement; class Screen { AccessibilitySettings settings = new(); }",
+            "using Contrast = Windows.UI.ViewManagement.AccessibilitySettings; class Screen { Contrast settings = new(); }",
+        ] {
+            assert!(csharp(source).is_err(), "admitted {source}");
+        }
     }
     #[test]
     fn windows_and_shared_tooling_changes_select_the_windows_job() {
