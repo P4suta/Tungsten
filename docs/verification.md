@@ -60,6 +60,7 @@ It checks note operations, draft recovery, delayed responses, stale tabs, and co
 Concurrent editing fixtures cover conditional refresh, active draft ownership, hidden-page suspension, remote deletion, and separate browser profiles.
 Empty page checks reject scrolling and persistent formatting controls at desktop, narrow, landscape, and enlarged text sizes.
 Sidebar checks cover navigation visibility, reclaimed writing space, modal details, unavailable storage, keyboard return, and unchanged drafts.
+Navigation checks populate more than one page of notes and include landscape windows 256 pixels high with twice the authored text size and adjusted [text spacing](https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html).
 Wide-screen navigation keeps its bounds through note creation, switching, and scrolling.
 Compact checks return from navigation and context to the same reading position after centered typing has settled.
 Workspace contracts check current-schema initialization, restart persistence, bounded pagination, concurrent additions, rejected stale metadata, rename cascades, and membership cleanup.

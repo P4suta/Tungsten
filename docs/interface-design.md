@@ -42,6 +42,8 @@ Use the existing system font stack, black and white palette, 18-pixel base text,
 Keep the note's scroll and selection when switching panes.
 Preserve [reflow](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html), [text enlargement](https://www.w3.org/WAI/WCAG22/Understanding/resize-text.html), visible focus, and `accessible name`s.
 Follow the HTML [dialog](https://html.spec.whatwg.org/multipage/interactive-elements.html#the-dialog-element) and [disclosure](https://html.spec.whatwg.org/multipage/interactive-elements.html#the-details-element) contracts with standard [modal focus guidance](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/).
+The header presents save state in an HTML [output element](https://html.spec.whatwg.org/multipage/form-elements.html#the-output-element) with an atomic [status live region](https://www.w3.org/WAI/WCAG22/Techniques/aria/ARIA22.html).
+Explicit `aria-atomic="true"` follows ARIA22's compatibility recommendation.
 Apply relevant Digital Agency [typography](https://design.digital.go.jp/dads/foundations/typography/), [layout](https://design.digital.go.jp/dads/foundations/layout/), and [button](https://design.digital.go.jp/dads/components/button/usage/) recommendations as project policy.
 
 ## App identity

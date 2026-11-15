@@ -56,7 +56,7 @@ function element<T extends HTMLElement>(id: string, kind: { new (): T }): T {
 }
 
 const body = element("body", HTMLTextAreaElement);
-const status = element("save-status", HTMLParagraphElement);
+const status = element("save-status", HTMLOutputElement);
 const errorText = element("error", HTMLParagraphElement);
 const draftList = element("drafts", HTMLUListElement);
 const draftsPane = element("drafts-pane", HTMLElement);

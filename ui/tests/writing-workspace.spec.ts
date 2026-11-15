@@ -112,10 +112,24 @@ test("keeps search before optional organization and writing available at 320 pix
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("keeps navigation actions reachable with enlarged and spaced text", async ({ page }) => {
+test("keeps navigation actions reachable with enlarged and spaced text", async ({
+  page,
+  request,
+}, info) => {
+  for (let index = 0; index < 51; index++) {
+    const name = `Navigation-reflow-${info.project.name}-${info.repeatEachIndex}-${index}.md`;
+    expect(
+      (
+        await request.post("/api/notes", {
+          data: { name, body: `# Navigation ${index} with a long note title for enlarged text\n` },
+        })
+      ).ok(),
+    ).toBe(true);
+  }
   for (const viewport of [
     { width: 320, height: 640 },
     { width: 800, height: 320 },
+    { width: 800, height: 256 },
   ]) {
     await page.setViewportSize(viewport);
     await page.goto("/");
@@ -130,6 +144,7 @@ test("keeps navigation actions reachable with enlarged and spaced text", async (
       document.head.append(style);
     });
     const sidebar = await openNavigation(page);
+    await expect(sidebar.locator("#sidebar-notes").getByRole("link").first()).toBeVisible();
     const trash = sidebar.getByRole("button", { name: "Trash", exact: true });
     await trash.focus();
     await expect(trash).toBeInViewport({ ratio: 1 });
