@@ -207,9 +207,6 @@ export function initSidebar(): SidebarController {
     if (!left.hidden && (left.contains(target) || !wide.matches)) {
       event.preventDefault();
       close("navigation");
-    } else if (!right.hidden && (right.contains(target) || !wide.matches)) {
-      event.preventDefault();
-      close("context");
     }
   });
   wide.addEventListener("change", render);

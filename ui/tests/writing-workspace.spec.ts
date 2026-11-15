@@ -1,6 +1,19 @@
 import { expect, replaceMarkdown, test } from "./editor.js";
 import { openNavigation } from "./interface.js";
 
+test("keeps editor focus on Escape when compact navigation and details are closed", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 640, height: 480 });
+  await page.goto("/");
+  const editor = page.getByRole("textbox", { name: "Note", exact: true });
+  await editor.click();
+  await page.keyboard.press("Escape");
+  await expect(editor).toBeFocused();
+  await page.keyboard.type("Keep writing after Escape");
+  await expect(editor).toHaveMarkdown(/Keep writing after Escape/);
+});
+
 test("reclaims closed navigation space and opens details as a keyboard modal", async ({
   page,
   request,
