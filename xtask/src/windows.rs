@@ -1013,16 +1013,6 @@ fn open_draft(root: &Path, pid: &str, title: &str) -> Result<()> {
         );
         std::thread::sleep(std::time::Duration::from_millis(100));
     };
-    ui_execute(root, pid, &["scroll-into-view", &row])?;
-    let row = draft_item(
-        &super::output(
-            root,
-            "winapp",
-            &["ui", "inspect", "-a", pid, "--depth", "16", "--json"],
-        )?,
-        title,
-    )?
-    .context("draft item disappeared after scrolling")?;
     ui_execute(root, pid, &["click", &row])
 }
 
@@ -1091,7 +1081,10 @@ fn draft_item(source: &str, title: &str) -> Result<Option<String>> {
     fn find(value: &serde_json::Value, title: &str) -> Option<String> {
         match value {
             serde_json::Value::Object(fields) => {
-                if value["className"] == "ListViewItem" && value["name"] == title {
+                if value["className"] == "ListViewItem"
+                    && value["name"] == title
+                    && value["isOffscreen"] == false
+                {
                     return value["selector"].as_str().map(str::to_owned);
                 }
                 fields.values().find_map(|child| find(child, title))
@@ -1505,7 +1498,7 @@ mod tests {
 
     #[test]
     fn draft_recovery_requires_a_list_item_instead_of_the_editor_title() {
-        let source = r#"{"elements":[{"name":"Recovered writing","className":"TextBlock","selector":"heading"},{"name":"Recovered writing","className":"ListViewItem","selector":"draft-row"}]}"#;
+        let source = r#"{"elements":[{"name":"Recovered writing","className":"TextBlock","selector":"heading","isOffscreen":false},{"name":"Recovered writing","className":"ListViewItem","selector":"draft-row","isOffscreen":false}]}"#;
         assert_eq!(
             draft_item(source, "Recovered writing").unwrap().as_deref(),
             Some("draft-row")
@@ -1519,6 +1512,14 @@ mod tests {
             .is_none()
         );
         assert!(draft_item(source, "Other writing").unwrap().is_none());
+        assert!(
+            draft_item(
+                &source.replace("\"isOffscreen\":false", "\"isOffscreen\":true"),
+                "Recovered writing"
+            )
+            .unwrap()
+            .is_none()
+        );
     }
 
     #[test]
