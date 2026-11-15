@@ -1,4 +1,4 @@
-import { expect, pressShortcut, selectMarkdown, test } from "./editor.js";
+import { expect, pressShortcut, replaceMarkdown, selectMarkdown, test } from "./editor.js";
 import { newEmptyNote, openNavigation } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
@@ -10,7 +10,7 @@ test("normalizes heading ranks automatically as one undoable edit", async ({ pag
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   const original =
     "### Title\n\n###### First\n\n# Second\n\n##### Third\n\n```md\n# literal\n###### literal\n```";
-  await editor.fill(original);
+  await replaceMarkdown(editor, original);
   const more = await openNavigation(page);
   await expect(page.locator("#body")).toHaveValue(
     "# Title\n\n## First\n\n## Second\n\n### Third\n\n```md\n# literal\n###### literal\n```\n",
@@ -29,7 +29,7 @@ test("unwraps matched inline syntax while preserving contents and native undo", 
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   for (const marker of ["*", "**", "_", "__", "~~", "`", "``"]) {
     const original = `# Pairs\n\n${marker}日本語 😀${marker}\n`;
-    await editor.fill(original);
+    await replaceMarkdown(editor, original);
     await expect(editor).toHaveMarkdown(original);
     await selectMarkdown(editor, 9, 9 + marker.length);
     await editor.press("Backspace");
@@ -43,7 +43,7 @@ test("removes the matching fence when either fence is deleted", async ({ page })
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   for (const marker of ["```", "~~~", "````"]) {
     const original = `# Fence\n\n${marker}python extra\nimport package\n${marker}\n\nTail`;
-    await editor.fill(original);
+    await replaceMarkdown(editor, original);
     await expect(editor).toHaveMarkdown(original);
     await selectMarkdown(editor, 9 + marker.length);
     await editor.press("Backspace");
@@ -60,7 +60,8 @@ test("highlights bundled languages and aliases without interpreting literal HTML
   page,
 }, info) => {
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.fill(
+  await replaceMarkdown(
+    editor,
     "# Code\n\n```js extra\nconst answer = 42;\n```\n\n```python\nimport package\n```\n\n```html\n<script>throw Error('literal')</script>\n```\n\n```hogepiyo lang\nconst literal = '*raw*';\n```\n\nEnd",
   );
   await pressShortcut(editor, "Home");

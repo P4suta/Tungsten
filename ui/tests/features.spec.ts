@@ -1,5 +1,5 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, pressShortcut, selectMarkdown, test } from "./editor.js";
+import { expect, pressShortcut, replaceMarkdown, selectMarkdown, test } from "./editor.js";
 import {
   attachToNote,
   exploreNotes,
@@ -38,9 +38,10 @@ test("previews Markdown, follows note links, and toggles source tasks", async ({
 }) => {
   await request.post("/api/notes", { data: { name: "Linked.md", body: "Linked content" } });
   await nameNote(page, "Markdown");
-  await page
-    .getByLabel("Note", { exact: true })
-    .fill("# 日本語😀\n\n**Bold**\n\n- [ ] Todo\n\n[[Linked]]\n\n<script>alert('unsafe')</script>");
+  await replaceMarkdown(
+    page.getByLabel("Note", { exact: true }),
+    "# 日本語😀\n\n**Bold**\n\n- [ ] Todo\n\n[[Linked]]\n\n<script>alert('unsafe')</script>",
+  );
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await expect(page.locator("#live-editor strong")).toHaveText("Bold");
   await expect(page.locator("#live-editor script")).toHaveCount(0);
@@ -58,7 +59,7 @@ test("previews Markdown, follows note links, and toggles source tasks", async ({
 
 test("searches a flat note collection and leaves browser Find available", async ({ page }) => {
   await nameNote(page, "Projects/Plan");
-  await page.getByLabel("Note", { exact: true }).fill("alpha alpha #work");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "alpha alpha #work");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   expect(
     await page.evaluate(() => {
@@ -84,10 +85,10 @@ test("restores note history and deleted notes through the browser", async ({
 }, info) => {
   const name = `History-${info.project.name}`;
   await nameNote(page, name);
-  await page.getByLabel("Note", { exact: true }).fill("original text\n");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "original text\n");
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("original text\n");
   await expect(page.locator("#save-status")).toHaveText("Saved");
-  await page.getByLabel("Note", { exact: true }).fill("changed text\n");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "changed text\n");
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("changed text\n");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await noteAction(page, "Version history");
@@ -118,7 +119,7 @@ test("opens original attachments directly without a bulk download action", async
   const library = await openNavigation(page);
   await library.getByRole("button", { name: "Close notes", exact: true }).click();
   await newNote(page);
-  await page.getByLabel("Note", { exact: true }).fill("File: ");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "File: ");
   await attachToNote(page, {
     name: "hello.txt",
     mimeType: "text/plain",
@@ -146,7 +147,7 @@ test("opens original attachments directly without a bulk download action", async
 
 test("formats text, keeps undo history, and opens notes with the keyboard", async ({ page }) => {
   const textarea = page.getByLabel("Note", { exact: true });
-  await textarea.fill("word");
+  await replaceMarkdown(textarea, "word");
   await selectMarkdown(textarea, 0, 4);
   await textarea.press("Control+b");
   await expect(textarea).toHaveMarkdown("**word**");
@@ -194,11 +195,10 @@ test("clears a previous note while a new preview is loading", async ({ page, req
 test("keeps preview and Trash accessible at narrow widths and enlarged text", async ({
   page,
 }, info) => {
-  await page
-    .getByLabel("Note", { exact: true })
-    .fill(
-      "# Preview\n\nParagraph with **bold text**.\n\n- [ ] A task\n\n| Column | Column |\n| :--- | ---: |\n| Cell | Cell |\n",
-    );
+  await replaceMarkdown(
+    page.getByLabel("Note", { exact: true }),
+    "# Preview\n\nParagraph with **bold text**.\n\n- [ ] A task\n\n| Column | Column |\n| :--- | ---: |\n| Cell | Cell |\n",
+  );
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await expect(page.locator("#live-editor strong")).toHaveText("bold text");
   await expect(page.locator("#live-editor th").first()).toHaveCSS("text-align", "left");
@@ -252,7 +252,7 @@ test("keeps preview and Trash accessible at narrow widths and enlarged text", as
 
 test("follows heading anchors without reopening the saved note", async ({ page }) => {
   await nameNote(page, "Anchor");
-  await page.getByLabel("Note", { exact: true }).fill("# Heading\n\n[jump](#heading)");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "# Heading\n\n[jump](#heading)");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await pressShortcut(page.getByLabel("Note", { exact: true }), "Home");
   const link = page.locator("#live-editor").getByRole("link", { name: "jump", exact: true });

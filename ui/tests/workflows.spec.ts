@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, pressShortcut, test } from "./editor.js";
+import { expect, pressShortcut, replaceMarkdown, test } from "./editor.js";
 import { attachToNote, newNote, openTrash } from "./interface.js";
 
 test.beforeEach(async ({ page, request }) => {
@@ -30,11 +30,10 @@ test("keeps recordings and PDF pages in place during live editing", async ({ pag
       data: { name: "live.pdf", data: pdfBytes.toString("base64") },
     })
   ).json();
-  await page
-    .getByLabel("Note", { exact: true })
-    .fill(
-      `# Live media\n\n[Recording](.attachments/${audioFile.id})\n\n[Document](.attachments/${pdfFile.id})\n\nTail`,
-    );
+  await replaceMarkdown(
+    page.getByLabel("Note", { exact: true }),
+    `# Live media\n\n[Recording](.attachments/${audioFile.id})\n\n[Document](.attachments/${pdfFile.id})\n\nTail`,
+  );
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await pressShortcut(editor, "End");
@@ -111,9 +110,10 @@ test("displays images, plays recordings, and renders PDF pages with working link
   page,
   context,
 }, info) => {
-  await page
-    .getByLabel("Note", { exact: true })
-    .fill("Media\n\n[Web link](https://example.test/destination)\n\n");
+  await replaceMarkdown(
+    page.getByLabel("Note", { exact: true }),
+    "Media\n\n[Web link](https://example.test/destination)\n\n",
+  );
   await attachToNote(page, [
     { name: "recording.wav", mimeType: "audio/wav", buffer: recording() },
     { name: "report.pdf", mimeType: "application/pdf", buffer: documentPdf() },
@@ -198,7 +198,7 @@ test("displays images, plays recordings, and renders PDF pages with working link
 
 test("pastes and drops original files into the live note", async ({ page }) => {
   const note = page.getByLabel("Note", { exact: true });
-  await note.fill("# Attached\n\n");
+  await replaceMarkdown(note, "# Attached\n\n");
   await expect(page.locator("#body")).toHaveValue("# Attached\n\n");
   for (const type of ["paste", "drop"]) {
     const name = `${type}.txt`;
@@ -249,7 +249,7 @@ test("ignores retired appearance preferences and supports browser enlargement", 
 test("creates internal note identities when randomUUID is unavailable", async ({ page }) => {
   await page.evaluate(() => Object.defineProperty(crypto, "randomUUID", { value: undefined }));
   await newNote(page);
-  await page.getByLabel("Note", { exact: true }).fill("# First idea\n");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "# First idea\n");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   expect(new URL(page.url()).searchParams.get("note")).toMatch(/^[a-f0-9]{32}\.md$/);
   await expect(page.locator("#name, #zettelkasten, #zettel-folder, #linked-note-form")).toHaveCount(
@@ -270,7 +270,7 @@ test("keeps a PDF page selected while writing below its preview", async ({ page,
   ).json();
   const source = `[Report](.attachments/${file.id}) [Recording](.attachments/${recordingFile.id})\n\nNotes`;
   const editor = page.getByLabel("Note", { exact: true });
-  await editor.fill(source);
+  await replaceMarkdown(editor, source);
   await pressShortcut(editor, "End");
   await expect(page.getByRole("status").filter({ hasText: /^Saved$/ })).toBeVisible();
   await expect(page.getByText("Page 1 of 2", { exact: true })).toBeVisible();

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { pressShortcut } from "./editor.js";
+import { pressShortcut, replaceMarkdown } from "./editor.js";
 import { newEmptyNote, openNavigation, showPaper } from "./interface.js";
 import { typingFrame } from "./typing-latency.js";
 
@@ -116,7 +116,10 @@ test("keeps typing responsive under CPU slowdown", async ({ page, request, brows
   await expect(navigation.locator("#sidebar-notes a")).toHaveCount(50);
   await showPaper(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.fill(`# Input latency\n\n${"A line connecting thoughts.\n\n".repeat(300)}`);
+  await replaceMarkdown(
+    editor,
+    `# Input latency\n\n${"A line connecting thoughts.\n\n".repeat(300)}`,
+  );
   await pressShortcut(editor, "End");
   const session = await page.context().newCDPSession(page);
   try {

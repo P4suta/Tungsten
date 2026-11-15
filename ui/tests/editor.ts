@@ -38,6 +38,15 @@ export async function clearMarkdown(editor: Locator): Promise<void> {
   await editor.press("Backspace");
 }
 
+export async function replaceMarkdown(editor: Locator, text: string): Promise<void> {
+  await baseExpect(editor).toBeVisible();
+  await baseExpect(editor).toBeEditable();
+  await selectAllMarkdown(editor);
+  if (text) await editor.page().keyboard.insertText(text);
+  else await editor.press("Backspace");
+  await baseExpect(editor.page().locator("#body")).toHaveValue(text);
+}
+
 export async function selectMarkdown(editor: Locator, from: number, to = from): Promise<void> {
   const source = await markdownValue(editor);
   if (from < 0 || to < from || to > source.length) throw new Error("Invalid Markdown selection");

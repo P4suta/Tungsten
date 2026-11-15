@@ -1,4 +1,11 @@
-import { clearMarkdown, expect, markdownValue, pressShortcut, test } from "./editor.js";
+import {
+  clearMarkdown,
+  expect,
+  markdownValue,
+  pressShortcut,
+  replaceMarkdown,
+  test,
+} from "./editor.js";
 import { newEmptyNote, newNote, openNavigation } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
@@ -78,7 +85,7 @@ test("completes delimiters and wraps a selection without using a toolbar", async
   await expect(note).toHaveMarkdown("");
   await note.press("[");
   await expect(note).toHaveMarkdown("[]()");
-  await note.fill("selected text");
+  await replaceMarkdown(note, "selected text");
   await pressShortcut(note, "a");
   await note.press("*");
   await expect(note).toHaveMarkdown("**selected text**");
@@ -106,13 +113,13 @@ test("completes delimiters and wraps a selection without using a toolbar", async
 
 test("continues Markdown lists and lets Tab leave the editor after Escape", async ({ page }) => {
   const note = page.getByLabel("Note", { exact: true });
-  await note.fill("- [x] done");
+  await replaceMarkdown(note, "- [x] done");
   await note.press("End");
   await note.press("Enter");
   await expect(note).toHaveMarkdown("- [x] done\n- [ ] ");
   await note.press("Enter");
   await expect(note).toHaveMarkdown("- [x] done\n");
-  await note.fill("first\nsecond");
+  await replaceMarkdown(note, "first\nsecond");
   await pressShortcut(note, "a");
   await note.press("Tab");
   await expect(note).toHaveMarkdown("    first\n    second");
@@ -157,7 +164,7 @@ test("always opens an editable live note and ignores retired view preferences", 
   await newNote(page);
   const note = page.getByRole("textbox", { name: "Note", exact: true });
   await expect(note).toBeEditable();
-  await note.fill("# Next note");
+  await replaceMarkdown(note, "# Next note");
   await pressShortcut(note, "Enter");
   await expect(note).toBeFocused();
   await expect(note).toBeEditable();

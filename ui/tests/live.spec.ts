@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
-import { pressShortcut } from "./editor.js";
+import { pressShortcut, replaceMarkdown } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
 import {
   closeNavigation,
@@ -287,7 +287,7 @@ test("automatically formats after blur and refuses stale formatting results", as
     )
     .toContain("- first item");
   await more.getByRole("button", { name: "Close notes", exact: true }).click();
-  await editor.fill("# Blur\n\n*   selected");
+  await replaceMarkdown(editor, "# Blur\n\n*   selected");
   await expect(page.locator("#body")).toHaveValue("# Blur\n\n*   selected");
   await editor.evaluate((node) => {
     (node as HTMLElement).blur();

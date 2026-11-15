@@ -1,4 +1,4 @@
-import { expect, test } from "./editor.js";
+import { expect, replaceMarkdown, test } from "./editor.js";
 import { openNavigation } from "./interface.js";
 
 test("reclaims closed navigation space and opens details as a keyboard modal", async ({
@@ -84,7 +84,7 @@ test("follows linked notes and dismisses a pending history read before editing",
     await details.getByRole("button", { name: "Version history", exact: true }).click();
     await requested;
     await page.keyboard.press("Escape");
-    await editor.fill("# Target\n\nKeep writing while history loads.\n");
+    await replaceMarkdown(editor, "# Target\n\nKeep writing while history loads.\n");
     await expect(page.locator("#save-status")).toHaveText("Saved");
   } finally {
     release();

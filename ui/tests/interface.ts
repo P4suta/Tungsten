@@ -1,5 +1,5 @@
 import type { FileChooser, Locator, Page } from "@playwright/test";
-import { clearMarkdown, expect, markdownValue, pressShortcut } from "./editor.js";
+import { clearMarkdown, expect, markdownValue, pressShortcut, replaceMarkdown } from "./editor.js";
 
 export async function openNavigation(page: Page): Promise<Locator> {
   await expect
@@ -76,7 +76,8 @@ export async function nameNote(page: Page, name: string, rename = false): Promis
   if (rename) {
     const body = page.getByLabel("Note", { exact: true });
     const text = await markdownValue(body);
-    await body.fill(
+    await replaceMarkdown(
+      body,
       /^#\s+.+$/m.test(text) ? text.replace(/^#\s+.+$/m, `# ${name}`) : `# ${name}\n\n${text}`,
     );
     return;

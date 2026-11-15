@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { APIRequestContext, Page } from "@playwright/test";
-import { expect, selectAllMarkdown, test } from "./editor.js";
+import { expect, replaceMarkdown, selectAllMarkdown, test } from "./editor.js";
 
 interface SavedNote {
   name: string;
@@ -150,7 +150,7 @@ test("preserves writing made while a remote refresh is pending", async ({ page, 
   await foreground(page);
   await seen;
   const local = "# Shared\n\nLocal writing must survive";
-  await editor.fill(local);
+  await replaceMarkdown(editor, local);
   release();
   await expect(page.locator("#save-status")).toHaveText("Conflict");
   await expect(editor).toHaveMarkdown(local);
@@ -214,7 +214,7 @@ test("acknowledges identical writing saved by another device without a conflict"
   const text = "# Shared\n\nThe same writing on both devices";
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await expect(editor).toHaveMarkdown(note.body);
-  await editor.fill(text);
+  await replaceMarkdown(editor, text);
   await expect(page.locator("#save-status")).toHaveText("Save failed");
   await replace(request, note, text);
   await foreground(page);

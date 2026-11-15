@@ -41,6 +41,8 @@ Fixtures verify detection in working files and in earlier commits after a later 
 Dataset fixtures resume interrupted committed batches without replacing saved notes.
 Browser fixtures exercise writing without setup, unavailable IndexedDB, independent profiles, server restarts, and original media.
 Rendered note fixtures select complete Markdown through keyboard commands before clearing, restoring, and continuing input.
+Browser fixtures replace Markdown through the editor's `selectAll` command and keyboard input because [CodeMirror renders only the viewport](https://codemirror.net/docs/guide/#viewport).
+Input assertions check the complete backing source before continuing the workflow.
 Use `mise x -- just scale-profile --counts 1000000` for the bounded database capacity campaign.
 Install the shared `prose` and `dotfiles` commands from the pinned source revision in the workflow when preparing another machine.
 The same commands validate the decision records and generated repository files.

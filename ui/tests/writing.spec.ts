@@ -1,5 +1,5 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, markdownValue, pressShortcut, test } from "./editor.js";
+import { expect, markdownValue, pressShortcut, replaceMarkdown, test } from "./editor.js";
 import { newEmptyNote, openNavigation, openTrash, showPaper } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
@@ -79,7 +79,7 @@ test("filters slash commands and inserts a block with the keyboard", async ({ pa
   await note.press("Escape");
   await expect(menu).not.toBeVisible();
   await expect(note).toHaveMarkdown("/heading");
-  await note.fill("```\n/image");
+  await replaceMarkdown(note, "```\n/image");
   await note.pressSequentially(" ");
   await expect(menu).not.toBeVisible();
 });
@@ -122,7 +122,7 @@ test("keeps the draft and command when a slash upload fails", async ({ page }) =
 
 test("browses Trash beside the current draft and accepts its previous URL", async ({ page }) => {
   const note = page.getByLabel("Note", { exact: true });
-  await note.fill("# Current draft\n\nKeep writing here.\n");
+  await replaceMarkdown(note, "# Current draft\n\nKeep writing here.\n");
   const settings = await openTrash(page);
   const address = page.url();
   await expect(settings.getByRole("button", { name: "Empty trash", exact: true })).toBeVisible();
@@ -151,7 +151,7 @@ test("browses Trash beside the current draft and accepts its previous URL", asyn
 test("uses centered typing without a configuration switch", async ({ page }) => {
   await expect(page.locator("#settings-page")).toHaveCount(0);
   const note = page.getByLabel("Note", { exact: true });
-  await note.fill("A line\n".repeat(45));
+  await replaceMarkdown(note, "A line\n".repeat(45));
   await pressShortcut(note, "End");
   await note.pressSequentially("typing");
   await expect
@@ -197,7 +197,7 @@ test("keeps text typed while a slash upload is pending", async ({ page }) => {
     buffer: Buffer.from("original"),
   });
   await seen;
-  await note.fill("Keep the text written during upload.");
+  await replaceMarkdown(note, "Keep the text written during upload.");
   release();
   await expect(note).toHaveMarkdown(/Keep the text written during upload\.[\s\S]*\.attachments\//);
 });

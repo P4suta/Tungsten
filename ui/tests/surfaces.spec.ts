@@ -1,5 +1,5 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, pressShortcut, test } from "./editor.js";
+import { expect, pressShortcut, replaceMarkdown, test } from "./editor.js";
 import { clippedIcons } from "./icon-bounds.js";
 import { missingIcons } from "./icons-check.js";
 import { openContext, openNavigation, openTrash } from "./interface.js";
@@ -108,7 +108,7 @@ test("shows the effect of restoring a writing session without interpreting its s
   });
   await page.goto(`/?note=${name}`);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.fill("# Session\n\nRevised text\n");
+  await replaceMarkdown(editor, "# Session\n\nRevised text\n");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const more = await openContext(page);
   await more.getByRole("button", { name: "Version history", exact: true }).click();

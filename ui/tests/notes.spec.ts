@@ -1,6 +1,6 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
-import { clearMarkdown, expect, pressShortcut, test } from "./editor.js";
+import { clearMarkdown, expect, pressShortcut, replaceMarkdown, test } from "./editor.js";
 import {
   closeNavigation,
   exploreNotes,
@@ -75,9 +75,10 @@ test.beforeEach(async ({ page, request }) => {
 
 test("writes plain text, searches, renames, and deletes a note", async ({ page, request }) => {
   await nameNote(page, "Shopping");
-  await page
-    .getByLabel("Note", { exact: true })
-    .fill("牛乳\n# Just text\n<script>alert('text')</script>");
+  await replaceMarkdown(
+    page.getByLabel("Note", { exact: true }),
+    "牛乳\n# Just text\n<script>alert('text')</script>",
+  );
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const saved = await request.get("/api/notes/Shopping.md");
   expect((await saved.json()).body).toContain("<script>");
@@ -282,7 +283,7 @@ test("does not replace a new draft when loading the note after deletion finishes
   await expect(page).not.toHaveURL(/note=Discarded.md/);
   await newNote(page);
   const editor = page.getByLabel("Note", { exact: true });
-  await editor.fill("# New draft\n\nKeep my latest writing.\n");
+  await replaceMarkdown(editor, "# New draft\n\nKeep my latest writing.\n");
   release();
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await expect(editor).toHaveMarkdown("# New draft\n\nKeep my latest writing.\n");
@@ -413,13 +414,13 @@ test("preserves an unsaved browser draft for a deleted note", async ({ page, req
 });
 
 test("recovers an unsaved draft after a failed save and reload", async ({ page }) => {
-  await page.getByLabel("Note", { exact: true }).fill("saved text");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "saved text");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await page.route("**/api/notes/*", async (route) => {
     if (route.request().method() === "PUT") await route.abort();
     else await route.continue();
   });
-  await page.getByLabel("Note", { exact: true }).fill("draft after failure");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "draft after failure");
   await expect(page.locator("#save-status")).toHaveText("Save failed");
   await page.reload();
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("draft after failure");
@@ -439,7 +440,7 @@ test("reports an unavailable linked note while keeping the blank page editable",
 });
 
 test("keeps edits made while an earlier save response is delayed", async ({ page, request }) => {
-  await page.getByLabel("Note", { exact: true }).fill("initial");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "initial");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   let release: () => void = () => {};
   let arrived: () => void = () => {};
@@ -459,9 +460,9 @@ test("keeps edits made while an earlier save response is delayed", async ({ page
       await route.fulfill({ response });
     } else await route.continue();
   });
-  await page.getByLabel("Note", { exact: true }).fill("first edit");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "first edit");
   await seen;
-  await page.getByLabel("Note", { exact: true }).fill("latest edit");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "latest edit");
   await expect(page.locator("#save-status")).toHaveText("Saving");
   release();
   await expect(page.locator("#save-status")).toHaveText("Saved");
@@ -506,7 +507,7 @@ test("preserves a stale tab's draft and saves a separate copy", async ({
   request,
 }) => {
   await nameNote(page, "Shared");
-  await page.getByLabel("Note", { exact: true }).fill("initial");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "initial");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const other = await context.newPage();
   await other.goto("/");
@@ -525,9 +526,9 @@ test("preserves a stale tab's draft and saves a separate copy", async ({
     await held;
     await route.continue();
   });
-  await other.getByLabel("Note", { exact: true }).fill("second tab draft");
+  await replaceMarkdown(other.getByLabel("Note", { exact: true }), "second tab draft");
   await seen;
-  await page.getByLabel("Note", { exact: true }).fill("first tab wins");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "first tab wins");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   release();
   await expect(other.locator("#save-status")).toHaveText("Conflict");
@@ -558,7 +559,7 @@ test("recovers a cleared draft when creation was not acknowledged", async ({ pag
     await held;
     await route.fulfill({ response });
   });
-  await page.getByLabel("Note", { exact: true }).fill("text to clear");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "text to clear");
   await seen;
   await clearMarkdown(page.getByLabel("Note", { exact: true }));
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("");
@@ -572,9 +573,10 @@ test("keeps a title containing path punctuation as ordinary note content", async
   page,
   request,
 }) => {
-  await page
-    .getByLabel("Note", { exact: true })
-    .fill("# ../Title / with punctuation\n\nkeep this draft");
+  await replaceMarkdown(
+    page.getByLabel("Note", { exact: true }),
+    "# ../Title / with punctuation\n\nkeep this draft",
+  );
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const notes: { name: string; title: string }[] = await (await request.get("/api/notes")).json();
   expect(notes[0]?.name).toMatch(/^[a-f0-9]{32}\.md$/);
@@ -610,7 +612,7 @@ test("supports narrow layouts, text enlargement, labels, and keyboard access", a
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBeTruthy();
   await page.setViewportSize({ width: 800, height: 375 });
-  await page.getByLabel("Note", { exact: true }).fill("Spacing and landscape input");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "Spacing and landscape input");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),

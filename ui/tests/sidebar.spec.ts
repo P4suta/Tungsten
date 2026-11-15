@@ -1,5 +1,5 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, test } from "./editor.js";
+import { expect, replaceMarkdown, test } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
 import { openContext, openNavigation, openTrash, showPaper } from "./interface.js";
 
@@ -24,7 +24,7 @@ test("keeps a pending draft through navigation and modal details", async ({ page
     await route.continue();
   });
   try {
-    await editor.fill("# A writing session\n\nKeep writing beside navigation.\n");
+    await replaceMarkdown(editor, "# A writing session\n\nKeep writing beside navigation.\n");
     await requested;
     const context = await openContext(page);
     await expect(sidebar).toBeVisible();
@@ -51,7 +51,7 @@ test("switches compact panes without obscuring focus or losing a draft", async (
   await page.setViewportSize({ width: 390, height: 760 });
   await page.goto("/");
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.fill("# Keep this note\n\nA compact writing session.\n");
+  await replaceMarkdown(editor, "# Keep this note\n\nA compact writing session.\n");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const sidebar = await openNavigation(page);
   await expect(page.locator("#paper-scroll")).toBeHidden();
