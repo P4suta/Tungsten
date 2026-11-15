@@ -55,6 +55,7 @@ Keep the exported vector masters under `assets/app-icon`.
 Run `mise x -- just app-icons generate` with ImageMagick 7 after changing them.
 Run `mise x -- just app-icons check` to validate the filled paths, black and white palette, appearance geometry, derived vectors, raster dimensions, checksums, source hashes, and Windows icon frames.
 Each native source gate runs the asset check without requiring a raster renderer.
+Source hashes and vector comparisons use line feed endings so Windows checkout conversion preserves the asset identity.
 
 Windows uses all fourteen target sizes in default, light, and dark forms, plus the five scale factors in Microsoft's [icon construction guidance](https://learn.microsoft.com/en-us/windows/apps/design/iconography/app-icon-construction).
 The executable embeds the default `.ico` file, and the window selects contrasting title-bar artwork from the system appearance.

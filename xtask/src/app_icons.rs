@@ -58,8 +58,12 @@ struct Mark {
     ink: Vec<Ink>,
     hash: String,
 }
+fn svg_with_lf(source: &str) -> String {
+    source.replace("\r\n", "\n")
+}
 fn mark(source: String, canvas: u32) -> Result<Mark> {
     ensure!(source.len() <= 64 * 1024, "icon source is too large");
+    let source = svg_with_lf(&source);
     let doc = roxmltree::Document::parse(&source)?;
     let root = doc.root_element();
     ensure!(
@@ -357,7 +361,7 @@ pub fn check(root: &Path) -> Result<()> {
     }
     for (path, expected) in sources.vectors() {
         ensure!(
-            fs::read_to_string(root.join(&path))? == expected,
+            svg_with_lf(&fs::read_to_string(root.join(&path))?) == expected,
             "regenerate vector icon: {path}"
         );
     }
@@ -526,6 +530,35 @@ fn png(data: &[u8], width: u32, height: u32, source: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exported_assets_survive_windows_checkout_line_endings() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let place = |relative: &str, bytes: &[u8]| {
+            let path = directory.path().join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, bytes).unwrap();
+        };
+        let sources = Sources::load(root).unwrap();
+        let mut vectors = vec!["assets/app-icon/cube-front.svg".to_owned()];
+        vectors.extend(APPEARANCES.map(|appearance| appearance.source().to_owned()));
+        vectors.extend(sources.vectors().into_iter().map(|(path, _)| path));
+        for path in vectors {
+            let source = fs::read_to_string(root.join(&path)).unwrap();
+            let windows = source.lines().collect::<Vec<_>>().join("\r\n") + "\r\n";
+            place(&path, windows.as_bytes());
+        }
+        for path in rasters()
+            .into_iter()
+            .map(|asset| asset.path)
+            .chain(APPEARANCES.map(|appearance| appearance.ico().to_owned()))
+            .chain(std::iter::once("ui/assets/favicon.ico".to_owned()))
+        {
+            place(&path, &fs::read(root.join(&path)).unwrap());
+        }
+        check(directory.path()).unwrap();
+    }
 
     #[test]
     fn icon_sources_reject_rounded_strokes_and_external_artwork() {
