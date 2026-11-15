@@ -1,9 +1,9 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, pressShortcut, test } from "./editor.js";
+import { expect, test } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
-import { exploreNotes, openContext, openNavigation, openTrash, showPaper } from "./interface.js";
+import { openContext, openNavigation, openTrash, showPaper } from "./interface.js";
 
-test("keeps independently collapsible sidebars beside a pending draft", async ({ page }) => {
+test("keeps a pending draft through navigation and modal details", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   const sidebar = await openNavigation(page);
@@ -28,17 +28,17 @@ test("keeps independently collapsible sidebars beside a pending draft", async ({
     await requested;
     const context = await openContext(page);
     await expect(sidebar).toBeVisible();
-    await expect(editor).toBeVisible();
+    await expect(page.locator(".cm-content")).toBeVisible();
     await expect(context.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
-    await context.getByRole("button", { name: "Close note context", exact: true }).click();
+    await context.getByRole("button", { name: "Close note details", exact: true }).click();
     await expect(sidebar).toBeVisible();
   } finally {
     release();
   }
   await expect(page.locator("#save-status")).toHaveText("Saved");
-  await sidebar.getByRole("button", { name: "Close navigation", exact: true }).click();
+  await sidebar.getByRole("button", { name: "Close notes", exact: true }).click();
   await expect(sidebar).toBeHidden();
-  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Notes", exact: true })).toBeFocused();
   await page.reload();
   await expect(sidebar).toBeHidden();
   await openNavigation(page);
@@ -55,7 +55,7 @@ test("switches compact panes without obscuring focus or losing a draft", async (
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const sidebar = await openNavigation(page);
   await expect(page.locator("#paper-scroll")).toBeHidden();
-  await sidebar.getByRole("button", { name: "Close navigation", exact: true }).press("Shift+Tab");
+  await sidebar.getByRole("button", { name: "Close notes", exact: true }).press("Shift+Tab");
   await expect(sidebar).toBeVisible();
   expect(
     await page.evaluate(
@@ -80,67 +80,6 @@ test("switches compact panes without obscuring focus or losing a draft", async (
   await skip.focus();
   await skip.press("Enter");
   await expect(editor).toBeFocused();
-});
-
-test("returns from exploration to its persistent navigation control", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 760 });
-  await page.goto("/");
-  await exploreNotes(page);
-  await page.getByRole("dialog", { name: "Explore notes", exact: true }).press("Escape");
-  const sidebar = page.getByRole("complementary", { name: "Navigation", exact: true });
-  await expect(sidebar).toBeVisible();
-  await expect(sidebar.getByRole("button", { name: "Explore notes", exact: true })).toBeFocused();
-});
-
-test("scrolls the paper independently of navigation and note context", async ({
-  page,
-  request,
-}, info) => {
-  for (let index = 0; index < 55; index++)
-    await request.post("/api/notes", {
-      data: {
-        name: `sidebar-scroll-${info.project.name}-${info.repeatEachIndex}-${index}.md`,
-        body: `# Shelf thought ${index}\n`,
-      },
-    });
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/");
-  const sidebar = await openNavigation(page);
-  const context = await openContext(page);
-  await expect(sidebar.locator("#sidebar-notes a")).toHaveCount(50);
-  await sidebar.evaluate((node) => {
-    node.scrollTop = 80;
-  });
-  const sidebarScroll = await sidebar.evaluate((node) => node.scrollTop);
-  expect(sidebarScroll).toBe(80);
-  const bounds = await sidebar.boundingBox();
-  const rightBounds = await context.boundingBox();
-  const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  const source = `# A long note\n\n${"- A short line\n".repeat(80)}`;
-  await editor.fill(source);
-  await pressShortcut(editor, "End");
-  const paper = page.locator("#paper-scroll");
-  await expect.poll(() => paper.evaluate((node) => node.scrollTop)).toBeGreaterThan(500);
-  const scroll = await page.evaluate(() => ({
-    window: scrollY,
-    elements: ["html", "body", "header", "#app-shell", "#paper-scroll", "#editor-pane"].map(
-      (selector) => {
-        const node = document.querySelector<HTMLElement>(selector);
-        return {
-          selector,
-          bounds: node?.getBoundingClientRect().toJSON(),
-          scroll: node?.scrollHeight,
-          overflow: node ? getComputedStyle(node).overflow : "",
-        };
-      },
-    ),
-  }));
-  expect(scroll.window, JSON.stringify(scroll)).toBe(0);
-  expect(await sidebar.boundingBox()).toEqual(bounds);
-  expect(await context.boundingBox()).toEqual(rightBounds);
-  expect(await sidebar.evaluate((node) => node.scrollTop)).toBe(sidebarScroll);
-  expect(await page.evaluate(() => scrollY)).toBe(0);
-  await expect(editor).toHaveMarkdown(source);
 });
 
 test("keeps panes usable through reflow, spacing changes, and unavailable storage", async ({
@@ -169,7 +108,7 @@ test("keeps panes usable through reflow, spacing changes, and unavailable storag
         }),
       )
       .toBe(true);
-    await sidebar.getByRole("button", { name: "Close navigation", exact: true }).click();
+    await sidebar.getByRole("button", { name: "Close notes", exact: true }).click();
     await expect(sidebar).toBeHidden();
   }
   await page.evaluate(() => {

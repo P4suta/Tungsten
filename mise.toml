@@ -1,4 +1,8 @@
 [tools]
+dotnet = "10.0.404"
+"github:microsoft/winappCli" = { version = "0.7.1", os = [
+  "windows",
+], asset_pattern = "winappcli-{{ arch() }}.zip" }
 rust = { version = "1.99.1", profile = "minimal", components = [
   "clippy",
   "rustfmt",

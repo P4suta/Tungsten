@@ -53,7 +53,7 @@ test("previews Markdown, follows note links, and toggles source tasks", async ({
   await page.locator("#live-editor").getByRole("link", { name: "Linked", exact: true }).click();
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("Linked content");
   await exploreNotes(page);
-  await expect(page.getByRole("button", { name: "Explore 日本語😀", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "日本語😀", exact: true })).toBeVisible();
 });
 
 test("searches a flat note collection and leaves browser Find available", async ({ page }) => {
@@ -73,9 +73,9 @@ test("searches a flat note collection and leaves browser Find available", async 
     }),
   ).toBe(false);
   await exploreNotes(page);
-  await page.getByLabel("Search notes", { exact: true }).fill("alpha");
-  await expect(page.locator("#notes")).toContainText("alpha alpha #work");
-  await expect(page.locator("#notes")).not.toContainText("Projects/Plan");
+  await page.getByLabel("Search all notes", { exact: true }).fill("alpha");
+  await expect(page.locator("#sidebar-notes")).toContainText("alpha alpha #work");
+  await expect(page.locator("#sidebar-notes")).not.toContainText("Projects/Plan");
 });
 
 test("restores note history and deleted notes through the browser", async ({
@@ -98,7 +98,7 @@ test("restores note history and deleted notes through the browser", async ({
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("original text\n");
   await noteAction(page, "Delete");
   await expect(page.locator("#save-status")).toHaveText("Ready");
-  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeInViewport();
+  await expect(page.getByRole("button", { name: "Notes", exact: true })).toBeInViewport();
   const library = await openNavigation(page);
   await library.getByRole("button", { name: "Trash", exact: true }).click();
   const trash = page.getByRole("region", { name: "Trash", exact: true });
@@ -116,7 +116,7 @@ test("opens original attachments directly without a bulk download action", async
     data: { name: "Templates/Daily.md", body: "## {{title}}\n\n{{date}}\n" },
   });
   const library = await openNavigation(page);
-  await library.getByRole("button", { name: "Close navigation", exact: true }).click();
+  await library.getByRole("button", { name: "Close notes", exact: true }).click();
   await newNote(page);
   await page.getByLabel("Note", { exact: true }).fill("File: ");
   await attachToNote(page, {
@@ -139,7 +139,7 @@ test("opens original attachments directly without a bulk download action", async
   await expect(library.getByRole("link", { name: "Download all files", exact: true })).toHaveCount(
     0,
   );
-  await library.getByRole("button", { name: "Close navigation", exact: true }).click();
+  await library.getByRole("button", { name: "Close notes", exact: true }).click();
   expect((await request.get("/api/notes/Templates%2FDaily.md")).ok()).toBeTruthy();
   await expect(page.locator("#template")).toHaveCount(0);
 });
@@ -247,7 +247,7 @@ test("keeps preview and Trash accessible at narrow widths and enlarged text", as
   expect(geometry.content, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.width);
   expect(await accessibilityViolations(page)).toEqual([]);
   await dialog.press("Escape");
-  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Notes", exact: true })).toBeFocused();
 });
 
 test("follows heading anchors without reopening the saved note", async ({ page }) => {

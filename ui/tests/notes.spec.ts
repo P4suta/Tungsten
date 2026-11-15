@@ -82,8 +82,8 @@ test("writes plain text, searches, renames, and deletes a note", async ({ page, 
   const saved = await request.get("/api/notes/Shopping.md");
   expect((await saved.json()).body).toContain("<script>");
   await showNotes(page);
-  await page.getByLabel("Search notes").fill("牛乳");
-  await page.getByRole("button", { name: "Just text", exact: true }).click();
+  await page.getByLabel("Search all notes").fill("牛乳");
+  await page.getByRole("link", { name: "Just text", exact: true }).click();
   await nameNote(page, "Groceries", true);
   await expect(page.locator("#save-status")).toHaveText("Saved");
   expect((await (await request.get("/api/notes/Shopping.md")).json()).body).toContain(
@@ -116,11 +116,7 @@ test("returns to the preceding note after deletion and replaces the deleted addr
   await noteAction(page, "Delete");
   await expect(editor).toHaveMarkdown(/^# Parent\n/);
   await expect(page).toHaveURL(/\?note=Parent.md$/);
-  await expect(
-    (await page.evaluate(() => document.body.dataset.layout === "wide"))
-      ? page.locator("#close-context")
-      : editor,
-  ).toBeFocused();
+  await expect(editor).toBeFocused();
   await expect(page.getByRole("dialog", { name: "More", exact: true })).toHaveCount(0);
   expect((await request.get("/api/notes/Child.md")).status()).toBe(404);
   expect(await accessibilityViolations(page)).toEqual([]);
@@ -154,7 +150,7 @@ test("preserves navigation opened while deletion is pending", async ({ page, req
   try {
     await noteAction(page, "Delete");
     await requested;
-    const menu = page.getByRole("complementary", { name: "Navigation", exact: true });
+    const menu = page.getByRole("complementary", { name: "Notes", exact: true });
     await closeNavigation(page);
     await expect(menu).not.toBeVisible();
     await openNavigation(page);
@@ -162,7 +158,7 @@ test("preserves navigation opened while deletion is pending", async ({ page, req
     release?.();
     await expect(page.locator("#body")).toHaveValue("# Survivor");
     await expect(menu).toBeVisible();
-    await expect(menu.getByRole("button", { name: "Close navigation", exact: true })).toBeFocused();
+    await expect(menu.getByRole("button", { name: "Close notes", exact: true })).toBeFocused();
   } finally {
     release?.();
   }
@@ -178,16 +174,15 @@ test("opens a surviving note after deletion without using the previous search fi
   });
   await page.goto("/?note=Discarded.md");
   await showNotes(page);
-  await page.getByLabel("Search notes", { exact: true }).fill("Discarded");
-  await page.locator("#notes").getByRole("button", { name: "Discarded", exact: true }).click();
+  await page.getByLabel("Search all notes", { exact: true }).fill("Discarded");
+  await page
+    .locator("#sidebar-notes")
+    .getByRole("link", { name: "Discarded", exact: true })
+    .click();
   await noteAction(page, "Delete");
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/^# Survivor\n/);
   await expect(page).toHaveURL(/\?note=Survivor.md$/);
-  await expect(
-    (await page.evaluate(() => document.body.dataset.layout === "wide"))
-      ? page.locator("#close-context")
-      : page.getByLabel("Note", { exact: true }),
-  ).toBeFocused();
+  await expect(page.getByLabel("Note", { exact: true })).toBeFocused();
 });
 
 test("skips a previously visited note that has also moved to trash", async ({ page, request }) => {
@@ -389,7 +384,7 @@ test("does not recover a deleted note when the collection refresh fails", async 
   );
   await noteAction(page, "Delete");
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/^# Survivor\n/);
-  await expect(page.locator("#list-status")).toHaveText("The collection is unavailable.");
+  await expect(page.getByLabel("Note", { exact: true })).toBeEditable();
   await page.unroute(collection);
   await page.goto("/");
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/^# Survivor\n/);
@@ -588,7 +583,7 @@ test("keeps a title containing path punctuation as ordinary note content", async
 
 test("supports narrow layouts, text enlargement, labels, and keyboard access", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
-  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Notes", exact: true })).toBeVisible();
   await expect(page.getByLabel("Note", { exact: true })).toBeVisible();
   await page.evaluate(() => {
     const root = document.documentElement;
@@ -598,11 +593,8 @@ test("supports narrow layouts, text enlargement, labels, and keyboard access", a
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBeTruthy();
   await exploreNotes(page);
-  await expect(page.getByLabel("Search notes")).toBeVisible();
-  await page
-    .getByRole("dialog", { name: "Explore notes", exact: true })
-    .getByRole("button", { name: "Close", exact: true })
-    .click();
+  await expect(page.getByLabel("Search all notes")).toBeVisible();
+  await closeNavigation(page);
   await newNote(page);
   await expect(page.getByLabel("Note", { exact: true })).toBeFocused();
   await page.evaluate(() => {

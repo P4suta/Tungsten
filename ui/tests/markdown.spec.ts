@@ -158,7 +158,7 @@ test("suggests links in the editor without requiring a typing help preference", 
   await expect(editor).toHaveMarkdown(`# Source\n\n[${title}](${encodeURIComponent(target)})`);
   const more = await openNavigation(page);
   await expect(more.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
-  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
+  await more.getByRole("button", { name: "Close notes", exact: true }).click();
   await editor.fill("# Source\n\n");
   await pressShortcut(editor, "End");
   await editor.pressSequentially(`[${title}`);

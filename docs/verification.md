@@ -1,5 +1,14 @@
 # Verify the service
 
+## Windows app
+
+Run `mise x -- just windows source` on every host and `mise x -- just windows check` on Windows.
+The Windows gate checks formatting, strict nullable and analyzer builds, both architectures, unit tests, real-server contracts, dependencies, and documentation.
+Run `mise x -- just windows contracts` on Linux for the actual server API boundary.
+Run `mise x -- just windows ui` in an interactive Windows session for standard control wiring and local recovery.
+Hosted Windows checks separate native verification from the Linux contract and documentation jobs, and all applicable jobs join the required summary.
+The [Windows app guide](windows-apps.md) describes platform sources, keyboard behavior, input and accessibility acceptance, unsigned MSIX candidates, and update retention.
+
 ## Linux app
 
 Run `mise x -- just linux source` on every development host.

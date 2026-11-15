@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
 import { pressShortcut } from "./editor.js";
-import { exploreNotes, newEmptyNote, openNavigation } from "./interface.js";
+import { newEmptyNote, openNavigation } from "./interface.js";
 
 test("keeps appearance, counts, and retired tools outside the note", async ({ page }, info) => {
   await page.goto("/");
@@ -42,23 +42,6 @@ test("aligns headings with the body without a gutter or text counts", async ({ p
   expect(Math.max(...positions) - Math.min(...positions)).toBeLessThan(1);
   expect((await (await request.get("/api/notes/Fold.md")).json()).body).toBe(source);
   expect(await accessibilityViolations(page)).toEqual([]);
-});
-
-test("explores incoming and outgoing links in one graph", async ({ page, request }) => {
-  for (const [name, body] of [
-    ["Center.md", "# Center\n\n[Outgoing](Out.md)"],
-    ["In.md", "# Incoming\n\n[Center](Center.md)"],
-    ["Out.md", "# Outgoing\n\nEnd"],
-  ])
-    await request.post("/api/notes", { data: { name, body } });
-  await page.goto("/?note=Center.md");
-  await exploreNotes(page);
-  const graph = page.getByRole("region", { name: "Note graph", exact: true });
-  await expect(graph.getByRole("button", { name: "Explore Incoming", exact: true })).toBeVisible();
-  await graph.getByRole("button", { name: "Explore Outgoing", exact: true }).click();
-  await page.getByRole("link", { name: "Open note", exact: true }).click();
-  await expect(page).toHaveURL(/note=Out.md/);
-  await expect(page.getByRole("textbox", { name: "Note", exact: true })).toBeFocused();
 });
 
 test("checks a changed file link before saving and repairs its destination without losing text", async ({

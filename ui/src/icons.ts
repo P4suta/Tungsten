@@ -54,9 +54,9 @@ export function icon(name: IconName): SVGSVGElement {
 }
 
 function purpose(node: HTMLElement): IconName {
-  if (node.id === "show-notes") return "graph";
+  if (node.matches("#workspace-browser > summary")) return "folder";
   if (node.id === "toggle-context") return "context";
-  if (node.id === "show-paper") return "edit";
+  if (node.id === "show-paper") return "previous";
   if (node.id === "trash-back") return "previous";
   if (node.id === "sidebar-search") return "search";
   if (node.id === "sidebar-previous") return "previous";

@@ -15,7 +15,7 @@ test("normalizes heading ranks automatically as one undoable edit", async ({ pag
   await expect(page.locator("#body")).toHaveValue(
     "# Title\n\n## First\n\n## Second\n\n### Third\n\n```md\n# literal\n###### literal\n```\n",
   );
-  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
+  await more.getByRole("button", { name: "Close notes", exact: true }).click();
   await expect(editor).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   await expect(editor.getByRole("heading", { level: 2 })).toHaveCount(2);

@@ -3,20 +3,23 @@
 ## Writing
 
 Opening the service shows the last note or an unwritten page.
-Explore notes opens a graph of linked notes.
+Search all notes finds titles and note content.
 New note starts with an editable local timestamp heading and space to write.
 The initial page fits the viewport without scrolling.
 The paper has no brand heading or formatting toolbar.
-Navigation and current-note context occupy independently collapsible sidebars beside the paper.
+Searchable notes occupy a collapsible navigation pane beside the paper.
 Navigation starts open on wide screens and keeps its position while opening or creating notes.
-Each pane scrolls independently, and the writing column keeps its usual width limit.
-Wide screens reserve equal sidebar spaces, so opening or closing navigation and context preserves the paper's centered position, width, and line wrapping.
+Navigation and writing scroll independently, and the writing column keeps its width limit.
+Closing navigation reclaims its space without replacing the draft or selection.
 Narrow screens show one pane at a time, and opening a note returns to writing.
-The Navigation and Note context buttons and close icons control visibility without changing the draft.
+The Notes and Note details buttons and close icons control visibility without changing the draft.
 The header stays visible while scrolling the paper.
-Explore notes opens a separate graph dialog and returns focus to navigation when closed.
+Note details opens a native dialog and returns focus to its trigger when closed.
+New note and save status remain available in the header.
+Recover drafts appears when another local draft is available.
 Opening a search result or recovering a draft returns to writing.
 
+The Workspaces disclosure groups optional organization after the search field.
 Named workspaces save collections of notes in the vault across devices and server restarts.
 A note can belong to more than one workspace without changing its Markdown links.
 Select a workspace to browse its notes, create a note inside it, or add the current note.
@@ -25,7 +28,7 @@ Removing membership or deleting a workspace keeps the note.
 Each browser tab remembers its own selected workspace.
 Workspace and note lists fetch at most 50 records per page.
 Independent membership operations preserve concurrent additions, while metadata changes require a matching revision.
-The right sidebar follows the current note and shows its incoming links, outgoing links, and version history.
+Note details shows incoming links, outgoing links, version history, and deletion.
 Link lists bound the displayed neighborhood and report truncated results.
 
 Live preview is the only editor.
@@ -113,23 +116,9 @@ Affected notes receive recovery checkpoints and fresh revisions.
 Notes can share a title.
 The interface has no note filename, folder, tag, pin, or template controls.
 
-Explore notes shows real link directions without synthetic index notes.
-Select a topic to explore its neighbors, then use Open note to read or edit.
-Drag nodes to arrange them, drag the background to pan, and use the wheel or zoom controls to change scale.
-Arrow keys pan.
-Shift with an arrow moves the focused node.
-Fit graph restores the visible bounds, and Overview shows the collection without selecting a topic.
-Each view contains at most 120 notes and displays its count.
-Smaller viewports show fewer nodes and show direct neighbors first.
-Node buttons keep their target size, while labels appear where space permits and never intercept pointer input.
-The full title remains available through the `accessible name`, native tooltip, and selected-note heading.
-Visible labels wrap instead of shortening their titles with an ellipsis.
-The [D3 force simulation](https://d3js.org/d3-force/simulation) separates linked nodes and responds to dragging.
-Simulation stops after settling, after 1.8 seconds without interaction, while hidden, and when the graph closes.
-Reduced-motion preferences stop continuous animation.
-Rendering uses one scheduled frame and reuses existing edges, with at most 600 remembered node positions.
 Search covers the full collection, including disconnected notes.
-Creating a note from the graph adds a link to the selected topic.
+Linked-note lists preserve direction and open the selected note directly.
+The Web interface omits the graph explorer while retaining the server relationship API.
 
 Typing `[` suggests existing note titles at the cursor.
 Arrow keys select a suggestion, Enter or Tab inserts it, and Escape preserves the original text.

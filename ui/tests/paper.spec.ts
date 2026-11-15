@@ -120,7 +120,7 @@ test("continues Markdown lists and lets Tab leave the editor after Escape", asyn
   await expect(note).toHaveMarkdown("first\nsecond");
   await note.press("Escape");
   await note.press("Shift+Tab");
-  await expect(page.getByRole("button", { name: "Note context", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Note details", exact: true })).toBeFocused();
 });
 
 test("leaves composition unchanged with automatic typing assistance", async ({ page }) => {

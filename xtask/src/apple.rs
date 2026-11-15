@@ -461,12 +461,17 @@ struct TestServer {
 
 impl TestServer {
     fn start(root: &Path) -> Result<Self> {
+        ensure!(
+            cfg!(unix),
+            "the Apple integration server requires a Unix host"
+        );
         if !root.join("ui/dist/app.js").exists() {
             super::build_ui(root)?;
         }
         super::run(root, "cargo", &["build", "--locked", "--bin", "tungsten"])?;
         let directory = tempfile::tempdir()?;
         let data = directory.path().join("notes");
+        #[cfg(unix)]
         {
             let mut store = tungsten::store::Store::open(&data)?;
             let original = store.upload(

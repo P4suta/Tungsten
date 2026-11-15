@@ -7,7 +7,6 @@ export { type Summary, summaries } from "./catalog.js";
 import { initFileLinkGuard } from "./file-link-guard.js";
 import { removeFileLinks } from "./file-links.js";
 import { formatMarkdown, mappedCursor } from "./formatting.js";
-import { initHome } from "./home.js";
 import { initIcons } from "./icons.js";
 import { initInput, wrapSelection } from "./input.js";
 import { initLibrary } from "./library.js";
@@ -63,12 +62,9 @@ export interface FeatureController {
   open(name: string): Promise<void>;
   changed(): void;
   indexed(): Promise<void>;
-  filter(notes: Summary[]): Summary[];
   write(): void;
   anchor(fragment: string): Promise<void>;
   beforeSave(identity: string, text: string): Promise<void>;
-  home(): Promise<void>;
-  searchResults(notes: Summary[]): void;
 }
 
 function control<T extends HTMLElement>(id: string, kind: { new (): T }): T {
@@ -153,7 +149,6 @@ export function initFeatures(port: EditorPort): FeatureController {
   const quickSearch = control("quick-search", HTMLInputElement);
   const quickList = control("quick-results", HTMLUListElement);
   const fileLinks = initFileLinkGuard({ state: port.state, api: port.api, replace: replaceBody });
-  const home = initHome({ state: port.state, api: port.api, navigate, blank: port.blank });
   initTrash({ api: port.api, navigate, refresh: port.refresh, sidebar });
   const library = initLibrary({
     state: port.state,
@@ -749,9 +744,8 @@ export function initFeatures(port: EditorPort): FeatureController {
       control("new-note", HTMLButtonElement).click();
     } else if (key === "f" && event.shiftKey) {
       event.preventDefault();
-      openDialog(control("notes-dialog", HTMLDialogElement));
-      control("search", HTMLInputElement).focus();
-      void home.open();
+      sidebar.navigation("notes");
+      control("sidebar-search", HTMLInputElement).focus();
     } else if (event.target === body && !event.shiftKey && (key === "b" || key === "i")) {
       event.preventDefault();
       format(key === "b" ? "bold" : "italic");
@@ -768,14 +762,11 @@ export function initFeatures(port: EditorPort): FeatureController {
     open: navigate,
     changed,
     indexed,
-    filter,
     write: () => {
       sidebar.writing();
       live.show();
     },
     anchor,
     beforeSave: fileLinks.beforeSave,
-    home: home.open,
-    searchResults: home.search,
   };
 }

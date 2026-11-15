@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, selectAllMarkdown, test } from "./editor.js";
-import { exploreNotes } from "./interface.js";
 
 interface SavedNote {
   name: string;
@@ -335,11 +334,11 @@ test("keeps drafts available when ownership coordination is unavailable", async 
     await expect(other.getByRole("textbox", { name: "Note", exact: true })).toHaveMarkdown(
       note.body,
     );
-    await exploreNotes(other);
+    await other.getByRole("button", { name: "Recover drafts", exact: true }).click();
     const recover = other.getByRole("button", { name: "Recover Shared", exact: true });
     await expect(recover).toBeVisible();
     await recover.click();
-    await expect(other.getByRole("dialog", { name: "Explore notes", exact: true })).toBeHidden();
+    await expect(other.getByRole("dialog", { name: "Recover drafts", exact: true })).toBeHidden();
     await expect(other.getByRole("textbox", { name: "Note", exact: true })).toHaveMarkdown(draft);
     await expect(other.getByRole("textbox", { name: "Note", exact: true })).toBeFocused();
   } finally {

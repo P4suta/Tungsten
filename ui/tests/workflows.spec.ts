@@ -243,7 +243,7 @@ test("ignores retired appearance preferences and supports browser enlargement", 
   expect(await trash.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
   expect(await accessibilityViolations(page)).toEqual([]);
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Notes", exact: true })).toBeFocused();
 });
 
 test("creates internal note identities when randomUUID is unavailable", async ({ page }) => {

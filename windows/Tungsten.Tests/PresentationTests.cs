@@ -1,0 +1,193 @@
+using System.Net;
+using System.Text.Json;
+using Tungsten.Core;
+
+namespace Tungsten.Tests;
+
+public sealed class PresentationTests : IDisposable
+{
+    private readonly string directory = Path.Combine(Path.GetTempPath(), "tungsten-view-tests-" + Guid.NewGuid().ToString("N"));
+    private static readonly Uri Server = new("https://notes.example/");
+    private static readonly string Revision = "\"" + new string('a', 64) + "\"";
+    private sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> action) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => action(request);
+    }
+    private static HttpResponseMessage Response(object value) => new(HttpStatusCode.OK)
+    { Content = new StringContent(JsonSerializer.Serialize(value, new JsonSerializerOptions(JsonSerializerDefaults.Web))) };
+    private static NoteClient Client(Uri server) => new(server, new Handler(_ => Task.FromResult(Response(new Note("a.md", "remote", Revision)))));
+
+    [Fact]
+    public async Task CreatingAndSwitchingConnectionsPersistsEachServersInput()
+    {
+        var store = new AtomicDraftStore(directory); var model = new ClientModel(store, Client);
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "first server";
+        var first = model.Editor!.Current.Name;
+        await model.ConnectAsync(new("https://other.example/")); await model.NewAsync(); model.Body = "second server";
+        Assert.True(await model.CanLeaveAsync());
+        Assert.Equal("first server", Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+        Assert.NotEqual(first, model.Editor!.Current.Name);
+    }
+
+    [Fact]
+    public async Task DiskFailureBlocksNavigationConnectionChangeAndClosing()
+    {
+        var store = new AtomicDraftStore(directory); var model = new ClientModel(store, Client);
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "keep input";
+        Directory.Delete(directory, true); await File.WriteAllTextAsync(directory, "occupied");
+        Assert.False(await model.CanLeaveAsync());
+        await Assert.ThrowsAsync<IOException>(() => model.ConnectAsync(new("https://other.example/")));
+        Assert.Equal(Server, model.Client!.Origin); Assert.Equal("keep input", model.Body);
+    }
+
+    [Fact]
+    public async Task DelayedOpenPersistsInputTypedWhileLoading()
+    {
+        var reply = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new AtomicDraftStore(directory);
+        var model = new ClientModel(store, uri => new(uri, new Handler(_ => { requested.SetResult(); return reply.Task; })));
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "before";
+        var first = model.Editor!.Current.Name;
+        var opening = model.OpenAsync("a.md"); await requested.Task; model.Body = "typed while loading";
+        reply.SetResult(Response(new Note("a.md", "remote", Revision))); await opening;
+        Assert.Equal("typed while loading", (await store.LoadAsync(Server)).Drafts.Single(d => d.Name == first).Body);
+        Assert.Equal("remote", model.Body);
+    }
+
+    [Fact]
+    public async Task SaveAsNewKeepsTheOriginalDraftAndUsesAnotherIdentity()
+    {
+        var store = new AtomicDraftStore(directory); var model = new ClientModel(store, Client);
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "copy";
+        var original = model.Editor!.Current.Name; await model.SaveAsNewAsync();
+        Assert.NotEqual(original, model.Editor!.Current.Name); Assert.Equal("copy", model.Body);
+        Assert.Equal(2, (await store.LoadAsync(Server)).Drafts.Length);
+    }
+
+    [Fact]
+    public async Task CommandsFollowConnectionAndSavedNoteAvailability()
+    {
+        var model = new ClientModel(new AtomicDraftStore(directory), Client);
+        Assert.False(model.HasConnection); Assert.False(model.HasSavedNote);
+        await model.ConnectAsync(Server);
+        Assert.True(model.HasConnection); Assert.False(model.HasSavedNote);
+        await model.NewAsync(); Assert.True(model.HasEditor); Assert.False(model.HasSavedNote);
+        await model.OpenAsync("a.md"); Assert.True(model.HasSavedNote);
+    }
+
+    [Fact]
+    public void NativeListItemsSpeakTitlesInsteadOfRecordRepresentations()
+    {
+        Assert.Equal("Writing", new Summary("a.md", "Writing").ToString());
+        Assert.Equal("Earlier writing", new SavedNote(new string('a', 32), "a.md", "Earlier writing", 1, Revision).ToString());
+    }
+
+    [Fact]
+    public async Task ExplicitDiscardRemovesAnUnsentDraftAndReloadsASavedNote()
+    {
+        var store = new AtomicDraftStore(directory); var model = new ClientModel(store, Client);
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "discard";
+        await model.DiscardAsync(); Assert.False(model.HasEditor);
+        Assert.Empty((await store.LoadAsync(Server)).Drafts);
+        await model.OpenAsync("a.md"); model.Body = "local changes";
+        await model.DiscardAsync(); Assert.Equal("remote", model.Body);
+        Assert.Equal("remote", Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+    }
+
+    [Fact]
+    public async Task AutosaveCheckpointsLaterInputWhileTheNetworkActionIsBusy()
+    {
+        var requested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reply = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new AtomicDraftStore(directory);
+        var model = new ClientModel(store, uri => new(uri, new Handler(_ => { requested.SetResult(); return reply.Task; })));
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "outgoing";
+        var name = model.Editor!.Current.Name; var saving = model.SaveAsync(); await requested.Task;
+        model.Body = "typed while sending"; var sent = false;
+        try
+        {
+            await model.AutosaveAsync(false, true, () => { sent = true; return Task.CompletedTask; }).WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.False(sent);
+            Assert.Equal("typed while sending", Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+        }
+        finally { reply.TrySetResult(Response(new Note(name, "outgoing", Revision))); await saving; }
+    }
+
+    [Fact]
+    public async Task AutosaveDefersCompositionAndStopsSendingAfterLocalStorageFails()
+    {
+        var store = new AtomicDraftStore(directory); var model = new ClientModel(store, Client);
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "composition";
+        var sent = false; Task Send() { sent = true; return Task.CompletedTask; }
+        await model.AutosaveAsync(true, false, Send);
+        Assert.False(sent); Assert.Equal("", Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+        Directory.Delete(directory, true); await File.WriteAllTextAsync(directory, "occupied");
+        await model.AutosaveAsync(false, false, Send);
+        Assert.False(sent); Assert.Contains("could not be stored", model.Problem);
+        Assert.Equal("composition", model.Body);
+    }
+
+    private sealed class DelayedRepository(AtomicDraftStore store) : IDraftRepository
+    {
+        public Func<Draft, bool>? Pause { get; set; }
+        public TaskCompletionSource Held { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Released { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task WriteAsync(Draft draft, CancellationToken cancellation = default)
+        {
+            await store.WriteAsync(draft, cancellation);
+            if (Pause?.Invoke(draft) == true) { Pause = null; Held.SetResult(); await Released.Task; }
+        }
+        public Task<DraftRecovery> LoadAsync(Uri server) => store.LoadAsync(server);
+        public Task RemoveAsync(Draft draft) => store.RemoveAsync(draft);
+    }
+
+    [Theory]
+    [InlineData("open")]
+    [InlineData("create")]
+    [InlineData("copy")]
+    public async Task InputDuringTheDestinationsFinalWriteRemainsInThePreviousDraft(string operation)
+    {
+        var store = new AtomicDraftStore(directory); var repository = new DelayedRepository(store);
+        var model = new ClientModel(repository, Client);
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "before navigation";
+        var original = model.Editor!.Current.Name;
+        repository.Pause = draft => draft.Name != original;
+        var navigating = operation switch { "open" => model.OpenAsync("a.md"), "create" => model.NewAsync(), _ => model.SaveAsNewAsync() };
+        try { await repository.Held.Task.WaitAsync(TimeSpan.FromSeconds(2)); model.Body = "typed during final write"; }
+        finally { repository.Released.TrySetResult(); }
+        await navigating;
+        Assert.Equal("typed during final write", (await store.LoadAsync(Server)).Drafts.Single(d => d.Name == original).Body);
+    }
+
+    [Fact]
+    public async Task SelectingTheCurrentNoteKeepsItsEditorAndUndoScope()
+    {
+        var model = new ClientModel(new AtomicDraftStore(directory), Client);
+        await model.ConnectAsync(Server); await model.OpenAsync("a.md"); model.Body = "local";
+        var editor = model.Editor; await model.OpenAsync("a.md");
+        Assert.Same(editor, model.Editor); Assert.Equal("local", model.Body);
+    }
+
+    [Fact]
+    public async Task DiscardDoesNotReplaceInputTypedAfterConfirmation()
+    {
+        var reading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reply = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requests = 0; var store = new AtomicDraftStore(directory);
+        var model = new ClientModel(store, uri => new(uri, new Handler(_ =>
+        {
+            if (++requests == 1) return Task.FromResult(Response(new Note("a.md", "remote", Revision)));
+            reading.SetResult(); return reply.Task;
+        })));
+        await model.ConnectAsync(Server); await model.OpenAsync("a.md"); model.Body = "confirmed discard";
+        var discarding = model.DiscardAsync(); await reading.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        model.Body = "typed after confirmation"; reply.SetResult(Response(new Note("a.md", "remote", Revision)));
+        await Assert.ThrowsAsync<IOException>(() => discarding);
+        Assert.Equal("typed after confirmation", model.Body);
+        Assert.Equal(model.Body, Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+    }
+
+    public void Dispose()
+    { if (Directory.Exists(directory)) Directory.Delete(directory, true); else if (File.Exists(directory)) File.Delete(directory); }
+}

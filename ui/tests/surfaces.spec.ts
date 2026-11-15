@@ -2,7 +2,7 @@ import { accessibilityViolations } from "./accessibility.js";
 import { expect, pressShortcut, test } from "./editor.js";
 import { clippedIcons } from "./icon-bounds.js";
 import { missingIcons } from "./icons-check.js";
-import { exploreNotes, openContext, openNavigation, openTrash } from "./interface.js";
+import { openContext, openNavigation, openTrash } from "./interface.js";
 
 test("reloads Trash after returning while an earlier request is pending", async ({
   page,
@@ -140,57 +140,4 @@ test("keeps icons inside their view boxes and rejects a clipped fixture", async 
   expect(await page.evaluate(clippedIcons, "padded" as const)).toEqual([]);
   await openNavigation(page);
   expect(await page.evaluate(clippedIcons, null)).toEqual([]);
-});
-
-test("keeps complete graph titles and stops simulation after closing or reduced motion", async ({
-  page,
-  request,
-}) => {
-  const title = "A complete title that remains readable after zooming into a connected thought";
-  await request.post("/api/notes", {
-    data: { name: "Long-title.md", body: `# ${title}\n\n[Neighbor](Neighbor.md)\n` },
-  });
-  await request.post("/api/notes", { data: { name: "Neighbor.md", body: "# Neighbor\n" } });
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/?note=Long-title.md");
-  await exploreNotes(page);
-  const graph = page.getByRole("region", { name: "Note graph", exact: true });
-  const node = graph.getByRole("button", { name: `Explore ${title}`, exact: true });
-  await expect(node.locator("span")).toHaveText(title);
-  await expect(node.locator("span")).toHaveCSS("text-overflow", "clip");
-  await expect(page.locator("#graph-selection")).toContainText(title);
-  await expect(graph).toHaveAttribute("data-motion", "idle");
-  const scale = await graph.getAttribute("data-scale");
-  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
-  expect(await graph.getAttribute("data-scale")).not.toBe(scale);
-  for (const key of ["+", "-", "="]) {
-    const accepted = await node.evaluate(
-      (element, key) =>
-        element.dispatchEvent(
-          new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true, cancelable: true }),
-        ),
-      key,
-    );
-    expect(accepted).toBe(true);
-  }
-  for (let index = 0; index < 10; index++)
-    await page.getByRole("button", { name: "Zoom out", exact: true }).click();
-  await expect(graph.locator("button")).toHaveCount(2);
-  const overlapping = await graph.locator("button").evaluateAll((buttons) => {
-    const boxes = buttons.map((button) => button.getBoundingClientRect());
-    return boxes.some((box, index) =>
-      boxes
-        .slice(index + 1)
-        .some(
-          (other) =>
-            box.left < other.right &&
-            box.right > other.left &&
-            box.top < other.bottom &&
-            box.bottom > other.top,
-        ),
-    );
-  });
-  expect(overlapping).toBe(false);
-  await page.getByRole("dialog", { name: "Explore notes", exact: true }).press("Escape");
-  await expect(page.locator("#home-graph")).toHaveAttribute("data-motion", "idle");
 });

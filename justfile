@@ -1,3 +1,5 @@
+set windows-shell := ["pwsh.exe", "-NoProfile", "-Command"]
+
 default:
     @just --list
 
@@ -15,6 +17,9 @@ apple *args:
 
 linux *args:
     mise x -- cargo xtask linux {{ args }}
+
+windows *args:
+    mise x -- cargo xtask windows {{ args }}
 
 format:
     mise x -- cargo xtask format

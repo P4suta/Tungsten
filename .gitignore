@@ -16,3 +16,7 @@
 /apple/.build/
 /apple/.swiftpm/
 /apple/Tungsten.xcodeproj/
+/windows/**/bin/
+/windows/**/obj/
+/windows/**/AppPackages/
+/windows/**/Properties/launchSettings.json

@@ -15,6 +15,7 @@ jobs:
     outputs:
       apple: ${{ steps.apple-scope.outputs.affected }}
       linux: ${{ steps.linux-scope.outputs.affected }}
+      windows: ${{ steps.windows-scope.outputs.affected }}
     env:
       PROSE_SOURCE: ${{ github.workspace }}/target/shared-tools
     steps:
@@ -51,6 +52,10 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: mise x -- just linux affected --base "$BASE_SHA" --head "$GITHUB_SHA" --output "$GITHUB_OUTPUT"
+      - id: windows-scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: mise x -- just windows affected --base "$BASE_SHA" --head "$GITHUB_SHA" --output "$GITHUB_OUTPUT"
       - run: npm --prefix ui ci
       - run: npm --prefix ui exec -- playwright install --with-deps chromium firefox webkit
       - run: mise x -- just check
@@ -113,12 +118,71 @@ jobs:
       - run: mise x -- npm --prefix ui ci
       - run: mise x -- npm --prefix ui run build
       - run: mise x -- just linux check
+  windows-contracts:
+    name: Check Windows server contracts
+    needs: check
+    if: needs.check.outputs.windows == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
+        with:
+          version: 2026.11.4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.nuget/packages
+            ~/.npm
+            target
+          key: windows-contracts-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'windows/**/*.lock.json', 'ui/package-lock.json', 'mise.toml') }}
+      - run: mise x -- just windows contracts
+  windows:
+    name: Check Windows app
+    needs: check
+    if: needs.check.outputs.windows == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
+        with:
+          version: 2026.11.4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.nuget/packages
+            target
+          key: windows-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'windows/**/*.lock.json', 'mise.toml') }}
+      - name: Enable development package deployment
+        shell: pwsh
+        run: |
+          $developmentKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock'
+          New-Item -Path $developmentKey -Force | Out-Null
+          Set-ItemProperty -Path $developmentKey -Name AllowDevelopmentWithoutDevLicense -Value 1 -Type DWord
+      - run: mise x -- just windows check --native-only
+      - run: mise x -- just windows ui
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: windows-native-ui
+          path: target/windows-ui-*.png
+          retention-days: 7
+          if-no-files-found: warn
   complete:
     name: Check applicable targets
-    needs: [check, apple, linux]
+    needs: [check, apple, linux, windows-contracts, windows]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
-      - if: needs.check.result != 'success' || (needs.apple.result != 'success' && needs.apple.result != 'skipped') || (needs.linux.result != 'success' && needs.linux.result != 'skipped')
+      - if: needs.check.result != 'success' || (needs.apple.result != 'success' && needs.apple.result != 'skipped') || (needs.linux.result != 'success' && needs.linux.result != 'skipped') || (needs.windows-contracts.result != 'success' && needs.windows-contracts.result != 'skipped') || (needs.windows.result != 'success' && needs.windows.result != 'skipped')
         run: exit 1
