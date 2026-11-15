@@ -747,13 +747,6 @@ fn ui(root: &Path, app: Option<u32>) -> Result<()> {
         ])?;
         ensure!(fs::metadata(capture)?.len() > 0, "UI capture is missing");
         execute(&["focus", "Editor"])?;
-        execute(&[
-            "send-keys",
-            "alt+space s right left left",
-            "--via",
-            "send-input",
-            "--allow-system-keys",
-        ])?;
         let measurement = || -> Result<(f64, f64)> {
             window_measurement(&super::output(
                 root,
@@ -769,35 +762,24 @@ fn ui(root: &Path, app: Option<u32>) -> Result<()> {
                 ],
             )?)
         };
-        let (before, scale) = measurement()?;
-        execute(&["send-keys", "left", "--via", "send-input"])?;
-        let (width, _) = measurement()?;
-        let step = before - width;
-        ensure!(
-            step > 0.0 && step <= 64.0 * scale,
-            "native keyboard sizing did not change window width"
-        );
-        let mut width = width;
-        let mut attempts = 0;
-        while width > 600.0 * scale {
-            let steps = (((width - 600.0 * scale) / step).ceil() as usize).clamp(1, 8);
-            execute(&[
-                "send-keys",
-                &vec!["left"; steps].join(" "),
-                "--via",
-                "send-input",
-            ])?;
-            let (measured, _) = measurement()?;
-            ensure!(measured < width, "native sizing stopped at width={width}");
-            width = measured;
-            attempts += 1;
-            ensure!(attempts < 128, "native sizing exceeded its bound");
-        }
-        execute(&["send-keys", "enter", "--via", "send-input"])?;
+        let drag = narrow_window_drag(&super::output(
+            root,
+            "winapp",
+            &[
+                "ui",
+                "inspect",
+                "Editor",
+                "--ancestors",
+                "-a",
+                &pid,
+                "--json",
+            ],
+        )?)?;
+        execute(&["drag", "--", &drag.from.argument(), &drag.to.argument()])?;
         let (width, scale) = measurement()?;
         ensure!(
             (320.0..=640.0).contains(&(width / scale)),
-            "native narrow window is outside the test range: width={width} scale={scale}"
+            "native narrow window is outside the test range: width={width} scale={scale} drag={drag:?}"
         );
         audit_ui(&super::output(
             root,
@@ -936,15 +918,19 @@ fn launch_ui(root: &Path) -> Result<u32> {
 }
 
 fn ui_execute(root: &Path, pid: &str, args: &[&str]) -> Result<()> {
-    let mut command = vec!["ui"];
-    command.extend_from_slice(args);
-    command.extend(["-a", pid, "--json"]);
     super::run_env(
         root,
         "winapp",
-        &command,
+        &ui_arguments(pid, args)?,
         &[("WINAPP_UI_WORKFLOW_ID", &format!("tungsten-ui-{pid}"))],
     )
+}
+
+fn ui_arguments<'a>(pid: &'a str, args: &[&'a str]) -> Result<Vec<&'a str>> {
+    let (action, arguments) = args.split_first().context("missing native UI action")?;
+    let mut command = vec!["ui", *action, "-a", pid, "--json"];
+    command.extend_from_slice(arguments);
+    Ok(command)
 }
 
 fn ui_property(root: &Path, pid: &str, property: &str) -> Result<String> {
@@ -1129,6 +1115,59 @@ fn window_measurement(source: &str) -> Result<(f64, f64)> {
         "invalid native window measurement"
     );
     Ok((width, scale))
+}
+
+#[derive(Debug, PartialEq)]
+struct ScreenPoint {
+    x: f64,
+    y: f64,
+}
+
+impl ScreenPoint {
+    fn argument(&self) -> String {
+        format!("{:.0},{:.0}", self.x, self.y)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct WindowDrag {
+    from: ScreenPoint,
+    to: ScreenPoint,
+}
+
+fn narrow_window_drag(source: &str) -> Result<WindowDrag> {
+    let (width, scale) = window_measurement(source)?;
+    let value: serde_json::Value = serde_json::from_str(source)?;
+    let root = &value["windows"][0]["elements"][0];
+    let coordinate = |name: &str| -> Result<f64> {
+        let value = root[name]
+            .as_f64()
+            .context("missing native window coordinate")?;
+        ensure!(
+            value.is_finite() && value.abs() < 100_000.0,
+            "invalid native window coordinate"
+        );
+        Ok(value)
+    };
+    let x = coordinate("x")?;
+    let y = coordinate("y")?;
+    let height = coordinate("height")?;
+    let inset = 2.0 * scale;
+    ensure!(
+        height > inset * 2.0 && width > 640.0 * scale,
+        "native window must begin at a wide size"
+    );
+    let middle = y + height / 2.0;
+    Ok(WindowDrag {
+        from: ScreenPoint {
+            x: x + width - inset,
+            y: middle,
+        },
+        to: ScreenPoint {
+            x: x + 600.0 * scale - inset,
+            y: middle,
+        },
+    })
 }
 
 fn controls_overlap(first: &serde_json::Value, second: &serde_json::Value) -> Result<bool> {
@@ -1378,6 +1417,78 @@ mod tests {
             )
             .unwrap()
         );
+    }
+
+    #[test]
+    fn native_resize_uses_screen_bounds_and_effective_pixels() {
+        for (scale, x, y, width, height, from, to) in [
+            (1.0, 100, 200, 754, 512, "852,456", "698,456"),
+            (1.5, -1920, -200, 1800, 1050, "-123,325", "-1023,325"),
+        ] {
+            let source = serde_json::json!({"windows":[{"scale":scale,"elements":[{
+                "type":"Window","x":x,"y":y,"width":width,"height":height
+            }]}]});
+            let drag = narrow_window_drag(&source.to_string()).unwrap();
+            assert_eq!(drag.from.argument(), from);
+            assert_eq!(drag.to.argument(), to);
+        }
+    }
+
+    #[test]
+    fn native_ui_options_precede_the_negative_coordinate_separator() {
+        assert_eq!(
+            ui_arguments("42", &["drag", "--", "-123,325", "-1023,325"]).unwrap(),
+            [
+                "ui",
+                "drag",
+                "-a",
+                "42",
+                "--json",
+                "--",
+                "-123,325",
+                "-1023,325"
+            ]
+        );
+        assert_eq!(
+            ui_arguments("42", &["send-keys", "ctrl+y", "--via", "send-input"]).unwrap(),
+            [
+                "ui",
+                "send-keys",
+                "-a",
+                "42",
+                "--json",
+                "ctrl+y",
+                "--via",
+                "send-input"
+            ]
+        );
+        assert!(ui_arguments("42", &[]).is_err());
+    }
+
+    #[test]
+    fn native_resize_rejects_incomplete_or_unusable_window_bounds() {
+        let source = serde_json::json!({"windows":[{"scale":1.0,"elements":[{
+            "type":"Window","x":100,"y":200,"width":754,"height":512
+        }]}]});
+        for name in ["x", "y", "width", "height"] {
+            for invalid in [serde_json::Value::Null, "100".into(), 100_000.into()] {
+                let mut invalid_source = source.clone();
+                invalid_source["windows"][0]["elements"][0][name] = invalid;
+                assert!(narrow_window_drag(&invalid_source.to_string()).is_err());
+            }
+        }
+        for (name, value) in [("height", 0), ("height", -512), ("width", 640)] {
+            let mut invalid_source = source.clone();
+            invalid_source["windows"][0]["elements"][0][name] = value.into();
+            assert!(narrow_window_drag(&invalid_source.to_string()).is_err());
+        }
+        for scale in [0.0, -1.0, 11.0] {
+            let mut invalid_source = source.clone();
+            invalid_source["windows"][0]["scale"] = scale.into();
+            assert!(narrow_window_drag(&invalid_source.to_string()).is_err());
+        }
+        assert!(narrow_window_drag("{}").is_err());
+        assert!(narrow_window_drag("{").is_err());
     }
 
     #[test]
