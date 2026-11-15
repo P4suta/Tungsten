@@ -35,7 +35,7 @@ public static class LiveMarkdown
         }
         foreach (var quote in document.Descendants().OfType<QuoteBlock>())
         {
-            var start = quote.Span.Start; var end = quote.Span.End + 1;
+            var start = quote.Span.Start; var end = Math.Min(quote.Span.End + 1, source.Length);
             Add(start, end, MarkdownStyle.Quote);
             if (Active(start, end)) continue;
             for (var line = start; line < end;)
@@ -48,7 +48,7 @@ public static class LiveMarkdown
         }
         foreach (var block in document.Descendants().OfType<LeafBlock>())
         {
-            var start = block.Span.Start; var end = block.Span.End + 1;
+            var start = block.Span.Start; var end = Math.Min(block.Span.End + 1, source.Length);
             if (block is HeadingBlock { IsSetext: false }) end = LineEnd(start);
             var lineStart = start == 0 ? 0 : source.LastIndexOfAny(['\r', '\n'], start - 1) + 1;
             var active = Active(lineStart, end);
@@ -79,9 +79,14 @@ public static class LiveMarkdown
                     var firstEnd = start;
                     while (firstEnd < end && source[firstEnd] is not ('\r' or '\n')) firstEnd++;
                     Hide(start, firstEnd);
-                    var lastStart = end;
-                    while (lastStart > firstEnd && source[lastStart - 1] is not ('\r' or '\n')) lastStart--;
-                    if (lastStart > firstEnd && source[lastStart] == fenced.FencedChar) Hide(lastStart, end);
+                    if (fenced.ClosingFencedCharCount > 0 && fenced.ClosingFencedCharCount >= fenced.OpeningFencedCharCount)
+                    {
+                        var closeEnd = end;
+                        while (closeEnd > firstEnd && char.IsWhiteSpace(source[closeEnd - 1])) closeEnd--;
+                        var closeStart = closeEnd - fenced.ClosingFencedCharCount;
+                        if (closeStart > firstEnd && source.AsSpan(closeStart, fenced.ClosingFencedCharCount).IndexOfAnyExcept(fenced.FencedChar) < 0)
+                            Hide(closeStart, end);
+                    }
                 }
                 continue;
             }

@@ -37,13 +37,14 @@ public sealed class EditorSession
         finally { persistence.Release(); }
     }
     public Task<bool> CheckpointAsync() => PersistAsync();
-    public async Task SaveAsync()
+    public async Task SaveAsync(Func<bool>? canSend = null)
     {
         await operations.WaitAsync();
         try
         {
-            if (!SavePolicy.CanSend(Current)) return;
+            if (canSend?.Invoke() == false || !SavePolicy.CanSend(Current)) return;
             await PersistAsync();
+            if (canSend?.Invoke() == false) return;
             Rules.Body(Current.Body);
             Draft outgoing;
             lock (sync)
@@ -54,6 +55,11 @@ public sealed class EditorSession
             try
             {
                 await PersistAsync();
+                if (canSend?.Invoke() == false)
+                {
+                    lock (sync) current = current with { Pending = null };
+                    await PersistAsync(); return;
+                }
                 var note = await service.SaveAsync(outgoing);
                 lock (sync) current = SavePolicy.Acknowledge(current, outgoing, note);
                 await PersistAsync();

@@ -41,7 +41,8 @@ public sealed class MarkdownSource
         var first = Source.IndexOfAny(['\r', '\n']);
         if (first >= 0) newline = Source[first] == '\n' ? "\n" : first + 1 < Source.Length && Source[first + 1] == '\n' ? "\r\n" : "\r";
         var inserted = nativeText[prefix..(nativeText.Length - suffix)].Replace("\r", newline, StringComparison.Ordinal);
-        Reset(Source[..ToSource(prefix)] + inserted + Source[ToSource(previous.Length - suffix)..]);
+        Reset(Join(Join(Source[..ToSource(prefix)], inserted), Source[ToSource(previous.Length - suffix)..]));
     }
+    private static string Join(string left, string right) => left.EndsWith('\r') && right.StartsWith('\n') ? left + "\r" + right : left + right;
     public static string Normalize(string value) => value.Replace("\r\n", "\r", StringComparison.Ordinal).Replace('\n', '\r');
 }

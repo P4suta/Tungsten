@@ -128,6 +128,87 @@ public sealed class PresentationTests : IDisposable
         Assert.Equal("composition", model.Body);
     }
 
+    [Fact]
+    public async Task AutosaveDoesNotSendWhenCompositionStartsDuringItsCheckpoint()
+    {
+        var store = new DelayedRepository(new AtomicDraftStore(directory));
+        var composing = false;
+        var model = new ClientModel(store, Client, () => !composing);
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "before composition";
+        store.Pause = _ => true;
+        var sent = false;
+        var saving = model.AutosaveAsync(composing, false, () => { sent = true; return Task.CompletedTask; });
+        try { await store.Held.Task.WaitAsync(TimeSpan.FromSeconds(2)); composing = true; }
+        finally { store.Released.TrySetResult(); }
+        await saving;
+        Assert.True(composing); Assert.False(sent);
+    }
+
+    [Fact]
+    public async Task ACheckpointDoesNotAuthorizeLeavingAfterCompositionStarts()
+    {
+        var store = new DelayedRepository(new AtomicDraftStore(directory));
+        var composing = false;
+        var model = new ClientModel(store, Client, () => !composing);
+        await model.ConnectAsync(Server); await model.NewAsync();
+        store.Pause = _ => true;
+        var leaving = model.CanLeaveAsync();
+        try { await store.Held.Task.WaitAsync(TimeSpan.FromSeconds(2)); composing = true; }
+        finally { store.Released.TrySetResult(); }
+        Assert.True(composing); Assert.False(await leaving);
+        composing = false; Assert.Equal("", model.Problem);
+    }
+
+    [Fact]
+    public async Task NavigationKeepsTheCurrentEditorWhenCompositionStartsDuringARead()
+    {
+        var reply = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var composing = false;
+        var model = new ClientModel(new AtomicDraftStore(directory), uri => new(uri, new Handler(_ => { requested.SetResult(); return reply.Task; })), () => !composing);
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "keep the composing note";
+        var editor = model.Editor;
+        var opening = model.OpenAsync("a.md");
+        await requested.Task.WaitAsync(TimeSpan.FromSeconds(2)); composing = true;
+        reply.SetResult(Response(new Note("a.md", "remote", Revision)));
+        await Assert.ThrowsAsync<CompositionInProgressException>(() => opening);
+        Assert.True(composing); Assert.Same(editor, model.Editor); Assert.Equal("keep the composing note", model.Body);
+    }
+
+    [Theory]
+    [InlineData("open")]
+    [InlineData("create")]
+    [InlineData("copy")]
+    public async Task CompositionDuringTheDestinationWriteKeepsTheCurrentEditor(string operation)
+    {
+        var composing = false;
+        var store = new DelayedRepository(new AtomicDraftStore(directory));
+        var model = new ClientModel(store, Client, () => !composing);
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "keep the current note";
+        var editor = model.Editor; store.Pause = draft => draft.Name != editor!.Current.Name;
+        var opening = operation switch { "open" => model.OpenAsync("a.md"), "create" => model.NewAsync(), _ => model.SaveAsNewAsync() };
+        try { await store.Held.Task.WaitAsync(TimeSpan.FromSeconds(2)); composing = true; }
+        finally { store.Released.TrySetResult(); }
+        await Assert.ThrowsAsync<CompositionInProgressException>(() => opening);
+        Assert.Same(editor, model.Editor); Assert.Equal("keep the current note", model.Body);
+    }
+
+    [Fact]
+    public async Task CompositionBeforeTransmissionClearsTheUnsentPendingWrite()
+    {
+        var composing = false; var sent = false;
+        var store = new DelayedRepository(new AtomicDraftStore(directory));
+        var model = new ClientModel(store, uri => new(uri, new Handler(_ => { sent = true; throw new InvalidOperationException("No request should be sent during composition."); })), () => !composing);
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "keep unsent input";
+        store.Pause = draft => draft.Pending is not null;
+        var saving = model.SaveAsync();
+        try { await store.Held.Task.WaitAsync(TimeSpan.FromSeconds(2)); composing = true; }
+        finally { store.Released.TrySetResult(); }
+        await saving.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(sent); Assert.Null(model.Editor!.Current.Pending); Assert.True(model.Editor.IsDurable);
+        Assert.Equal("keep unsent input", model.Body);
+    }
+
     private sealed class DelayedRepository(AtomicDraftStore store) : IDraftRepository
     {
         public Func<Draft, bool>? Pause { get; set; }

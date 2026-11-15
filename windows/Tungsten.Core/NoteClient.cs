@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace Tungsten.Core;
 
-public sealed class NoteClient(Uri origin, HttpMessageHandler? handler = null) : INoteService, IDisposable
+public sealed class NoteClient(Uri origin, HttpMessageHandler? handler = null, TimeProvider? timeProvider = null) : INoteService, IDisposable
 {
     public Uri Origin { get; } = Rules.Origin(origin.AbsoluteUri, true);
     private readonly HttpClient http = new(handler ?? new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(120) };
@@ -41,10 +41,12 @@ public sealed class NoteClient(Uri origin, HttpMessageHandler? handler = null) :
     }
     private async Task<T> JsonAsync<T>(HttpRequestMessage request, CancellationToken cancellation = default)
     {
+        using var deadline = new CancellationTokenSource(http.Timeout, timeProvider ?? TimeProvider.System);
+        using var scope = CancellationTokenSource.CreateLinkedTokenSource(cancellation, deadline.Token);
         using (request)
-        using (var response = await SendAsync(request, cancellation))
+        using (var response = await SendAsync(request, scope.Token))
         {
-            using var bytes = new MemoryStream(); await CopyBoundedAsync(response, bytes, 8 * Rules.MaxNoteBytes, cancellation);
+            using var bytes = new MemoryStream(); await CopyBoundedAsync(response, bytes, 8 * Rules.MaxNoteBytes, scope.Token);
             try { return JsonSerializer.Deserialize<T>(bytes.ToArray(), Json) ?? throw new InvalidDataException("Missing response."); }
             catch (JsonException error) { throw new InvalidDataException("Invalid server response.", error); }
         }
@@ -88,9 +90,9 @@ public sealed class NoteClient(Uri origin, HttpMessageHandler? handler = null) :
         if (note.Body != draft.Body) throw new InvalidDataException("Unexpected saved text.");
         return note;
     }
-    public async Task<NotePage> NotesAsync(string query = "", string? cursor = null)
+    public async Task<NotePage> NotesAsync(string query = "", string? cursor = null, CancellationToken cancellation = default)
     {
-        var page = await JsonAsync<NotePage>(Request(HttpMethod.Get, ["api", "notes"], query: Query(("paged", "true"), ("limit", "50"), ("q", query), ("cursor", cursor))));
+        var page = await JsonAsync<NotePage>(Request(HttpMethod.Get, ["api", "notes"], query: Query(("paged", "true"), ("limit", "50"), ("q", query), ("cursor", cursor))), cancellation);
         Page(page.Notes, SummaryIdentity, 50, page.Next, cursor);
         if (page.Total < page.Notes.Length) throw new InvalidDataException("Invalid total."); return page;
     }
@@ -162,19 +164,21 @@ public sealed class NoteClient(Uri origin, HttpMessageHandler? handler = null) :
             return CheckAttachment(await JsonAsync<Attachment>(request));
         }
     }
-    public async Task DownloadAsync(Attachment attachment, string path)
+    public async Task DownloadAsync(Attachment attachment, string path, CancellationToken cancellation = default)
     {
         CheckAttachment(attachment);
+        using var deadline = new CancellationTokenSource(http.Timeout, timeProvider ?? TimeProvider.System);
+        using var scope = CancellationTokenSource.CreateLinkedTokenSource(cancellation, deadline.Token);
         using var request = Request(HttpMethod.Get, [".attachments", attachment.Id]);
-        using var response = await SendAsync(request);
+        using var response = await SendAsync(request, scope.Token);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             await using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, FileOptions.Asynchronous))
             {
-                await CopyBoundedAsync(response, file, Rules.MaxAttachmentBytes);
+                await CopyBoundedAsync(response, file, Rules.MaxAttachmentBytes, scope.Token);
                 if (file.Length != attachment.Bytes) throw new InvalidDataException("Incomplete original attachment.");
-                await file.FlushAsync(); file.Flush(true);
+                await file.FlushAsync(scope.Token); file.Flush(true);
             }
             File.Move(temporary, path, true);
         }

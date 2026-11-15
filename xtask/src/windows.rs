@@ -31,10 +31,7 @@ pub enum Action {
         arch: Architecture,
     },
     Contracts,
-    Ui {
-        #[arg(long)]
-        app: Option<u32>,
-    },
+    Ui,
     Affected {
         #[arg(long)]
         base: String,
@@ -118,7 +115,7 @@ pub fn run(root: &Path, action: Action) -> Result<()> {
             )
         }
         Action::Contracts => contracts(root),
-        Action::Ui { app } => ui(root, app),
+        Action::Ui => ui(root),
         Action::Affected { base, head, output } => {
             for revision in [&base, &head] {
                 ensure!(
@@ -495,31 +492,36 @@ fn open_connection_settings(root: &Path, pid: &str) -> Result<()> {
         ui_execute(root, pid, &["invoke", "TogglePaneButton"])?;
     }
     ui_execute(root, pid, &["wait-for", "ConnectionSettings", "-t", "5000"])?;
-    ui_execute(root, pid, &["invoke", "ConnectionSettings"])
+    ui_execute(root, pid, &["invoke", "ConnectionSettings"])?;
+    ui_execute(
+        root,
+        pid,
+        &[
+            "wait-for",
+            "ServerAddress",
+            "-p",
+            "IsOffscreen",
+            "--value",
+            "False",
+            "-t",
+            "5000",
+        ],
+    )
 }
-fn ui(root: &Path, app: Option<u32>) -> Result<()> {
+fn ui(root: &Path) -> Result<()> {
     native()?;
-    let owned = app.is_none();
-    let app = match app {
-        Some(app) => {
-            ensure!(app > 0, "app PID must be positive");
-            app
-        }
-        None => {
-            let existing = super::output(
-                root,
-                "winapp",
-                &["ui", "list-windows", "-a", "Tungsten", "--json"],
-            )?;
-            ensure!(
-                serde_json::from_str::<serde_json::Value>(&existing)?
-                    .as_array()
-                    .is_some_and(Vec::is_empty),
-                "close existing Tungsten windows before starting the isolated UI workflow"
-            );
-            launch_ui(root)?
-        }
-    };
+    let existing = super::output(
+        root,
+        "winapp",
+        &["ui", "list-windows", "-a", "Tungsten", "--json"],
+    )?;
+    ensure!(
+        serde_json::from_str::<serde_json::Value>(&existing)?
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "close existing Tungsten windows before starting the isolated UI workflow"
+    );
+    let app = launch_ui(root)?;
     let pid = app.to_string();
     let draft_title = format!("Windows UI regression draft {app}");
     let draft_text = format!("# {draft_title}");
@@ -531,9 +533,7 @@ fn ui(root: &Path, app: Option<u32>) -> Result<()> {
     let result = (|| -> Result<()> {
         open_connection_settings(root, &pid)?;
         execute(&["wait-for", "ServerAddress", "-t", "5000"])?;
-        if owned {
-            check_single_instance(root, &pid)?;
-        }
+        check_single_instance(root, &pid)?;
         audit_ui(&super::output(
             root,
             "winapp",
@@ -731,6 +731,17 @@ fn ui(root: &Path, app: Option<u32>) -> Result<()> {
         execute(&["send-keys", "ctrl+z", "--via", "send-input"])?;
         expect_ui_source(root, &pid, &live_text)?;
         open_connection_settings(root, &pid)?;
+        execute(&["focus", "ServerAddress"])?;
+        execute(&["send-keys", "f6", "--via", "send-input"])?;
+        let focused: serde_json::Value = serde_json::from_str(&super::output(
+            root,
+            "winapp",
+            &["ui", "get-focused", "-a", &pid, "--json"],
+        )?)?;
+        ensure!(
+            focused["element"]["automationId"] == "ServerAddress",
+            "F6 must keep focus in the visible connection panel"
+        );
         execute(&["set-value", "ServerAddress", "https://cancelled.example/"])?;
         execute(&["invoke", "CancelConnection"])?;
         expect_ui_source(root, &pid, &live_text)?;
@@ -840,7 +851,7 @@ fn ui(root: &Path, app: Option<u32>) -> Result<()> {
         ])?;
         Ok(())
     })();
-    if owned {
+    {
         let _ = execute(&["send-keys", "esc", "--via", "send-input"]);
         let cleanup = execute(&["invoke", "Close"]);
         if let Err(error) = &cleanup {
@@ -884,8 +895,6 @@ fn ui(root: &Path, app: Option<u32>) -> Result<()> {
         let cleanup = ui_execute(root, &redeployed, &["invoke", "Close"]);
         retained?;
         cleanup?;
-    } else {
-        result?;
     }
     Ok(())
 }
@@ -1293,16 +1302,26 @@ fn csharp(source: &str) -> Result<()> {
                 .child_by_field_name("left")
                 .context("assignment target")?
                 .utf8_text(source.as_bytes())?;
-            if left.ends_with(".FontSize") {
-                let right = node
-                    .child_by_field_name("right")
-                    .context("font scale")?
-                    .utf8_text(source.as_bytes())?;
+            let property = left.rsplit('.').next().unwrap_or(left).trim();
+            let right = node
+                .child_by_field_name("right")
+                .context("assignment value")?
+                .utf8_text(source.as_bytes())?;
+            let value = right.split_whitespace().collect::<String>();
+            if property == "FontSize" {
                 ensure!(
-                    right.split_whitespace().collect::<String>() == "defaultFontSize*zoom",
+                    value == "defaultFontSize*zoom",
                     "font size must scale the system default"
                 );
             }
+            ensure!(
+                property != "RequestedTheme" || value == "ElementTheme.Default",
+                "follow the system theme"
+            );
+            ensure!(
+                property != "IsTextScaleFactorEnabled" || value == "true",
+                "system text scaling must remain enabled"
+            );
         }
         let mut cursor = node.walk();
         pending.extend(node.named_children(&mut cursor));
@@ -1529,6 +1548,16 @@ mod tests {
             csharp("class Screen { void Zoom() { editor.FontSize = defaultFontSize * zoom; } }")
                 .is_ok()
         );
+        assert!(csharp("class Screen { void Set() { editor.RequestedTheme = ElementTheme.Default; editor.IsTextScaleFactorEnabled = true; } }").is_ok());
+    }
+    #[test]
+    fn ui_workflow_refuses_an_existing_process_argument() {
+        assert!(
+            <crate::Options as clap::Parser>::try_parse_from([
+                "xtask", "windows", "ui", "--app", "123"
+            ])
+            .is_err()
+        );
     }
     #[test]
     fn browser_surfaces_fixed_colors_fonts_and_disabled_scaling_are_refused() {
@@ -1549,6 +1578,8 @@ mod tests {
             "class Screen { void Set() { var brush = new SolidColorBrush(); } }",
             "class Screen { void Set() { var color = Colors.Red; } }",
             "class Screen { void Set() { editor.FontSize = 14; } }",
+            "class Screen { void Set() { editor.RequestedTheme = ElementTheme.Dark; } }",
+            "class Screen { void Set() { editor.IsTextScaleFactorEnabled = false; } }",
             "using Custom = Microsoft.UI.Xaml.Controls.WebView2; class Screen { Custom browser; }",
             "using Windows.Storage.Pickers; class Screen { FileOpenPicker picker; }",
         ] {

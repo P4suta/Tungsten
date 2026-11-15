@@ -2,7 +2,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Tungsten.Core;
 
-public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? factory = null) : ObservableObject
+public sealed class CompositionInProgressException() : InvalidOperationException("Finish text composition before continuing.");
+
+public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? factory = null, Func<bool>? canLeave = null) : ObservableObject
 {
     private readonly SemaphoreSlim navigation = new(1);
     private string body = "";
@@ -65,13 +67,14 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
     { OnPropertyChanged(nameof(Title)); OnPropertyChanged(nameof(Status)); OnPropertyChanged(nameof(HasEditor)); OnPropertyChanged(nameof(HasConnection)); OnPropertyChanged(nameof(HasSavedNote)); }
     private void Select(Draft draft)
     {
+        if (!CanLeaveNow()) throw new CompositionInProgressException();
         Editor = new(draft, Client ?? throw new InvalidOperationException("Connect to a server first."), store);
         body = draft.Body; OnPropertyChanged(nameof(Body)); NotifyEditor();
     }
     private async Task SelectAsync(Draft draft)
     {
         await store.WriteAsync(draft);
-        if (!await CanLeaveAsync()) throw new IOException(Problem);
+        if (!await CanLeaveAsync()) throw LeavingError();
         Select(draft);
     }
     public async Task ConnectAsync(Uri server)
@@ -79,7 +82,7 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
         await navigation.WaitAsync();
         try
         {
-            if (!await CanLeaveAsync()) throw new IOException(Problem);
+            if (!await CanLeaveAsync()) throw LeavingError();
             var client = factory?.Invoke(server) ?? new NoteClient(server);
             Client?.Dispose(); Client = client; Editor = null; body = ""; Workspaces = [];
             OnPropertyChanged(nameof(Workspaces));
@@ -92,7 +95,7 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
         await navigation.WaitAsync();
         try
         {
-            if (!await CanLeaveAsync()) throw new IOException(Problem);
+            if (!await CanLeaveAsync()) throw LeavingError();
             var draft = Draft.New(Client?.Origin ?? throw new InvalidOperationException("Connect to a server first."));
             await SelectAsync(draft);
         }
@@ -103,13 +106,13 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
         await navigation.WaitAsync();
         try
         {
-            if (!await CanLeaveAsync()) throw new IOException(Problem);
+            if (!await CanLeaveAsync()) throw LeavingError();
             if (Editor?.Current.Name == name) return;
             var client = Client ?? throw new InvalidOperationException("Connect to a server first.");
             var recovery = await store.LoadAsync(client.Origin);
             var draft = recovery.Drafts.SingleOrDefault(d => d.Name == name)
                 ?? Draft.From(client.Origin, await client.ReadAsync(name));
-            if (!await CanLeaveAsync()) throw new IOException(Problem);
+            if (!await CanLeaveAsync()) throw LeavingError();
             await SelectAsync(draft);
         }
         finally { navigation.Release(); }
@@ -117,7 +120,7 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
     public async Task SaveAsync()
     {
         if (Editor is not { } editor) return;
-        try { await editor.SaveAsync(); Problem = ""; }
+        try { await editor.SaveAsync(canLeave); Problem = ""; }
         catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException or OperationCanceledException)
         { Problem = error.Message; throw; }
         finally { NotifyEditor(); }
@@ -131,22 +134,25 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
     }
     public async Task<bool> CanLeaveAsync()
     {
-        if (Editor is not { } editor) return true;
+        if (Editor is not { } editor) return CanLeaveNow();
         try
         {
             var saved = await editor.CheckpointAsync();
+            if (!CanLeaveNow()) return false;
             Problem = saved ? "" : "Writing changed while the draft was being stored. Try again.";
             return saved;
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException)
         { Problem = "The draft could not be stored. Keep this window open. " + error.Message; return false; }
     }
+    private bool CanLeaveNow() => canLeave?.Invoke() != false;
+    private Exception LeavingError() => CanLeaveNow() ? new IOException(Problem) : new CompositionInProgressException();
     public async Task SaveAsNewAsync()
     {
         await navigation.WaitAsync();
         try
         {
-            if (!await CanLeaveAsync()) throw new IOException(Problem);
+            if (!await CanLeaveAsync()) throw LeavingError();
             var draft = Draft.New(Client?.Origin ?? throw new InvalidOperationException("Connect to a server first.")) with { Body = Body };
             await SelectAsync(draft);
         }
@@ -158,12 +164,13 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
         try
         {
             if (Editor is not { } editor) return;
-            if (!await CanLeaveAsync()) throw new IOException(Problem);
+            if (!await CanLeaveAsync()) throw LeavingError();
             var observed = Body;
             async Task CheckInputAsync()
             {
+                if (!CanLeaveNow()) { await editor.CheckpointAsync(); throw new CompositionInProgressException(); }
                 if (Body == observed) return;
-                if (!await CanLeaveAsync()) throw new IOException(Problem);
+                if (!await CanLeaveAsync()) throw LeavingError();
                 throw new IOException("Writing changed after discard confirmation. Confirm again to discard the current text.");
             }
             Note? remote = null;

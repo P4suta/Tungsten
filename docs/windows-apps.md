@@ -63,6 +63,8 @@ Opening an original delegates to the registered Windows app.
 
 The WinUI-independent core owns immutable save decisions, validated HTTP responses, and draft recovery.
 The HTTP adapter preserves the existing API and pagination.
+Request deadlines cover headers and response bodies, including streamed downloads, following the [response completion contract](https://learn.microsoft.com/en-us/dotnet/api/system.net.http.httpcompletionoption?view=net-10.0).
+Search requests keep their submitted query and cursor, and obsolete responses can't replace current search results.
 Release connections require an HTTPS origin without credentials, paths, queries, or fragments.
 Debug builds also accept loopback HTTP for isolated server tests.
 Updates send the last observed revision in `If-Match`.
@@ -132,6 +134,7 @@ On macOS and Linux, `mise x -- just windows contracts` builds the existing serve
 Hosted CI runs documentation and real-server contracts in Linux jobs and joins both Windows jobs to the existing required summary.
 `mise x -- just windows ui` exercises native controls, `accessible name`s, connection errors, writing, and local draft navigation.
 The UI workflow uses the explicit `--ui-test` launch flag and a separate LocalState subdirectory.
+It launches its own app and rejects supplied process identifiers.
 It refuses to start while an existing Tungsten window is open, captures a screenshot, and closes its own window.
 Duplicate activation must preserve one window, and recovery must reopen a native list item rather than match an editor heading.
 The UI workflow checks live heading formatting, source Undo and Redo, clipboard round trips, restored selection after formatting, F6 region movement, and narrow-window navigation.

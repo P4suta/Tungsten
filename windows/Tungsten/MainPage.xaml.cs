@@ -21,6 +21,7 @@ public sealed partial class MainPage : Page
     private readonly DispatcherTimer autosave = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(15) };
     private readonly ActionQueue actions = new();
+    private readonly NoteSearch noteSearch = new();
     private bool ready, composing, detailVisible, updatingCollections;
     private bool connectionVisible = true;
     private string collection = "all";
@@ -29,6 +30,7 @@ public sealed partial class MainPage : Page
     private readonly LiveMarkdownEditor live;
     private EditorSession? displayedEditor;
     private string? presentationProblem;
+    private string? operationProblem, collectionProblem, compositionProblem;
     public ClientModel ViewModel { get; }
     private NoteClient Client => ViewModel.Client ?? throw new InvalidOperationException(UiText.Get("ConnectFirst"));
     private Workspace SelectedWorkspace => Workspaces.Single(w => w.Id == collection);
@@ -37,7 +39,7 @@ public sealed partial class MainPage : Page
     {
         var directory = App.DataDirectory;
         drafts = new(Path.Combine(directory, "drafts")); settings = Path.Combine(directory, "connection.txt");
-        ViewModel = new(drafts);
+        ViewModel = new(drafts, canLeave: () => !composing);
         InitializeComponent();
         live = new(Editor);
         live.SourceChanged += (_, _) =>
@@ -91,9 +93,11 @@ public sealed partial class MainPage : Page
     {
         await actions.RunAsync(async () =>
         {
+            operationProblem = null;
             try { await operation(); }
+            catch (CompositionInProgressException error) { ReportCompositionProblem(error.Message); }
             catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException or UnauthorizedAccessException or OperationCanceledException or InvalidOperationException)
-            { Problem.Message = error.Message; Problem.IsOpen = true; }
+            { operationProblem = error.Message; }
             finally { UpdateStatus(); }
         });
     }
@@ -114,10 +118,12 @@ public sealed partial class MainPage : Page
             _ => Workspaces.FirstOrDefault(w => w.Id == collection)?.Title ?? UiText.Get("AllNotes/Content")
         };
         RenameWorkspace.IsEnabled = DeleteWorkspace.IsEnabled = ViewModel.HasConnection && Workspaces.Any(w => w.Id == collection);
-        if (presentationProblem is not null) { Problem.Message = presentationProblem; Problem.IsOpen = true; }
-        else if (ViewModel.Problem.Length > 0) { Problem.Message = ViewModel.Problem; Problem.IsOpen = true; }
-        else if (ViewModel.Editor is { Block: not SaveBlock.None }) { Problem.Message = ViewModel.Status; Problem.IsOpen = true; }
+        var message = presentationProblem ?? (composing ? compositionProblem : null) ?? (ViewModel.Problem.Length > 0 ? ViewModel.Problem
+            : ViewModel.Editor is { Block: not SaveBlock.None } ? ViewModel.Status : collectionProblem ?? operationProblem);
+        Problem.Message = message ?? ""; Problem.IsOpen = !string.IsNullOrEmpty(message);
     }
+    private void ReportProblem(string message) { operationProblem = message; UpdateStatus(); }
+    private void ReportCompositionProblem(string message) { compositionProblem = message; UpdateStatus(); }
     private async Task ConnectAsync()
     {
         if (composing) throw new InvalidOperationException(UiText.Get("CompositionBeforeServerChange"));
@@ -131,7 +137,7 @@ public sealed partial class MainPage : Page
         var changed = ViewModel.Client?.Origin != origin;
         if (changed) await ViewModel.ConnectAsync(origin);
         await AtomicDraftStore.ReplaceAsync(settings, Rules.Utf8.GetBytes(origin.AbsoluteUri));
-        ServerAddress.Text = origin.AbsoluteUri; Problem.IsOpen = false;
+        ServerAddress.Text = origin.AbsoluteUri;
         connectionVisible = false;
         if (changed) { collection = "all"; detailVisible = false; Search.Text = ""; }
         UpdateStatus();
@@ -184,10 +190,11 @@ public sealed partial class MainPage : Page
             collection = target; detailVisible = false; await LoadNotesAsync(); UpdateLayoutMode();
         });
     }
-    private async Task LoadNotesAsync(bool append = false)
+    private async Task LoadNotesAsync(bool append = false, string? query = null)
     {
+        var submittedQuery = query ?? Search.Text;
         Search.Visibility = collection is "all" or "drafts" ? Visibility.Visible : Visibility.Collapsed;
-        if (!append) { notes.Clear(); deleted.Clear(); cursor = null; }
+        if (!append) { notes.Clear(); deleted.Clear(); cursor = null; collectionProblem = null; }
         NotesList.Visibility = collection == "trash" ? Visibility.Collapsed : Visibility.Visible;
         TrashList.Visibility = collection == "trash" ? Visibility.Visible : Visibility.Collapsed;
         EmptyTrashButton.Visibility = TrashList.Visibility;
@@ -199,15 +206,25 @@ public sealed partial class MainPage : Page
         {
             var recovery = await drafts.LoadAsync(Client.Origin);
             foreach (var draft in recovery.Drafts.Where(d => d.Body != d.BaseBody || d.Pending is not null || d.Block != SaveBlock.None)
-                .Where(d => d.Body.Contains(Search.Text, StringComparison.OrdinalIgnoreCase)))
+                .Where(d => d.Body.Contains(submittedQuery, StringComparison.OrdinalIgnoreCase)))
                 notes.Add(new(draft.Name, Rules.Title(draft.Body)));
             if (recovery.DamagedFiles.Length > 0)
-            { Problem.Message = UiText.Get("DamagedDrafts"); Problem.IsOpen = true; }
+                collectionProblem = UiText.Get("DamagedDrafts");
         }
         else
         {
             if (collection == "all")
-            { var page = await Client.NotesAsync(Search.Text, cursor); MergeNotes(page.Notes); cursor = page.Next; }
+            {
+                var request = noteSearch.Begin(append ? null : submittedQuery);
+                if (request is null) return;
+                try
+                {
+                    var page = await Client.NotesAsync(request.Query, request.Cursor);
+                    if (!noteSearch.Complete(request, page.Next)) return;
+                    MergeNotes(page.Notes); cursor = noteSearch.Cursor;
+                }
+                catch { noteSearch.Fail(request); throw; }
+            }
             else
             { var page = await Client.WorkspaceNotesAsync(collection, cursor); MergeNotes(page.Notes); cursor = page.Next; }
         }
@@ -227,11 +244,15 @@ public sealed partial class MainPage : Page
     {
         var editor = ViewModel.Editor;
         await ViewModel.SaveAsync();
-        if (ReferenceEquals(editor, ViewModel.Editor) && editor?.Current is { Revision: not null, BaseBody: not null } saved && collection == "all" && Search.Text.Length == 0)
+        if (ReferenceEquals(editor, ViewModel.Editor) && editor?.Current is { Revision: not null, BaseBody: not null } saved && collection == "all" && noteSearch.Query.Length == 0)
         { MergeNotes([new(saved.Name, Rules.Title(saved.BaseBody))]); ListStatus.Text = ""; }
     }
-    private async void SearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args) => await PerformAsync(() => LoadNotesAsync());
-    private async void MoreClicked(object sender, RoutedEventArgs args) => await PerformAsync(() => LoadNotesAsync(true));
+    private async void SearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args) => await PerformAsync(() => LoadNotesAsync(query: args.QueryText));
+    private async void MoreClicked(object sender, RoutedEventArgs args)
+    {
+        if (collection == "all" && !noteSearch.CanLoadMore) return;
+        await PerformAsync(() => LoadNotesAsync(true));
+    }
     private async void NoteClicked(object sender, ItemClickEventArgs args) => await PerformAsync(async () =>
     {
         if (composing) return;
@@ -254,7 +275,7 @@ public sealed partial class MainPage : Page
     {
         if (composing) return;
         if (ViewModel.Editor is not { } editor) { await ConnectAsync(); return; }
-        await editor.RetryAsync(); Problem.IsOpen = editor.Block != SaveBlock.None;
+        await editor.RetryAsync();
         if (editor.Block == SaveBlock.None) await SaveAndListAsync();
     });
     private void EditorTextChanging(RichEditBox sender, RichEditBoxTextChangingEventArgs args)
@@ -297,7 +318,7 @@ public sealed partial class MainPage : Page
         if (composing) return;
         try { await live.PasteAsync(); }
         catch (Exception error) when (error is System.Runtime.InteropServices.COMException or InvalidOperationException or InvalidDataException)
-        { Problem.Message = error.Message; Problem.IsOpen = true; }
+        { ReportProblem(error.Message); }
     }
     private void EditorSelectAllClicked(object sender, RoutedEventArgs args) => live.SelectAll();
     private void EditorMenuOpening(object sender, object args) { EditorUndo.IsEnabled = live.CanUndo; EditorRedo.IsEnabled = live.CanRedo; }
@@ -310,11 +331,13 @@ public sealed partial class MainPage : Page
     }
     private void CompositionStarted(RichEditBox sender, TextCompositionStartedEventArgs args) { composing = true; live.Composing = true; }
     private void CompositionEnded(RichEditBox sender, TextCompositionEndedEventArgs args)
-    { composing = false; live.Composing = false; QueueRendering(); autosave.Stop(); autosave.Start(); }
+    { composing = false; live.Composing = false; compositionProblem = null; UpdateStatus(); QueueRendering(); autosave.Stop(); autosave.Start(); }
     public async Task<bool> CanCloseAsync()
     {
-        if (composing) { Problem.Message = UiText.Get("CompositionBeforeClose"); Problem.IsOpen = true; return false; }
-        var result = await ViewModel.CanLeaveAsync(); UpdateStatus(); return result;
+        if (composing) { ReportCompositionProblem(UiText.Get("CompositionBeforeClose")); return false; }
+        var result = await ViewModel.CanLeaveAsync();
+        if (composing) { ReportCompositionProblem(UiText.Get("CompositionBeforeClose")); return false; }
+        UpdateStatus(); return result;
     }
     public async Task CheckRemoteAsync()
     {
@@ -399,7 +422,7 @@ public sealed partial class MainPage : Page
     }
     private async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog)
     {
-        if (composing) { Problem.Message = UiText.Get("CompositionBeforeDialog"); Problem.IsOpen = true; return ContentDialogResult.None; }
+        if (composing) { ReportCompositionProblem(UiText.Get("CompositionBeforeDialog")); return ContentDialogResult.None; }
         if (!await ViewModel.CanLeaveAsync()) { UpdateStatus(); return ContentDialogResult.None; }
         return await dialog.ShowAsync();
     }
@@ -462,19 +485,25 @@ public sealed partial class MainPage : Page
         AutomationProperties.SetAutomationId(list, "LinkChoices"); AutomationProperties.SetName(list, UiText.Get("LinkChoicesName"));
         var panel = new StackPanel { Spacing = 8 }; panel.Children.Add(search); panel.Children.Add(list);
         var more = new Button { Content = UiText.Get("MoreLinksLabel") }; AutomationProperties.SetAutomationId(more, "MoreLinks"); panel.Children.Add(more);
-        var choices = new ObservableCollection<Summary>(); list.ItemsSource = choices; string? next = null;
-        async Task Load(bool append)
+        var choices = new ObservableCollection<Summary>(); list.ItemsSource = choices; var searchState = new NoteSearch();
+        async Task Load(string? query)
         {
+            var request = searchState.Begin(query);
+            if (request is null) return;
+            if (query is not null) choices.Clear();
+            more.IsEnabled = false;
             try
             {
-                if (!append) { choices.Clear(); next = null; }
-                var page = await Client.NotesAsync(search.Text, next); foreach (var item in page.Notes) choices.Add(item);
-                next = page.Next; more.IsEnabled = next is not null;
+                var page = await Client.NotesAsync(request.Query, request.Cursor);
+                if (!searchState.Complete(request, page.Next)) return;
+                foreach (var item in page.Notes) choices.Add(item);
             }
-            catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException) { Problem.Message = error.Message; Problem.IsOpen = true; }
+            catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException or OperationCanceledException)
+            { if (searchState.Fail(request)) ReportProblem(error.Message); }
+            finally { more.IsEnabled = searchState.CanLoadMore; }
         }
-        search.QuerySubmitted += async (_, _) => await Load(false); more.Click += async (_, _) => await Load(true);
-        await Load(false);
+        search.QuerySubmitted += async (_, submitted) => await Load(submitted.QueryText); more.Click += async (_, _) => await Load(null);
+        await Load("");
         if (await ShowDialogAsync(Dialog(UiText.Get("InsertLinkTitle"), panel, UiText.Get("ActionInsert"))) == ContentDialogResult.Primary && list.SelectedItem is Summary note)
         { live.ReplaceSelection(MarkdownLinks.Note(ViewModel.Editor.Current.Name, note)); await ViewModel.CanLeaveAsync(); }
         Editor.Focus(FocusState.Programmatic);
@@ -493,15 +522,19 @@ public sealed partial class MainPage : Page
         ItemClickEventHandler backClick = (_, e) => { target = ((Summary)e.ClickedItem).Name; DetailsDialog.Hide(); };
         ItemClickEventHandler historyClick = (_, e) => { version = (SavedNote)e.ClickedItem; DetailsDialog.Hide(); };
         ItemClickEventHandler attachmentClick = (_, e) => { original = ((AttachmentReference)e.ClickedItem).Id; DetailsDialog.Hide(); };
+        var membershipBusy = false; Task pendingMembership = Task.CompletedTask;
         async Task Membership(bool included)
         {
             if (DetailWorkspace.SelectedItem is not Workspace w) return;
+            membershipBusy = true; IncludeWorkspace.IsEnabled = ExcludeWorkspace.IsEnabled = false;
             try { await ViewModel.MembershipAsync(w.Id, name, included); UpdateWorkspaceNavigation(); DetailsDialog.Hide(); }
-            catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException)
-            { Problem.Message = error.Message; Problem.IsOpen = true; DetailsDialog.Hide(); }
+            catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException or OperationCanceledException)
+            { ReportProblem(error.Message); DetailsDialog.Hide(); }
+            finally { membershipBusy = false; IncludeWorkspace.IsEnabled = ExcludeWorkspace.IsEnabled = true; }
         }
-        RoutedEventHandler includeClick = async (_, _) => await Membership(true);
-        RoutedEventHandler excludeClick = async (_, _) => await Membership(false);
+        void StartMembership(bool included) { if (!membershipBusy) pendingMembership = Membership(included); }
+        RoutedEventHandler includeClick = (_, _) => StartMembership(true);
+        RoutedEventHandler excludeClick = (_, _) => StartMembership(false);
         DetailLinks.ItemClick += linkClick; DetailBacklinks.ItemClick += backClick; DetailHistory.ItemClick += historyClick;
         DetailAttachments.ItemClick += attachmentClick; IncludeWorkspace.Click += includeClick; ExcludeWorkspace.Click += excludeClick;
         try { await ShowDialogAsync(DetailsDialog); }
@@ -510,6 +543,7 @@ public sealed partial class MainPage : Page
             DetailLinks.ItemClick -= linkClick; DetailBacklinks.ItemClick -= backClick; DetailHistory.ItemClick -= historyClick;
             DetailAttachments.ItemClick -= attachmentClick; IncludeWorkspace.Click -= includeClick; ExcludeWorkspace.Click -= excludeClick;
         }
+        await pendingMembership;
         if (target is not null) await ViewModel.OpenAsync(target);
         if (version is not null)
         {

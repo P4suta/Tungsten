@@ -6,6 +6,13 @@ public static class MarkdownFormatting
     public static MarkdownInsertion Wrap(string source, int start, int length, MarkdownStyle style)
     {
         var selected = source.Substring(start, length);
+        var from = 0; var to = selected.Length;
+        if (style is MarkdownStyle.Bold or MarkdownStyle.Italic)
+        {
+            while (from < to && char.IsWhiteSpace(selected[from])) from++;
+            while (to > from && char.IsWhiteSpace(selected[to - 1])) to--;
+            if (length > 0 && from == to) return new(selected, 0, length);
+        }
         var delimiter = style switch
         {
             MarkdownStyle.Bold => "**",
@@ -15,7 +22,8 @@ public static class MarkdownFormatting
             _ => throw new ArgumentOutOfRangeException(nameof(style))
         };
         var pad = style == MarkdownStyle.Code && (selected.StartsWith('`') || selected.EndsWith('`')) ? " " : "";
-        return new(delimiter + pad + selected + pad + delimiter, delimiter.Length + pad.Length, length);
+        return new(selected[..from] + delimiter + pad + selected[from..to] + pad + delimiter + selected[to..],
+            from + delimiter.Length + pad.Length, to - from);
     }
     private static string CodeDelimiter(string value)
     {

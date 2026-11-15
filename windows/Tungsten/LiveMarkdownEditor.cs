@@ -25,6 +25,7 @@ public sealed class LiveMarkdownEditor(RichEditBox control)
     public void Load(string source, bool resetHistory)
     {
         if (Source == source && !resetHistory) return;
+        if (Composing) throw new CompositionInProgressException();
         var selection = control.Document.Selection;
         var start = selection.StartPosition; var end = selection.EndPosition;
         updating = true;
@@ -57,6 +58,7 @@ public sealed class LiveMarkdownEditor(RichEditBox control)
     public void TrackSelection() { if (!updating) history.Select(CurrentSelection()); }
     public void ReplaceSelection(string source)
     {
+        if (Composing) throw new CompositionInProgressException();
         history.BreakGroup(); atomic = true;
         try
         {

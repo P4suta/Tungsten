@@ -98,6 +98,68 @@ public sealed class LiveMarkdownTests
         Assert.Equal(source, Visible(source, LiveMarkdown.Project(source, source.Length, source.Length)));
     }
 
+    [Theory]
+    [InlineData("```")]
+    [InlineData("~~~")]
+    [InlineData("````")]
+    public void UnfinishedFencesWithoutANewlineHaveBoundedProjection(string source)
+    {
+        foreach (var selection in new[] { -1, 0, source.Length })
+            foreach (var span in LiveMarkdown.Project(source, selection, selection))
+                Assert.True(span.Start >= 0 && span.Start < span.End && span.End <= source.Length);
+    }
+
+    [Theory]
+    [InlineData("````\ncode\n```literal", "code\n```literal")]
+    [InlineData("````\ncode\n```", "code\n```")]
+    [InlineData("~~~\ncode\n```", "code\n```")]
+    [InlineData("~~~\ncode\n~~~literal", "code\n~~~literal")]
+    [InlineData("````\ncode\n```literal\n", "code\n```literal\n")]
+    [InlineData("````\ncode\n```\n", "code\n```\n")]
+    [InlineData("~~~\ncode\n~~~literal\n", "code\n~~~literal\n")]
+    public void FenceLikeCodeContentRemainsVisible(string source, string content)
+        => Assert.EndsWith(content, Visible(source, LiveMarkdown.Project(source, -1, -1)));
+
+    [Theory]
+    [InlineData("  ```\n  code\n  ```")]
+    [InlineData("> ```\n> code\n> ```")]
+    public void ParsedClosingFencesAreHiddenInsideIndentedAndQuotedBlocks(string source)
+    {
+        var visible = Visible(source, LiveMarkdown.Project(source, -1, -1));
+        Assert.Contains("code", visible); Assert.DoesNotContain("```", visible);
+    }
+
+    [Theory]
+    [InlineData(" word ", MarkdownStyle.Bold, " **word** ", 3)]
+    [InlineData("\tword\r\n", MarkdownStyle.Italic, "\t*word*\r\n", 2)]
+    public void EmphasisCommandsKeepBoundaryWhitespaceOutsideDelimiters(string source, MarkdownStyle style, string expected, int selection)
+    {
+        var insertion = MarkdownFormatting.Wrap(source, 0, source.Length, style);
+        Assert.Equal(expected, insertion.Text);
+        Assert.Equal(selection, insertion.SelectionStart);
+        Assert.Equal("word", insertion.Text.Substring(insertion.SelectionStart, insertion.SelectionLength));
+        Assert.Contains(LiveMarkdown.Project("Before " + insertion.Text + " after", -1, -1), span => span.Style == style);
+    }
+
+    [Fact]
+    public void NativeEditsPreserveParagraphsWhenMixedLineEndingsMeet()
+    {
+        foreach (var source in new[] { "a\rb\nc", "a\r\nb\nc\r", "\rx\n", "a\nb\rc" })
+        {
+            var native = MarkdownSource.Normalize(source);
+            for (var start = 0; start <= native.Length; start++)
+                for (var end = start; end <= native.Length; end++)
+                    foreach (var inserted in new[] { "", "x", "\r", "\r\r" })
+                    {
+                        var expected = native[..start] + inserted + native[end..];
+                        var text = new MarkdownSource(source);
+                        text.Update(expected);
+                        Assert.Equal(expected, text.NativeText);
+                        Assert.Equal(expected, MarkdownSource.Normalize(text.Source));
+                    }
+        }
+    }
+
     private static string Visible(string source, IEnumerable<MarkdownSpan> spans)
     {
         var hidden = new bool[source.Length];

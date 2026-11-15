@@ -18,6 +18,85 @@ public sealed class ClientTests
     private static HttpResponseMessage Response(object body) => new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(body, Json), Encoding.UTF8, "application/json") };
     private static NoteClient Client(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) => new(Server, new Handler(respond));
 
+    private sealed class CheckedBody(byte[] body) : MemoryStream(body)
+    {
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellation = default)
+        {
+            Assert.True(cancellation.CanBeCanceled, "Response-body reads need a cancellation deadline.");
+            return base.ReadAsync(buffer, cancellation);
+        }
+    }
+
+    private sealed class WaitingBody : MemoryStream
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override bool CanSeek => false;
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellation = default)
+        { Entered.TrySetResult(); await Task.Delay(Timeout.InfiniteTimeSpan, cancellation); return 0; }
+    }
+    private sealed class RequestClock : TimeProvider
+    {
+        public TimeSpan DueTime { get; private set; }
+        public DeadlineTimer? Timer { get; private set; }
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            Assert.Equal(Timeout.InfiniteTimeSpan, period);
+            DueTime = dueTime; return Timer = new(callback, state);
+        }
+        public sealed class DeadlineTimer(TimerCallback callback, object? state) : ITimer
+        {
+            public bool Disposed { get; private set; }
+            public void Expire() { if (!Disposed) callback(state); }
+            public bool Change(TimeSpan dueTime, TimeSpan period) => throw new NotSupportedException();
+            public void Dispose() => Disposed = true;
+            public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task AStalledResponseBodyStopsAtItsDeadlineOrCallerCancellation(bool download, bool cancel)
+    {
+        var body = new WaitingBody(); var clock = new RequestClock();
+        using var cancellation = new CancellationTokenSource();
+        using var client = new NoteClient(Server, new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(body) })), clock);
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "original.txt");
+        try
+        {
+            if (download) await File.WriteAllTextAsync(path, "keep original");
+            Task reading = download ? client.DownloadAsync(new(Id + ".txt", "original.txt", 1, Revision), path, cancellation.Token)
+                : client.NotesAsync(cancellation: cancellation.Token);
+            await body.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Equal(TimeSpan.FromSeconds(120), clock.DueTime);
+            if (cancel) cancellation.Cancel(); else clock.Timer!.Expire();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reading.WaitAsync(TimeSpan.FromSeconds(2)));
+            Assert.True(clock.Timer!.Disposed);
+            if (download) { Assert.Equal("keep original", await File.ReadAllTextAsync(path)); Assert.Equal(path, Assert.Single(Directory.GetFiles(directory))); }
+            else Assert.Empty(Directory.GetFiles(directory));
+        }
+        finally { cancellation.Cancel(); Directory.Delete(directory, true); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResponseBodyReadsHaveACancellationDeadline(bool download)
+    {
+        var bytes = download ? Encoding.UTF8.GetBytes("original") : JsonSerializer.SerializeToUtf8Bytes(new NotePage([], null, 0), Json);
+        using var client = Client(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new CheckedBody(bytes)) }));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        try
+        {
+            if (download) await client.DownloadAsync(new(Id + ".txt", "original.txt", bytes.Length, Revision), path);
+            else Assert.Empty((await client.NotesAsync()).Notes);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
     [Fact]
     public async Task ConditionalSavePreservesWireFormatOriginAndUnicodeIdentity()
     {
