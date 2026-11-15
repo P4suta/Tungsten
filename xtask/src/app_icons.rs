@@ -57,6 +57,7 @@ struct Mark {
     geometry: Vec<String>,
     ink: Vec<Ink>,
     hash: String,
+    fill_rule: Option<String>,
 }
 fn svg_with_lf(source: &str) -> String {
     source.replace("\r\n", "\n")
@@ -99,6 +100,12 @@ fn mark(source: String, canvas: u32) -> Result<Mark> {
                     "icon masters must use black and white"
                 );
             }
+            if matches!(attribute.name(), "fill-rule" | "clip-rule") {
+                ensure!(
+                    matches!(attribute.value(), "evenodd" | "nonzero"),
+                    "unsupported icon winding rule"
+                );
+            }
         }
         if node.has_tag_name("path") {
             ensure!(
@@ -138,12 +145,14 @@ fn mark(source: String, canvas: u32) -> Result<Mark> {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
+    let fill_rule = root.attribute("fill-rule").map(str::to_owned);
     Ok(Mark {
         source,
         paths,
         geometry,
         ink,
         hash,
+        fill_rule,
     })
 }
 
@@ -203,7 +212,12 @@ impl Sources {
             (
                 "linux/data/io.github.p4suta.tungsten.svg".into(),
                 format!(
-                    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"128\" height=\"128\" viewBox=\"0 0 128 128\">\n<g transform=\"translate(8 13.333333333333334) scale(0.109375)\">\n{}\n</g>\n</svg>\n",
+                    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"128\" height=\"128\" viewBox=\"0 0 128 128\">\n<g{} transform=\"translate(8 13.333333333333334) scale(0.109375)\">\n{}\n</g>\n</svg>\n",
+                    self.default
+                        .fill_rule
+                        .as_ref()
+                        .map(|rule| format!(" fill-rule=\"{rule}\""))
+                        .unwrap_or_default(),
                     self.default.paths.join("\n")
                 ),
             ),
@@ -576,6 +590,50 @@ mod tests {
         ] {
             assert!(mark(vector(body), 1024).is_err(), "accepted {body}");
         }
+    }
+
+    #[test]
+    fn linux_export_preserves_inherited_compound_path_rule() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir_all(directory.path().join("assets/app-icon")).unwrap();
+        for (appearance, inks) in [
+            (Appearance::Default, vec!["white", "black"]),
+            (Appearance::Light, vec!["black"]),
+            (Appearance::Dark, vec!["white"]),
+        ] {
+            let paths = inks
+                .iter()
+                .map(|ink| {
+                    format!("<path fill=\"{ink}\" d=\"M0 0H1024V1024H0Z M256 256H768V768H256Z\"/>")
+                })
+                .collect::<String>();
+            fs::write(directory.path().join(appearance.source()), format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1024\" height=\"1024\" viewBox=\"0 0 1024 1024\" fill-rule=\"evenodd\">{paths}</svg>")).unwrap();
+        }
+        fs::copy(
+            root.join("assets/app-icon/cube-front.svg"),
+            directory.path().join("assets/app-icon/cube-front.svg"),
+        )
+        .unwrap();
+        let sources = Sources::load(directory.path()).unwrap();
+        let (_, svg) = sources
+            .vectors()
+            .into_iter()
+            .find(|(path, _)| path == "linux/data/io.github.p4suta.tungsten.svg")
+            .unwrap();
+        let document = roxmltree::Document::parse(&svg).unwrap();
+        let path = document
+            .descendants()
+            .find(|node| node.has_tag_name("path"))
+            .unwrap();
+        let rule = path
+            .ancestors()
+            .find_map(|node| node.attribute("fill-rule"))
+            .unwrap_or("nonzero");
+        assert_eq!(
+            rule, "evenodd",
+            "same-direction inner contours must keep their cutout"
+        );
     }
 
     #[test]
