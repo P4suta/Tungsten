@@ -51,6 +51,7 @@ Update Vale together with the shared checker revision and its required version.
 Hosted checks run the documentation gate before setting up browsers.
 
 The browser suite uses Chromium, Firefox, WebKit, and mobile device profiles.
+Set `TUNGSTEN_TEST_PORT` to a free port when another local service uses the default port 18080.
 Shortcut fixtures choose Control or Meta from the browser's platform and device identity.
 Shifted letter shortcuts send uppercase characters under the [Playwright keyboard contract](https://playwright.dev/docs/api/class-keyboard#keyboard-press).
 CI stops after the first browser failure, names each test, and retains failure traces for seven days.
