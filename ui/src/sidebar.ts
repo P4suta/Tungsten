@@ -67,8 +67,14 @@ export function initSidebar(): SidebarController {
     read("sessionStorage", "tungsten.context.view") === "history" ? "history" : "links";
   const listeners = new Set<() => void>();
   document.addEventListener("focusin", (event) => {
-    if (!wide.matches || !(event.target instanceof Node)) return;
+    if (!(event.target instanceof HTMLElement)) return;
     const target = event.target;
+    if (left.contains(target))
+      queueMicrotask(() => {
+        if (document.activeElement === target && !left.hidden)
+          target.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
+    if (!wide.matches) return;
     if (paper.contains(target)) layout = { ...layout, compact: "note" };
     else if (left.contains(target)) layout = { ...layout, compact: "navigation" };
   });

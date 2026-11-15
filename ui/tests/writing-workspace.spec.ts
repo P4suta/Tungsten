@@ -1,4 +1,5 @@
 import { expect, test } from "./editor.js";
+import { openNavigation } from "./interface.js";
 
 test("reclaims closed navigation space and opens details as a keyboard modal", async ({
   page,
@@ -109,4 +110,38 @@ test("keeps search before optional organization and writing available at 320 pix
   await page.keyboard.press("Escape");
   await expect(page.locator(".cm-content")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("keeps navigation actions reachable with enlarged and spaced text", async ({ page }) => {
+  for (const viewport of [
+    { width: 320, height: 640 },
+    { width: 800, height: 320 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await expect(page.locator(".cm-content")).toBeEditable();
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "225%";
+      const style = document.createElement("style");
+      style.nonce =
+        document.querySelector<HTMLMetaElement>('meta[name="style-nonce"]')?.content ?? "";
+      style.textContent =
+        "* {line-height:1.5!important;letter-spacing:.12em!important;word-spacing:.16em!important} p {margin-bottom:2em!important}";
+      document.head.append(style);
+    });
+    const sidebar = await openNavigation(page);
+    const trash = sidebar.getByRole("button", { name: "Trash", exact: true });
+    await trash.focus();
+    await expect(trash).toBeInViewport({ ratio: 1 });
+    await trash.click();
+    const back = sidebar.getByRole("button", { name: "Back to notes", exact: true });
+    await back.focus();
+    await expect(back).toBeInViewport({ ratio: 1 });
+    await back.click();
+    const search = sidebar.getByRole("searchbox", { name: "Search all notes", exact: true });
+    await search.focus();
+    await expect(search).toBeInViewport({ ratio: 1 });
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".cm-content")).toBeVisible();
+  }
 });
