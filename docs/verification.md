@@ -56,8 +56,8 @@ Each run uses a separate data directory, and recovery fixtures use separate note
 It checks note operations, draft recovery, delayed responses, stale tabs, and composition events.
 Concurrent editing fixtures cover conditional refresh, active draft ownership, hidden-page suspension, remote deletion, and separate browser profiles.
 Empty page checks reject scrolling and persistent formatting controls at desktop, narrow, landscape, and enlarged text sizes.
-Sidebar checks cover independent visibility, reserved writing space, fixed pane bounds, unavailable storage, keyboard return, and unchanged drafts.
-Every wide-screen sidebar combination preserves the paper's bounds, writing width, scroll position, and source selection at four viewport widths.
+Sidebar checks cover navigation visibility, reclaimed writing space, modal details, unavailable storage, keyboard return, and unchanged drafts.
+Wide-screen navigation keeps its bounds through note creation, switching, and scrolling.
 Compact checks return from navigation and context to the same reading position after centered typing has settled.
 Workspace contracts check current-schema initialization, restart persistence, bounded pagination, concurrent additions, rejected stale metadata, rename cascades, and membership cleanup.
 Catalog contracts reject unsupported format markers and incomplete recovery records or search cursors.
@@ -144,7 +144,7 @@ Native HTML and JSON reports remain under a distinct `target/browser-performance
 The candidate release gate runs the same command after mutation testing.
 
 The regular browser suite limits initial decoded JavaScript to 420 KiB and transferred JavaScript to 180 KiB.
-PDF rendering, formatting, syntax highlighting, graph simulation, and version differences load on demand.
+PDF rendering, formatting, syntax highlighting, and version differences load on demand.
 HTTP fixtures verify compression, conditional requests, immutable fingerprinted chunks, and private pages retaining `no-store`.
 Source files and retired settings and export routes remain unavailable.
 Chromium tests load 50 sidebar notes, measure twelve edits under sixfold CPU slowdown, and require the ninety-fifth percentile through the following rendering frame to stay below 200 milliseconds.
