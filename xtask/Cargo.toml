@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 anyhow = "1.0"
-rusqlite = { version = "=0.41.1", default-features = false, features = [
+rusqlite = { version = "=0.42.0", default-features = false, features = [
   "bundled",
 ] }
 clap = { version = "4.5", features = ["derive"] }
