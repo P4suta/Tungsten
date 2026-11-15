@@ -207,13 +207,55 @@ async fn browser_assets_revalidate_and_compress_without_caching_private_pages() 
             StatusCode::NOT_FOUND
         );
     }
-    assert_eq!(
-        fetch("/favicon.ico".into(), "identity", None)
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::NO_CONTENT
-    );
+    for (path, mime, signature) in [
+        (
+            "/favicon.ico",
+            "image/vnd.microsoft.icon",
+            b"\0\0\x01\0".as_slice(),
+        ),
+        (
+            "/assets/icon.svg",
+            "image/svg+xml; charset=utf-8",
+            b"<svg".as_slice(),
+        ),
+        (
+            "/assets/icon-light.svg",
+            "image/svg+xml; charset=utf-8",
+            b"<svg".as_slice(),
+        ),
+        (
+            "/assets/icon-dark.svg",
+            "image/svg+xml; charset=utf-8",
+            b"<svg".as_slice(),
+        ),
+        (
+            "/assets/apple-touch-icon.png",
+            "image/png",
+            b"\x89PNG\r\n\x1a\n".as_slice(),
+        ),
+    ] {
+        let response = fetch(path.into(), "identity", None).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(response.headers()["content-type"], mime, "{path}");
+        assert_eq!(
+            response.headers()["cache-control"],
+            "public, max-age=0, must-revalidate"
+        );
+        let etag = response.headers()["etag"].to_str().unwrap().to_owned();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(bytes.starts_with(signature), "{path}");
+        let unchanged = fetch(path.into(), "identity", Some(&etag)).await.unwrap();
+        assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED, "{path}");
+        assert!(
+            unchanged
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .is_empty()
+        );
+    }
 }
 
 #[tokio::test]

@@ -269,6 +269,7 @@ fn metadata(source: &str) -> Result<()> {
 }
 
 pub fn source(root: &Path) -> Result<()> {
+    super::app_icons::check(root)?;
     let mut files = Vec::new();
     super::collect(&root.join("linux/src"), "rs", &mut files)?;
     for path in files {
@@ -412,7 +413,7 @@ fn check(root: &Path) -> Result<()> {
 }
 
 fn relevant(path: &str) -> bool {
-    ["linux/", "src/", "xtask/", ".github/workflows/"]
+    ["linux/", "assets/", "src/", "xtask/", ".github/workflows/"]
         .iter()
         .any(|prefix| path.starts_with(prefix))
         || [
@@ -1153,6 +1154,7 @@ mod tests {
     fn native_scope_includes_shared_contracts_and_excludes_browser_styling() {
         for path in [
             "linux/src/ui.rs",
+            "assets/app-icon/cube.svg",
             "src/domain.rs",
             "xtask/src/linux.rs",
             "Cargo.lock",

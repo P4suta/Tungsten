@@ -32,7 +32,8 @@
         "cp -a licenses /app/share/licenses/io.github.p4suta.tungsten/dependencies",
         "install -Dm644 linux/data/io.github.p4suta.tungsten.desktop /app/share/applications/io.github.p4suta.tungsten.desktop",
         "install -Dm644 linux/data/io.github.p4suta.tungsten.metainfo.xml /app/share/metainfo/io.github.p4suta.tungsten.metainfo.xml",
-        "install -Dm644 linux/data/io.github.p4suta.tungsten.svg /app/share/icons/hicolor/scalable/apps/io.github.p4suta.tungsten.svg"
+        "install -Dm644 linux/data/io.github.p4suta.tungsten.svg /app/share/icons/hicolor/scalable/apps/io.github.p4suta.tungsten.svg",
+        "install -Dm644 linux/data/io.github.p4suta.tungsten-symbolic.svg /app/share/icons/hicolor/symbolic/apps/io.github.p4suta.tungsten-symbolic.svg"
       ],
       "sources": [{ "type": "dir", "path": "source" }]
     }

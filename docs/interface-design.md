@@ -44,6 +44,28 @@ Preserve [reflow](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html), [tex
 Follow the HTML [dialog](https://html.spec.whatwg.org/multipage/interactive-elements.html#the-dialog-element) and [disclosure](https://html.spec.whatwg.org/multipage/interactive-elements.html#the-details-element) contracts with standard [modal focus guidance](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/).
 Apply relevant Digital Agency [typography](https://design.digital.go.jp/dads/foundations/typography/), [layout](https://design.digital.go.jp/dads/foundations/layout/), and [button](https://design.digital.go.jp/dads/components/button/usage/) recommendations as project policy.
 
+## App identity
+
+The [app identity board](https://www.figma.com/design/8Zv6KUOa4OxNjdL4nKNwKB?node-id=90-341) defines a tungsten cube with a T cut into its front.
+The requested monogram is essential to the identity, an exception to Microsoft's general recommendation to avoid letters in [app icons](https://learn.microsoft.com/en-us/windows/apps/design/iconography/app-icon-design).
+One filled compound contour joins the cube's faces without exposed stroke caps.
+Light and Dark variants share the contour, while the default variant adds opaque white facets and a white outer keyline for mixed backgrounds.
+
+Keep the exported vector masters under `assets/app-icon`.
+Run `mise x -- just app-icons generate` with ImageMagick 7 after changing them.
+Run `mise x -- just app-icons check` to validate the filled paths, black and white palette, appearance geometry, derived vectors, raster dimensions, checksums, source hashes, and Windows icon frames.
+Each native source gate runs the asset check without requiring a raster renderer.
+
+Windows uses all fourteen target sizes in default, light, and dark forms, plus the five scale factors in Microsoft's [icon construction guidance](https://learn.microsoft.com/en-us/windows/apps/design/iconography/app-icon-construction).
+The executable embeds the default `.ico` file, and the window selects contrasting title-bar artwork from the system appearance.
+High contrast uses the default artwork with its white keyline.
+The Apple vector remains unmasked in Icon Composer, letting the system render Default, Dark, Clear, and Tinted appearances under Apple's [app icon guidance](https://developer.apple.com/design/human-interface-guidelines/app-icons).
+
+The Linux regular icon uses the desktop's [128-pixel canvas and baseline](https://developer.gnome.org/hig/guidelines/app-icons.html).
+Its [16-pixel symbolic icon](https://developer.gnome.org/hig/guidelines/ui-icons.html) shows the cube's front orthogonally, with two-pixel features and system recoloring.
+Web links declare actual Windows icon sizes and appearance-specific SVGs under the [HTML icon selection contract](https://html.spec.whatwg.org/multipage/links.html#rel-icon).
+An opaque 180-pixel image in `PNG` format supports Safari's [Web Clip icon selection](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/ConfiguringWebApplications/ConfiguringWebApplications.html#//apple_ref/doc/uid/TP40002051-CH3-SW4).
+
 ## Verification
 
 Compare editable text, component instances, semantic colors, control placement, and narrow states with each running client.

@@ -1,3 +1,4 @@
+mod app_icons;
 mod apple;
 #[cfg(unix)]
 mod container_reports;
@@ -44,6 +45,10 @@ struct Options {
 #[derive(Subcommand)]
 #[cfg(unix)]
 enum Task {
+    AppIcons {
+        #[command(subcommand)]
+        action: app_icons::Action,
+    },
     Windows {
         #[command(subcommand)]
         action: windows::Action,
@@ -449,6 +454,7 @@ fn check(root: &Path) -> Result<()> {
 fn main() -> Result<()> {
     let root = root()?;
     match Options::parse().task {
+        Task::AppIcons { action } => app_icons::run(&root, action)?,
         Task::Windows { action } => windows::run(&root, action)?,
         Task::Apple { action } => apple::run(&root, action)?,
         Task::Linux { action } => linux::run(&root, action)?,
@@ -602,6 +608,10 @@ fn main() -> Result<()> {
 #[cfg(windows)]
 #[derive(Subcommand)]
 enum Task {
+    AppIcons {
+        #[command(subcommand)]
+        action: app_icons::Action,
+    },
     Docs,
     Check,
     Apple {
@@ -617,6 +627,7 @@ enum Task {
 #[cfg(windows)]
 fn main() -> Result<()> {
     match Options::parse().task {
+        Task::AppIcons { action } => app_icons::run(&root()?, action),
         Task::Docs => docs(&root()?),
         Task::Check => windows::run(&root()?, windows::Action::Check { native_only: false }),
         Task::Apple { action } => apple::run(&root()?, action),

@@ -4,6 +4,50 @@ import { clippedIcons } from "./icon-bounds.js";
 import { missingIcons } from "./icons-check.js";
 import { openContext, openNavigation, openTrash } from "./interface.js";
 
+test("decodes the app identity with contrasting ink and a transparent T", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator('meta[name="application-name"]')).toHaveAttribute(
+    "content",
+    "Tungsten",
+  );
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    const link = page.locator(`link[rel="icon"][media="(prefers-color-scheme: ${scheme})"]`);
+    const href = await link.getAttribute("href");
+    if (!href) throw new Error("Missing app icon link");
+    const pixels = await page.evaluate(
+      async (source: string): Promise<{ face: number[]; letter: number[] }> => {
+        const image = new Image();
+        image.src = source;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = 48;
+        canvas.height = 48;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Missing canvas context");
+        context.drawImage(image, 0, 0, 48, 48);
+        return {
+          face: Array.from(context.getImageData(10, 28, 1, 1).data),
+          letter: Array.from(context.getImageData(20, 30, 1, 1).data),
+        };
+      },
+      href,
+    );
+    const ink = scheme === "dark" ? 255 : 0;
+    expect(pixels.face).toEqual([ink, ink, ink, 255]);
+    expect(pixels.letter).toEqual([0, 0, 0, 0]);
+  }
+  for (const source of ["/favicon.ico", "/assets/apple-touch-icon.png"]) {
+    const width = await page.evaluate(async (href: string): Promise<number> => {
+      const image = new Image();
+      image.src = href;
+      await image.decode();
+      return image.naturalWidth;
+    }, source);
+    expect(width).toBeGreaterThan(0);
+  }
+});
+
 test("reloads Trash after returning while an earlier request is pending", async ({
   page,
   request,

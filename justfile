@@ -12,6 +12,9 @@ build:
 check:
     mise x -- cargo xtask check
 
+app-icons *args:
+    mise x -- cargo xtask app-icons {{ args }}
+
 apple *args:
     mise x -- cargo xtask apple {{ args }}
 

@@ -1195,6 +1195,7 @@ fn controls_overlap(first: &serde_json::Value, second: &serde_json::Value) -> Re
         && y + height > other_y)
 }
 pub fn source(root: &Path) -> Result<()> {
+    super::app_icons::check(root)?;
     fn visit(path: &Path) -> Result<()> {
         for entry in fs::read_dir(path)? {
             let entry = entry?;
@@ -1312,9 +1313,16 @@ fn csharp(source: &str) -> Result<()> {
     Ok(())
 }
 fn relevant(path: &str) -> bool {
-    ["windows/", "xtask/", ".github/workflows/"]
-        .iter()
-        .any(|p| path.starts_with(p))
+    [
+        "windows/",
+        "assets/",
+        "src/",
+        "tests/",
+        "xtask/",
+        ".github/workflows/",
+    ]
+    .iter()
+    .any(|p| path.starts_with(p))
         || [
             "Cargo.toml",
             "Cargo.lock",
@@ -1551,6 +1559,9 @@ mod tests {
     fn windows_and_shared_tooling_changes_select_the_windows_job() {
         for path in [
             "windows/Tungsten/MainPage.xaml",
+            "assets/app-icon/cube.svg",
+            "src/api.rs",
+            "tests/api.rs",
             "xtask/src/main.rs",
             "mise.toml",
             "Cargo.lock",
