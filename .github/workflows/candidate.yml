@@ -45,7 +45,7 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
         with:
-          version: 2026.11.4
+          version: 2026.11.7
       - run: sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder ostree xvfb dbus-x11
       - run: flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
       - run: flatpak --user install --assumeyes --noninteractive flathub org.gnome.Platform//51 org.gnome.Sdk//51
@@ -71,7 +71,7 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
         with:
-          version: 2026.11.4
+          version: 2026.11.7
       - run: mise x -- npm --prefix ui ci
       - run: mise x -- just apple check
       - run: mise x -- just apple build macos --release
@@ -89,7 +89,7 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
         with:
-          version: 2026.11.4
+          version: 2026.11.7
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: |

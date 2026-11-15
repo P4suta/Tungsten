@@ -1,11 +1,11 @@
-FROM node:26.13.0-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 AS ui
+FROM node:26.13.1-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS ui
 WORKDIR /ui
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY ui/ ./
 RUN npm run build
 
-FROM rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS verification-tools
+FROM rust:1.99.1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c AS verification-tools
 ENV CARGO_BUILD_JOBS=2
 RUN cargo install --locked --version 0.68.0 kani-verifier && cargo kani setup
 ENTRYPOINT ["timeout", "--signal=TERM", "--kill-after=10s", "890s"]

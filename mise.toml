@@ -3,11 +3,11 @@ dotnet = "10.0.404"
 "github:microsoft/winappCli" = { version = "0.7.1", os = [
   "windows",
 ], asset_pattern = "winappcli-{{ arch() }}.zip" }
-rust = { version = "1.99.1", profile = "minimal", components = [
+rust = { version = "1.100.0", profile = "minimal", components = [
   "clippy",
   "rustfmt",
 ] }
-node = "26.13.0"
+node = "26.13.1"
 just = "1.59.0"
 taplo = "0.10.0"
 actionlint = "1.7.12"
