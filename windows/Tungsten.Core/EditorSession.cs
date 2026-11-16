@@ -9,6 +9,9 @@ public sealed class EditorSession
     private readonly IDraftStore store;
     private Draft current;
     private Draft? durable;
+    private bool retired;
+    public event EventHandler? RemoteChanged;
+    private bool IsRetired { get { lock (sync) return retired; } }
     public EditorSession(Draft draft, INoteService service, IDraftStore store)
     {
         current = draft.Validate();
@@ -30,19 +33,41 @@ public sealed class EditorSession
         await persistence.WaitAsync();
         try
         {
-            var snapshot = Current;
-            await store.WriteAsync(snapshot);
-            lock (sync) { durable = snapshot; return current == snapshot; }
+            return !IsRetired && await WriteCurrentAsync();
         }
         finally { persistence.Release(); }
     }
+    private async Task<bool> WriteCurrentAsync()
+    {
+        var snapshot = Current;
+        await store.WriteAsync(snapshot);
+        lock (sync) { durable = snapshot; return current == snapshot; }
+    }
     public Task<bool> CheckpointAsync() => PersistAsync();
+    public async Task<bool> RetireAsync(Func<Task> commit, Func<bool> canRetire, Action publish)
+    {
+        await operations.WaitAsync();
+        try
+        {
+            await persistence.WaitAsync();
+            try
+            {
+                if (IsRetired || !canRetire()) return false;
+                await commit();
+                if (!canRetire()) { await WriteCurrentAsync(); return false; }
+                lock (sync) retired = true;
+                publish(); return true;
+            }
+            finally { persistence.Release(); }
+        }
+        finally { operations.Release(); }
+    }
     public async Task SaveAsync(Func<bool>? canSend = null)
     {
         await operations.WaitAsync();
         try
         {
-            if (canSend?.Invoke() == false || !SavePolicy.CanSend(Current)) return;
+            if (IsRetired || canSend?.Invoke() == false || !SavePolicy.CanSend(Current)) return;
             await PersistAsync();
             if (canSend?.Invoke() == false) return;
             Draft? outgoing = null;
@@ -87,6 +112,7 @@ public sealed class EditorSession
         await operations.WaitAsync();
         try
         {
+            if (IsRetired) return;
             var snapshot = Current;
             Note? remote;
             try { remote = (await service.ReadAsync(snapshot.Name)).Validate(snapshot.Name); }
@@ -113,16 +139,17 @@ public sealed class EditorSession
         try
         {
             var snapshot = Current;
-            if (snapshot.Revision is null || Block != SaveBlock.None || snapshot.Pending is not null) return;
+            if (IsRetired || snapshot.Revision is null || Block != SaveBlock.None || snapshot.Pending is not null) return;
             Note remote;
             try { remote = (await service.ReadAsync(snapshot.Name)).Validate(snapshot.Name); }
             catch (RemoteException error) when (error.Status == 404)
-            { lock (sync) current = current with { Block = SaveBlock.Missing }; await PersistAsync(); return; }
+            { lock (sync) current = current with { Block = SaveBlock.Missing }; RemoteChanged?.Invoke(this, EventArgs.Empty); await PersistAsync(); return; }
             if (canApply?.Invoke() == false || remote.Revision == snapshot.Revision) return;
             lock (sync)
             {
                 current = SavePolicy.Observe(current, snapshot, remote);
             }
+            RemoteChanged?.Invoke(this, EventArgs.Empty);
             await PersistAsync();
         }
         finally { operations.Release(); }

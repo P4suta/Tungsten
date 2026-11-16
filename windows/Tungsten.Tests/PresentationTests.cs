@@ -162,6 +162,103 @@ public sealed class PresentationTests : IDisposable
     }
 
     [Fact]
+    public async Task AutosaveCheckpointsUndoToSavedTextWithoutSendingIt()
+    {
+        var store = new AtomicDraftStore(directory); var model = new ClientModel(store, Client);
+        await model.ConnectAsync(Server); await model.OpenAsync("a.md");
+        var saved = model.Body; model.Body = "temporary";
+        Task Send() => throw new InvalidOperationException("Saved text must not be sent.");
+        await model.AutosaveAsync(false, true, Send);
+        Assert.Equal("temporary", Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+        model.Body = saved;
+        await model.AutosaveAsync(false, false, Send);
+        Assert.True(model.Editor!.IsSaved); Assert.True(model.Editor.IsDurable);
+        Assert.Equal(saved, Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscardRetiresCheckpointsBeforeReplacingOrRemovingTheDraft(bool saved)
+    {
+        var store = new DelayedRepository(new AtomicDraftStore(directory));
+        var requests = 0;
+        var model = new ClientModel(store, uri => new(uri, new Handler(_ => { requests++; return Task.FromResult(Response(new Note("a.md", "remote", Revision))); })));
+        await model.ConnectAsync(Server);
+        if (saved) await model.OpenAsync("a.md"); else await model.NewAsync();
+        model.Body = "discarded text"; var previous = model.Editor!;
+        store.Pause = draft => saved && draft.Body == "remote";
+        store.PauseRemoval = !saved;
+        var discarding = model.DiscardAsync();
+        await store.Held.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var checkpoint = model.AutosaveAsync(false, true, () => throw new InvalidOperationException("Discard must not send text."));
+        store.Released.TrySetResult();
+        await Task.WhenAll(discarding, checkpoint).WaitAsync(TimeSpan.FromSeconds(2));
+        var recovered = (await store.LoadAsync(Server)).Drafts;
+        if (saved) Assert.Equal("remote", Assert.Single(recovered).Body); else Assert.Empty(recovered);
+        Assert.False(await previous.CheckpointAsync());
+        var completed = requests;
+        await previous.SaveAsync(); await previous.RetryAsync(); await previous.RefreshAsync();
+        Assert.Equal(completed, requests);
+        Assert.Empty(model.Problem);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InputOrCompositionDuringDiscardStorageKeepsTheCurrentSession(bool compose)
+    {
+        var store = new DelayedRepository(new AtomicDraftStore(directory)); var composing = false;
+        var model = new ClientModel(store, Client, () => !composing);
+        await model.ConnectAsync(Server); await model.OpenAsync("a.md"); model.Body = "confirmed discard";
+        var editor = model.Editor; store.Pause = draft => draft.Body == "remote";
+        var discarding = model.DiscardAsync();
+        await store.Held.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        if (compose) composing = true; else model.Body = "typed during storage";
+        store.Released.TrySetResult();
+        if (compose) await Assert.ThrowsAsync<CompositionInProgressException>(() => discarding);
+        else await Assert.ThrowsAsync<IOException>(() => discarding);
+        Assert.Same(editor, model.Editor);
+        Assert.Equal(compose ? "confirmed discard" : "typed during storage", model.Body);
+        Assert.Equal(model.Body, Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+        Assert.True(await editor!.CheckpointAsync());
+    }
+
+    [Fact]
+    public async Task RemoteRefreshPublishesItsBodyBeforeWaitingForDraftStorage()
+    {
+        var store = new DelayedRepository(new AtomicDraftStore(directory)); var reads = 0;
+        var updated = new Note("a.md", "updated remotely", "\"" + new string('b', 64) + "\"");
+        var model = new ClientModel(store, uri => new(uri, new Handler(_ => Task.FromResult(Response(++reads == 1 ? new Note("a.md", "remote", Revision) : updated)))));
+        await model.ConnectAsync(Server); await model.OpenAsync("a.md");
+        store.Pause = draft => draft.Revision == updated.Revision;
+        var refreshing = model.Editor!.RefreshAsync();
+        try
+        {
+            await store.Held.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Equal(updated.Body, model.Body);
+            model.Body += " with local input";
+        }
+        finally { store.Released.TrySetResult(); await refreshing.WaitAsync(TimeSpan.FromSeconds(2)); }
+        Assert.Equal(updated.Body, model.Editor.Current.BaseBody);
+        Assert.Equal(updated.Revision, model.Editor.Current.Revision);
+        Assert.Equal(updated.Body + " with local input", model.Editor.Current.Body);
+    }
+
+    [Fact]
+    public async Task FailedRefreshStorageKeepsTheDisplayedBodyAndRevisionTogether()
+    {
+        var store = new DelayedRepository(new AtomicDraftStore(directory)); var reads = 0;
+        var updated = new Note("a.md", "updated remotely", "\"" + new string('b', 64) + "\"");
+        var model = new ClientModel(store, uri => new(uri, new Handler(_ => Task.FromResult(Response(++reads == 1 ? new Note("a.md", "remote", Revision) : updated)))));
+        await model.ConnectAsync(Server); await model.OpenAsync("a.md");
+        store.Failure = draft => draft.Revision == updated.Revision ? new IOException("Draft storage unavailable.") : null;
+        await Assert.ThrowsAsync<IOException>(() => model.Editor!.RefreshAsync());
+        Assert.Equal(updated.Body, model.Body);
+        Assert.Equal(updated.Revision, model.Editor!.Current.Revision);
+    }
+
+    [Fact]
     public async Task UndoDuringASaveCheckpointSkipsTheRedundantWrite()
     {
         var store = new DelayedRepository(new AtomicDraftStore(directory));
@@ -295,6 +392,7 @@ public sealed class PresentationTests : IDisposable
     {
         public Func<Draft, bool>? Pause { get; set; }
         public Func<Draft, Exception?>? Failure { get; set; }
+        public bool PauseRemoval { get; set; }
         public TaskCompletionSource Held { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Released { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public async Task WriteAsync(Draft draft, CancellationToken cancellation = default)
@@ -305,7 +403,11 @@ public sealed class PresentationTests : IDisposable
         }
         public Task<DraftRecovery> LoadAsync(Uri server) => store.LoadAsync(server);
         public Task<Draft?> FindAsync(Uri server, string name) => store.FindAsync(server, name);
-        public Task RemoveAsync(Draft draft) => store.RemoveAsync(draft);
+        public async Task RemoveAsync(Draft draft)
+        {
+            await store.RemoveAsync(draft);
+            if (PauseRemoval) { PauseRemoval = false; Held.SetResult(); await Released.Task; }
+        }
     }
 
     [Theory]

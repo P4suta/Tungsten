@@ -42,7 +42,7 @@
         <Grid x:Name="NotesPane" Margin="12,8" RowSpacing="12">
           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <CommandBar x:Name="NotesHeader" DefaultLabelPosition="Right" HorizontalContentAlignment="Stretch">
-            <CommandBar.Content><TextBlock x:Name="CollectionTitle" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" Margin="0,8"/></CommandBar.Content>
+            <CommandBar.Content><TextBlock x:Name="CollectionTitle" AutomationProperties.AutomationId="CollectionTitle" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" Margin="0,8"/></CommandBar.Content>
             <AppBarButton x:Uid="NewNote" Icon="Add" Label="New note" IsEnabled="{x:Bind ViewModel.HasConnection, Mode=OneWay}" Click="NewClicked" AutomationProperties.AutomationId="NewNote"/>
             <CommandBar.SecondaryCommands>
               <AppBarButton x:Name="RenameWorkspace" x:Uid="RenameWorkspace" Icon="Rename" Label="Rename workspace" IsEnabled="False" Click="RenameWorkspaceClicked" AutomationProperties.AutomationId="RenameWorkspace"/>

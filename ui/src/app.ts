@@ -884,7 +884,15 @@ async function boot(): Promise<void> {
     } catch {
       warning();
     }
-    const selected = notes.find((note) => note.name === last) ?? notes[0];
+    if (last) {
+      try {
+        await openNote(last, true);
+        return;
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 404) throw error;
+      }
+    }
+    const selected = notes[0];
     if (selected) await openNote(selected.name);
     else show(blank());
   } catch (error) {

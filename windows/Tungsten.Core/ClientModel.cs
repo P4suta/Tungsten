@@ -70,6 +70,12 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
     {
         if (!CanLeaveNow()) throw new CompositionInProgressException();
         Editor = new(draft, Client ?? throw new InvalidOperationException("Connect to a server first."), store);
+        var editor = Editor;
+        editor.RemoteChanged += (_, _) =>
+        {
+            if (!ReferenceEquals(editor, Editor)) return;
+            body = editor.Current.Body; OnPropertyChanged(nameof(Body)); NotifyEditor();
+        };
         body = draft.Body; OnPropertyChanged(nameof(Body)); NotifyEditor();
     }
     private async Task SelectAsync(Draft draft)
@@ -127,9 +133,9 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
     }
     public async Task AutosaveAsync(bool composing, bool busy, Func<Task> send)
     {
-        if (composing || Editor is not { IsSaved: false } editor) return;
+        if (composing || Editor is not { } editor || editor.IsSaved && editor.IsDurable) return;
         if (!await CanLeaveAsync()) return;
-        if (!busy && ReferenceEquals(editor, Editor) && editor.Block == SaveBlock.None) await send();
+        if (!busy && ReferenceEquals(editor, Editor) && SavePolicy.CanSend(editor.Current)) await send();
         NotifyEditor();
     }
     public async Task<bool> CanLeaveAsync()
@@ -138,6 +144,7 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
         try
         {
             var saved = await editor.CheckpointAsync();
+            if (!ReferenceEquals(editor, Editor)) return false;
             if (!CanLeaveNow()) return false;
             Problem = saved ? "" : "Writing changed while the draft was being stored. Try again.";
             return saved;
@@ -180,10 +187,16 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
                 catch (RemoteException error) when (error.Status == 404) { }
             }
             await CheckInputAsync();
-            if (remote is not null)
-            { var draft = Draft.From(Connected.Origin, remote); await store.WriteAsync(draft); await CheckInputAsync(); Select(draft); }
-            else
-            { await store.RemoveAsync(editor.Current); await CheckInputAsync(); Editor = null; body = ""; OnPropertyChanged(nameof(Body)); NotifyEditor(); }
+            var replacement = remote is null ? null : Draft.From(Connected.Origin, remote);
+            var replaced = await editor.RetireAsync(
+                () => replacement is null ? store.RemoveAsync(editor.Current) : store.WriteAsync(replacement),
+                () => CanLeaveNow() && Body == observed,
+                () =>
+                {
+                    if (replacement is not null) Select(replacement);
+                    else { Editor = null; body = ""; OnPropertyChanged(nameof(Body)); NotifyEditor(); }
+                });
+            if (!replaced) { await CheckInputAsync(); throw new IOException("The draft changed before discard completed. Confirm again."); }
             Problem = "";
         }
         finally { navigation.Release(); }

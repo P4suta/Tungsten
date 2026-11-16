@@ -73,6 +73,27 @@ test.beforeEach(async ({ page, request }) => {
   await page.goto("/");
 });
 
+test("reopens a remembered note beyond the first collection page", async ({ page, request }) => {
+  const notes = Object.fromEntries(
+    Array.from({ length: 25 }, (_, index) => [
+      `Remembered-${String(index).padStart(2, "0")}.md`,
+      `# Remembered ${index}\n\nSaved writing.\n`,
+    ]),
+  );
+  await seedNotes(request, notes);
+  const response = await request.get("/api/notes?paged=true&limit=24");
+  const first: { notes: { name: string }[] } = await response.json();
+  const remembered = Object.keys(notes).find(
+    (name) => !first.notes.some((note) => note.name === name),
+  );
+  if (!remembered) throw new Error("The fixture needs a note beyond the first page.");
+  await page.evaluate((name) => localStorage.setItem("tungsten.last", name), remembered);
+  await page.goto("/");
+  await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(notes[remembered] ?? "");
+  await expect(page).toHaveURL(new RegExp(`\\?note=${remembered.replace(".", "\\.")}$`));
+  expect(await page.evaluate(() => localStorage.getItem("tungsten.last"))).toBe(remembered);
+});
+
 test("writes plain text, searches, renames, and deletes a note", async ({ page, request }) => {
   await nameNote(page, "Shopping");
   await replaceMarkdown(

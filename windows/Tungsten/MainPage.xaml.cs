@@ -31,6 +31,8 @@ public sealed partial class MainPage : Page
     private EditorSession? displayedEditor;
     private string? presentationProblem, inputProblem;
     private string? operationProblem, collectionProblem, compositionProblem;
+    private sealed record CollectionRequest(Uri Server, string Collection, string Query, string? Cursor, bool Append);
+    private CollectionRequest? failedCollection;
     public ClientModel ViewModel { get; }
     private NoteClient Client => ViewModel.Client ?? throw new InvalidOperationException(UiText.Get("ConnectFirst"));
     private Workspace SelectedWorkspace => Workspaces.Single(w => w.Id == collection);
@@ -142,7 +144,7 @@ public sealed partial class MainPage : Page
         {
             await ViewModel.ConnectAsync(origin);
             collection = "all"; detailVisible = false; Search.Text = "";
-            notes.Clear(); deleted.Clear(); cursor = null; collectionProblem = null;
+            notes.Clear(); deleted.Clear(); cursor = null; collectionProblem = null; failedCollection = null;
             UpdateListPresentation(); UpdateWorkspaceNavigation();
         }
         await AtomicDraftStore.ReplaceAsync(settings, Rules.Utf8.GetBytes(origin.AbsoluteUri));
@@ -173,7 +175,7 @@ public sealed partial class MainPage : Page
         if (!args.IsSettingsInvoked) return;
         await PerformAsync(async () =>
         {
-            if (composing || !await ViewModel.CanLeaveAsync()) return;
+            if (composing || !await ViewModel.CanLeaveAsync()) { UpdateWorkspaceNavigation(); return; }
             ServerAddress.Text = Client.Origin.AbsoluteUri;
             connectionVisible = true; UpdateStatus();
             ServerAddress.Focus(FocusState.Programmatic);
@@ -193,8 +195,12 @@ public sealed partial class MainPage : Page
         var target = item.Tag?.ToString() ?? "all";
         await PerformAsync(async () =>
         {
-            if (composing || !await ViewModel.CanLeaveAsync()) throw new IOException(UiText.Get("StoreBeforeLeaving"));
-            collection = target; detailVisible = false; await LoadNotesAsync(); UpdateLayoutMode();
+            try
+            {
+                if (composing || !await ViewModel.CanLeaveAsync()) throw new IOException(UiText.Get("StoreBeforeLeaving"));
+                collection = target; detailVisible = false; await LoadNotesAsync(); UpdateLayoutMode();
+            }
+            finally { UpdateWorkspaceNavigation(); }
         });
     }
     private void UpdateListPresentation()
@@ -206,42 +212,49 @@ public sealed partial class MainPage : Page
         MoreButton.Visibility = cursor is null ? Visibility.Collapsed : Visibility.Visible;
         ListStatus.Text = notes.Count + deleted.Count == 0 ? UiText.Get("EmptyNoteList") : "";
     }
-    private async Task LoadNotesAsync(bool append = false, string? query = null)
+    private Task LoadNotesAsync(bool append = false, string? query = null)
+        => LoadNotesAsync(new CollectionRequest(Client.Origin, collection, query ?? (append && collection == "all" ? noteSearch.Query : Search.Text), append ? cursor : null, append));
+    private async Task LoadNotesAsync(CollectionRequest load)
     {
-        var submittedQuery = query ?? Search.Text;
-        if (!append) { notes.Clear(); deleted.Clear(); cursor = null; collectionProblem = null; }
+        if (load.Server != Client.Origin || load.Collection != collection) return;
+        failedCollection = null; collectionProblem = null;
+        if (!load.Append) { notes.Clear(); deleted.Clear(); cursor = null; }
         UpdateListPresentation();
-        if (collection == "trash")
+        try
         {
-            var page = await Client.TrashAsync(cursor); foreach (var entry in page.Entries) deleted.Add(entry); cursor = page.Next;
-        }
-        else if (collection == "drafts")
-        {
-            var recovery = await drafts.LoadAsync(Client.Origin);
-            foreach (var draft in recovery.Drafts.Where(d => d.Body != d.BaseBody || d.Pending is not null || d.Block != SaveBlock.None)
-                .Where(d => d.Body.Contains(submittedQuery, StringComparison.OrdinalIgnoreCase)))
-                notes.Add(new(draft.Name, Rules.Title(draft.Body)));
-            if (recovery.DamagedFiles.Length > 0)
-                collectionProblem = UiText.Get("DamagedDrafts");
-        }
-        else
-        {
-            if (collection == "all")
+            if (load.Collection == "trash")
             {
-                var request = noteSearch.Begin(append ? null : submittedQuery);
-                if (request is null) return;
-                try
-                {
-                    var page = await Client.NotesAsync(request.Query, request.Cursor);
-                    if (!noteSearch.Complete(request, page.Next)) return;
-                    MergeNotes(page.Notes); cursor = noteSearch.Cursor;
-                }
-                catch { noteSearch.Fail(request); throw; }
+                var page = await Client.TrashAsync(load.Cursor); foreach (var entry in page.Entries) deleted.Add(entry); cursor = page.Next;
+            }
+            else if (load.Collection == "drafts")
+            {
+                var recovery = await drafts.LoadAsync(Client.Origin);
+                foreach (var draft in recovery.Drafts.Where(d => d.Body != d.BaseBody || d.Pending is not null || d.Block != SaveBlock.None)
+                    .Where(d => d.Body.Contains(load.Query, StringComparison.OrdinalIgnoreCase)))
+                    notes.Add(new(draft.Name, Rules.Title(draft.Body)));
+                if (recovery.DamagedFiles.Length > 0)
+                    collectionProblem = UiText.Get("DamagedDrafts");
             }
             else
-            { var page = await Client.WorkspaceNotesAsync(collection, cursor); MergeNotes(page.Notes); cursor = page.Next; }
+            {
+                if (load.Collection == "all")
+                {
+                    var request = noteSearch.Begin(load.Append ? null : load.Query);
+                    if (request is null) return;
+                    try
+                    {
+                        var page = await Client.NotesAsync(request.Query, request.Cursor);
+                        if (!noteSearch.Complete(request, page.Next)) return;
+                        MergeNotes(page.Notes); cursor = noteSearch.Cursor;
+                    }
+                    catch { noteSearch.Fail(request); throw; }
+                }
+                else
+                { var page = await Client.WorkspaceNotesAsync(load.Collection, load.Cursor); MergeNotes(page.Notes); cursor = page.Next; }
+            }
         }
-        UpdateListPresentation();
+        catch (Exception error) { failedCollection = load; collectionProblem = error.Message; throw; }
+        finally { UpdateListPresentation(); }
     }
     private void MergeNotes(IEnumerable<Summary> incoming)
     {
@@ -286,6 +299,9 @@ public sealed partial class MainPage : Page
     private async void RetryClicked(object sender, RoutedEventArgs args) => await PerformAsync(async () =>
     {
         if (composing) return;
+        if (ViewModel.Problem.Length > 0 && !await ViewModel.CanLeaveAsync()) return;
+        if (failedCollection is { } request && ViewModel.Editor is not { Block: not SaveBlock.None })
+        { await LoadNotesAsync(request); return; }
         if (ViewModel.Editor is not { } editor) { await ConnectAsync(); return; }
         await editor.RetryAsync();
         if (editor.Block == SaveBlock.None) await SaveAndListAsync();
@@ -358,7 +374,6 @@ public sealed partial class MainPage : Page
         await PerformAsync(async () =>
         {
             await editor.RefreshAsync(() => !composing);
-            if (ReferenceEquals(editor, ViewModel.Editor) && !composing && ViewModel.Body != editor.Current.Body) ViewModel.Body = editor.Current.Body;
         });
     }
     private void WorkspaceSizeChanged(object sender, SizeChangedEventArgs args) => UpdateLayoutMode();
@@ -466,7 +481,7 @@ public sealed partial class MainPage : Page
         if (!await ViewModel.CanLeaveAsync()) return;
         if (!await ConfirmAsync(UiText.Get("TrashNoteTitle"), UiText.Get("TrashNoteBody", ViewModel.Title), UiText.Get("ActionMoveToTrash"))) return;
         await Client.DeleteAsync(new(editor.Current.Name, editor.Current.BaseBody!, editor.Current.Revision));
-        await editor.RefreshAsync(); await LoadNotesAsync();
+        await editor.RefreshAsync(() => !composing); await LoadNotesAsync();
     });
     private async void EmptyTrashClicked(object sender, RoutedEventArgs args) => await PerformAsync(async () =>
     { if (await ConfirmAsync(UiText.Get("EmptyTrashTitle"), UiText.Get("EmptyTrashBody"), UiText.Get("ActionDeletePermanently"))) { await Client.EmptyTrashAsync(); await LoadNotesAsync(); } });

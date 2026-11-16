@@ -6,6 +6,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[path = "windows_ui_server.rs"]
+mod ui_server;
+
 const RUNTIME_IDENTIFIERS_PROPERTY: &str = "RuntimeIdentifiers=\"win-x64;win-arm64\"";
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -31,7 +34,10 @@ pub enum Action {
         arch: Architecture,
     },
     Contracts,
-    Ui,
+    Ui {
+        #[arg(long)]
+        collections_only: bool,
+    },
     Affected {
         #[arg(long)]
         base: String,
@@ -115,7 +121,14 @@ pub fn run(root: &Path, action: Action) -> Result<()> {
             )
         }
         Action::Contracts => contracts(root),
-        Action::Ui => ui(root),
+        Action::Ui { collections_only } => {
+            if collections_only {
+                require_ui_desktop(root)?;
+                collection_ui(root)
+            } else {
+                ui(root)
+            }
+        }
         Action::Affected { base, head, output } => {
             for revision in [&base, &head] {
                 ensure!(
@@ -508,7 +521,7 @@ fn open_connection_settings(root: &Path, pid: &str) -> Result<()> {
         ],
     )
 }
-fn ui(root: &Path) -> Result<()> {
+fn require_ui_desktop(root: &Path) -> Result<()> {
     native()?;
     let existing = super::output(
         root,
@@ -521,6 +534,10 @@ fn ui(root: &Path) -> Result<()> {
             .is_some_and(Vec::is_empty),
         "close existing Tungsten windows before starting the isolated UI workflow"
     );
+    Ok(())
+}
+fn ui(root: &Path) -> Result<()> {
+    require_ui_desktop(root)?;
     let app = launch_ui(root)?;
     let pid = app.to_string();
     let draft_title = format!("Windows UI regression draft {app}");
@@ -971,11 +988,210 @@ fn ui(root: &Path) -> Result<()> {
         retained?;
         cleanup?;
     }
-    Ok(())
+    collection_ui(root)
+}
+
+fn collection_ui(root: &Path) -> Result<()> {
+    let server = ui_server::Server::start()?;
+    let pid = launch_ui_configuration(root, "Debug")?.to_string();
+    let execute = |args: &[&str]| ui_execute(root, &pid, args);
+    let result = (|| -> Result<()> {
+        open_connection_settings(root, &pid)?;
+        execute(&["set-value", "ServerAddress", &server.origin()])?;
+        execute(&["invoke", "Connect"])?;
+        execute(&[
+            "wait-for",
+            "Search",
+            "-p",
+            "IsOffscreen",
+            "--value",
+            "False",
+            "-t",
+            "5000",
+        ])?;
+        click_note(root, &pid, "Collection retry")?;
+        execute(&[
+            "wait-for",
+            "Editor",
+            "--value",
+            "Original writing.",
+            "--contains",
+            "-t",
+            "5000",
+        ])?;
+        execute(&["send-keys", "ctrl+f", "--via", "send-input"])?;
+        execute(&[
+            "wait-for",
+            "TextBox",
+            "--root",
+            "Search",
+            "-p",
+            "HasKeyboardFocus",
+            "--value",
+            "True",
+            "-t",
+            "5000",
+        ])?;
+        execute(&["send-keys", "ctrl+a", "--via", "send-input"])?;
+        execute(&["send-keys", "needle", "--verbatim", "--via", "send-input"])?;
+        execute(&["send-keys", "enter", "--via", "send-input"])?;
+        execute(&[
+            "wait-for",
+            "Problem",
+            "-p",
+            "IsOffscreen",
+            "--value",
+            "False",
+            "-t",
+            "5000",
+        ])?;
+        execute(&["send-keys", "ctrl+a", "--via", "send-input"])?;
+        execute(&[
+            "send-keys",
+            "unsubmitted",
+            "--verbatim",
+            "--via",
+            "send-input",
+        ])?;
+        execute(&["invoke", "Retry"])?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let requests = loop {
+            let requests = server.requests()?;
+            if requests
+                .iter()
+                .filter(|target| {
+                    target
+                        .split('?')
+                        .nth(1)
+                        .is_some_and(|query| query.split('&').any(|field| field == "q=needle"))
+                })
+                .count()
+                >= 2
+            {
+                break requests;
+            }
+            ensure!(
+                std::time::Instant::now() < deadline,
+                "Retry did not repeat the submitted search: {requests:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        ensure!(
+            requests
+                .iter()
+                .filter(|target| target
+                    .split('?')
+                    .nth(1)
+                    .is_some_and(|query| query.split('&').any(|field| field == "q=needle")))
+                .count()
+                == 2,
+            "Retry did not repeat the submitted search: {requests:?}"
+        );
+        ensure!(
+            !requests
+                .iter()
+                .any(|target| target.contains("q=unsubmitted")),
+            "Retry used unsubmitted search text: {requests:?}"
+        );
+        click_note(root, &pid, "Collection retry")?;
+        execute(&[
+            "wait-for",
+            "Editor",
+            "-p",
+            "HasKeyboardFocus",
+            "--value",
+            "True",
+            "-t",
+            "5000",
+        ])?;
+        let local = super::output(
+            root,
+            "powershell.exe",
+            &[
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$package = Get-AppxPackage -Name P4suta.Tungsten; if (-not $package) { throw 'Tungsten package is missing' }; [Console]::Write((Join-Path $env:LOCALAPPDATA ('Packages/' + $package.PackageFamilyName + '/LocalState/ui-tests/drafts')))",
+            ],
+        )?;
+        use sha2::Digest;
+        let identity = format!("{}\nguard.md", server.origin());
+        let digest: String = sha2::Sha256::digest(identity.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect();
+        let path = PathBuf::from(local).join(format!("{digest}.json"));
+        let locked = lock_ui_draft(&path)?;
+        execute(&["focus", "Editor"])?;
+        execute(&["send-keys", "ctrl+end", "--via", "send-input"])?;
+        execute(&[
+            "send-keys",
+            " local input",
+            "--verbatim",
+            "--via",
+            "send-input",
+        ])?;
+        execute(&["invoke", "Drafts"])?;
+        execute(&[
+            "wait-for",
+            "Problem",
+            "-p",
+            "IsOffscreen",
+            "--value",
+            "False",
+            "-t",
+            "5000",
+        ])?;
+        execute(&[
+            "wait-for",
+            "CollectionTitle",
+            "-p",
+            "Name",
+            "--value",
+            "All notes",
+            "-t",
+            "5000",
+        ])?;
+        drop(locked);
+        execute(&["invoke", "Drafts"])?;
+        execute(&[
+            "wait-for",
+            "CollectionTitle",
+            "-p",
+            "Name",
+            "--value",
+            "Drafts",
+            "-t",
+            "5000",
+        ])?;
+        Ok(())
+    })();
+    let cleanup = execute(&["invoke", "Close"]);
+    result?;
+    cleanup
+}
+
+fn lock_ui_draft(path: &Path) -> Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(0);
+    }
+    Ok(options.open(path)?)
 }
 
 fn launch_ui(root: &Path) -> Result<u32> {
-    execute(root, "dotnet", build_arguments(Architecture::X64))?;
+    launch_ui_configuration(root, "Release")
+}
+
+fn launch_ui_configuration(root: &Path, configuration: &str) -> Result<u32> {
+    execute(
+        root,
+        "dotnet",
+        build_configuration_arguments(Architecture::X64, configuration),
+    )?;
     launch_pid(&super::output(
         root,
         "winapp",
@@ -984,7 +1200,7 @@ fn launch_ui(root: &Path) -> Result<u32> {
             "windows/Tungsten/Tungsten.csproj",
             "--no-restore",
             "-c",
-            "Release",
+            configuration,
             "--arch",
             "x64",
             "-p",
@@ -1107,6 +1323,10 @@ fn open_draft(root: &Path, pid: &str, title: &str) -> Result<()> {
         &["send-keys", title, "--verbatim", "--via", "send-input"],
     )?;
     ui_execute(root, pid, &["send-keys", "enter", "--via", "send-input"])?;
+    click_note(root, pid, title)
+}
+
+fn click_note(root: &Path, pid: &str, title: &str) -> Result<()> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let row = loop {
         let tree = super::output(
@@ -1465,6 +1685,9 @@ fn relevant(path: &str) -> bool {
         .contains(&path)
 }
 fn build_arguments(arch: Architecture) -> Vec<String> {
+    build_configuration_arguments(arch, "Release")
+}
+fn build_configuration_arguments(arch: Architecture, configuration: &str) -> Vec<String> {
     let (platform, runtime) = match arch {
         Architecture::X64 => ("x64", "win-x64"),
         Architecture::Arm64 => ("ARM64", "win-arm64"),
@@ -1473,7 +1696,7 @@ fn build_arguments(arch: Architecture) -> Vec<String> {
         "build",
         "windows/Tungsten/Tungsten.csproj",
         "--configuration",
-        "Release",
+        configuration,
         "--runtime",
         runtime,
         &format!("-p:Platform={platform}"),

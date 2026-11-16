@@ -85,17 +85,21 @@ Pending request data is durable before sending.
 Acknowledgements advance the saved base without replacing input entered during the request.
 Navigation and closing checkpoint current input independently of an outstanding network request.
 The autosave timer checkpoints later input even while another action waits for the server.
+Undoing to saved text also updates the local draft without sending a redundant save.
 A storage failure keeps the editor open and blocks navigation and closing.
 The store quarantines damaged files with their original bytes, and valid drafts remain recoverable.
 After damage or loss, the store reopens a valid replacement backup and blocks automatic sending.
 Selecting another note checkpoints input again after storing the destination draft.
 Discarding checks for input received after confirmation and preserves any later writing.
+A completed discard prevents later writes from the previous editor.
 
 Conflicts, deletion, and uncertain delivery stop automatic sending.
 Retry reads the server before deciding whether a pending write arrived.
+After a collection request fails, Retry repeats the submitted query or page.
 Save as new note keeps the original draft and creates a distinct identity.
 Saved notes refresh when the window activates and every fifteen seconds.
 Remote updates replace clean text and preserve dirty text as a conflict.
+Remote refresh publishes the displayed body and revision together before waiting for draft storage.
 Connection changes checkpoint the previous server's draft before switching clients.
 Workspace operations preserve the active editor and keep updated workspace revisions.
 The [AppInstance lifecycle API](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/applifecycle/applifecycle-instancing) redirects duplicate activation to the existing window before another editor can write drafts.
@@ -138,6 +142,7 @@ On macOS and Linux, `mise x -- just windows contracts` builds the existing serve
 `mise x -- just windows check --native-only` runs native checks without Docker or documentation tooling.
 Hosted CI runs documentation and real-server contracts in Linux jobs and joins both Windows jobs to the existing required summary.
 `mise x -- just windows ui` exercises native controls, `accessible name`s, connection errors, writing, and local draft navigation.
+`mise x -- just windows ui --collections-only` runs a `Debug` app with an isolated loopback server to check collection retry and refused navigation.
 The UI workflow uses the explicit `--ui-test` launch flag and a separate LocalState subdirectory.
 It launches its own app and rejects supplied process identifiers.
 It refuses to start while an existing Tungsten window is open, captures a screenshot, and closes its own window.
