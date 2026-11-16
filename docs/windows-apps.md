@@ -91,6 +91,9 @@ The store quarantines damaged files with their original bytes, and valid drafts 
 After damage or loss, the store reopens a valid replacement backup and blocks automatic sending.
 Selecting another note checkpoints input again after storing the destination draft.
 Discarding checks for input received after confirmation and preserves any later writing.
+Preparing a discard leaves the current draft intact.
+The final input check, file commit, and editor replacement run without yielding.
+A failed or refused discard keeps the previous durable draft available for recovery.
 A completed discard prevents later writes from the previous editor.
 
 Conflicts, deletion, and uncertain delivery stop automatic sending.

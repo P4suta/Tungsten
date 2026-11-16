@@ -46,6 +46,17 @@ public sealed class AtomicDraftStore(string directory) : IDraftRepository
     }
     public static async Task ReplaceAsync(string path, byte[] bytes, CancellationToken cancellation = default)
     {
+        var temporary = await PrepareReplacementAsync(path, bytes, cancellation);
+        try { CommitReplacement(path, temporary); }
+        finally { File.Delete(temporary); }
+    }
+    private static void CommitReplacement(string path, string temporary)
+    {
+        if (File.Exists(path)) File.Replace(temporary, path, path + ".previous");
+        else File.Move(temporary, path);
+    }
+    private static async Task<string> PrepareReplacementAsync(string path, byte[] bytes, CancellationToken cancellation)
+    {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -57,10 +68,41 @@ public sealed class AtomicDraftStore(string directory) : IDraftRepository
                 await file.FlushAsync(cancellation);
                 file.Flush(true);
             }
-            if (File.Exists(path)) File.Replace(temporary, path, path + ".previous");
-            else File.Move(temporary, path);
+            return temporary;
         }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        catch { File.Delete(temporary); throw; }
+    }
+    private sealed class PreparedChange(Action commit, Action release) : IDraftChange
+    {
+        private Action? pending = commit;
+        private Action? cleanup = release;
+        public void Commit() => (Interlocked.Exchange(ref pending, null)
+            ?? throw new InvalidOperationException("The draft change is no longer pending."))();
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref pending, null);
+            Interlocked.Exchange(ref cleanup, null)?.Invoke();
+        }
+    }
+    public async Task<IDraftChange> PrepareDiscardAsync(Draft current, Draft? replacement)
+    {
+        current.Validate(); replacement?.Validate();
+        if (replacement is not null && (current.Server != replacement.Server || current.Name != replacement.Name))
+            throw new InvalidDataException("The replacement belongs to another draft.");
+        await writes.WaitAsync();
+        try
+        {
+            var path = PathFor(new(current.Server), current.Name);
+            var temporary = replacement is null ? null : await PrepareReplacementAsync(path, JsonSerializer.SerializeToUtf8Bytes(replacement, Json), default);
+            return new PreparedChange(
+                () =>
+                {
+                    if (temporary is not null) CommitReplacement(path, temporary);
+                    else { File.Delete(path + ".previous"); File.Delete(path); }
+                },
+                () => { try { if (temporary is not null) File.Delete(temporary); } finally { writes.Release(); } });
+        }
+        catch { writes.Release(); throw; }
     }
     private async Task<Draft?> ReadAsync(string path, string identity, List<string> damaged)
     {
@@ -107,7 +149,7 @@ public sealed class AtomicDraftStore(string directory) : IDraftRepository
     public async Task RemoveAsync(Draft draft)
     {
         await writes.WaitAsync();
-        try { var path = PathFor(new(draft.Server), draft.Name); File.Delete(path); File.Delete(path + ".previous"); }
+        try { var path = PathFor(new(draft.Server), draft.Name); File.Delete(path + ".previous"); File.Delete(path); }
         finally { writes.Release(); }
     }
 }

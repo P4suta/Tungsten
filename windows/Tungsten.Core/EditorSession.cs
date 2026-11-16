@@ -44,7 +44,7 @@ public sealed class EditorSession
         lock (sync) { durable = snapshot; return current == snapshot; }
     }
     public Task<bool> CheckpointAsync() => PersistAsync();
-    public async Task<bool> RetireAsync(Func<Task> commit, Func<bool> canRetire, Action publish)
+    public async Task<bool> RetireAsync(Func<Task<IDraftChange>> prepare, Func<bool> canRetire, Action publish)
     {
         await operations.WaitAsync();
         try
@@ -53,8 +53,9 @@ public sealed class EditorSession
             try
             {
                 if (IsRetired || !canRetire()) return false;
-                await commit();
-                if (!canRetire()) { await WriteCurrentAsync(); return false; }
+                using var change = await prepare();
+                if (!canRetire()) return false;
+                change.Commit();
                 lock (sync) retired = true;
                 publish(); return true;
             }

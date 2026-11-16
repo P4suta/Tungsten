@@ -39,9 +39,13 @@ test("unwraps matched inline syntax while preserving contents and native undo", 
   }
 });
 
-test("removes the matching fence when either fence is deleted", async ({ page }) => {
-  const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  for (const marker of ["```", "~~~", "````"]) {
+for (const [label, marker] of [
+  ["backticks", "```"],
+  ["tildes", "~~~"],
+  ["extended backticks", "````"],
+] as const) {
+  test(`removes the matching ${label} fence when either fence is deleted`, async ({ page }) => {
+    const editor = page.getByRole("textbox", { name: "Note", exact: true });
     const original = `# Fence\n\n${marker}python extra\nimport package\n${marker}\n\nTail`;
     await replaceMarkdown(editor, original);
     await expect(editor).toHaveMarkdown(original);
@@ -53,8 +57,8 @@ test("removes the matching fence when either fence is deleted", async ({ page })
     await selectMarkdown(editor, original.lastIndexOf(marker));
     await editor.press("Delete");
     await expect(editor).toHaveMarkdown("# Fence\n\nimport package\n\nTail");
-  }
-});
+  });
+}
 
 test("highlights bundled languages and aliases without interpreting literal HTML", async ({
   page,

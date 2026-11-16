@@ -23,6 +23,7 @@ public sealed class PresentationTests : IDisposable
         public Task<Draft?> FindAsync(Uri server, string name) => Task.FromResult<Draft?>(draft.Server == server.AbsoluteUri && draft.Name == name ? draft : null);
         public Task WriteAsync(Draft value, CancellationToken cancellation = default) => Task.CompletedTask;
         public Task RemoveAsync(Draft value) => Task.CompletedTask;
+        public Task<IDraftChange> PrepareDiscardAsync(Draft current, Draft? replacement) => throw new NotSupportedException();
     }
 
     [Fact]
@@ -225,6 +226,23 @@ public sealed class PresentationTests : IDisposable
     }
 
     [Fact]
+    public async Task FailedDiscardPreservesTheLastDurableLocalDraft()
+    {
+        var store = new DelayedRepository(new AtomicDraftStore(directory));
+        var model = new ClientModel(store, Client);
+        await model.ConnectAsync(Server); await model.OpenAsync("a.md"); model.Body = "durable local writing";
+        store.Pause = draft => draft.Body == "remote";
+        var discarding = model.DiscardAsync();
+        await store.Held.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        model.Body = "input during discard";
+        store.Failure = draft => draft.Body != "remote" ? new IOException("Draft storage unavailable.") : null;
+        store.Released.TrySetResult();
+        await Assert.ThrowsAsync<IOException>(() => discarding);
+        Assert.Equal("input during discard", model.Body); Assert.False(model.CanCloseNow());
+        Assert.Equal("durable local writing", Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+    }
+
+    [Fact]
     public async Task RemoteRefreshPublishesItsBodyBeforeWaitingForDraftStorage()
     {
         var store = new DelayedRepository(new AtomicDraftStore(directory)); var reads = 0;
@@ -403,10 +421,19 @@ public sealed class PresentationTests : IDisposable
         }
         public Task<DraftRecovery> LoadAsync(Uri server) => store.LoadAsync(server);
         public Task<Draft?> FindAsync(Uri server, string name) => store.FindAsync(server, name);
-        public async Task RemoveAsync(Draft draft)
+        public Task RemoveAsync(Draft draft) => store.RemoveAsync(draft);
+        public async Task<IDraftChange> PrepareDiscardAsync(Draft current, Draft? replacement)
         {
-            await store.RemoveAsync(draft);
-            if (PauseRemoval) { PauseRemoval = false; Held.SetResult(); await Released.Task; }
+            var change = await store.PrepareDiscardAsync(current, replacement);
+            try
+            {
+                if (replacement is not null && Pause?.Invoke(replacement) == true)
+                { Pause = null; Held.SetResult(); await Released.Task; }
+                else if (replacement is null && PauseRemoval)
+                { PauseRemoval = false; Held.SetResult(); await Released.Task; }
+                return change;
+            }
+            catch { change.Dispose(); throw; }
         }
     }
 

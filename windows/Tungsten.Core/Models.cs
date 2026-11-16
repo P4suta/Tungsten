@@ -118,9 +118,15 @@ public interface IDraftStore
     Task WriteAsync(Draft draft, CancellationToken cancellation = default);
 }
 
+public interface IDraftChange : IDisposable
+{
+    void Commit();
+}
+
 public interface IDraftRepository : IDraftStore
 {
     Task<Draft?> FindAsync(Uri server, string name);
     Task<DraftRecovery> LoadAsync(Uri server);
     Task RemoveAsync(Draft draft);
+    Task<IDraftChange> PrepareDiscardAsync(Draft current, Draft? replacement);
 }

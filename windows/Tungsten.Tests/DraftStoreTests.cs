@@ -8,6 +8,74 @@ public sealed class DraftStoreTests : IDisposable
     private static readonly Uri Server = new("https://notes.example/");
     private static Draft Input(string body = "writing") => new(1, Server.AbsoluteUri, "note.md", body, null, null, null);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AbortedDiscardPreparationKeepsBothVersionsAndReleasesTheWriter(bool replace)
+    {
+        var store = new AtomicDraftStore(directory);
+        await store.WriteAsync(Input("backup")); await store.WriteAsync(Input("local"));
+        var path = store.PathFor(Server, "note.md");
+        var primary = await File.ReadAllBytesAsync(path); var backup = await File.ReadAllBytesAsync(path + ".previous");
+        var change = await store.PrepareDiscardAsync(Input("local"), replace ? Input("remote") : null);
+        Assert.Equal(primary, await File.ReadAllBytesAsync(path)); Assert.Equal(backup, await File.ReadAllBytesAsync(path + ".previous"));
+        Assert.Equal("local", Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+        var queued = store.WriteAsync(Input("later")); Assert.False(queued.IsCompleted);
+        change.Dispose(); change.Dispose();
+        await queued.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Throws<InvalidOperationException>(change.Commit);
+        Assert.Equal("later", Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+        Assert.Empty(Directory.EnumerateFiles(directory, "*.tmp"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscardPublishesOnlyAtCommitAndCannotCommitTwice(bool replace)
+    {
+        var store = new AtomicDraftStore(directory);
+        await store.WriteAsync(Input("backup")); await store.WriteAsync(Input("local"));
+        using (var change = await store.PrepareDiscardAsync(Input("local"), replace ? Input("remote") : null))
+        {
+            Assert.Equal("local", Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+            change.Commit(); Assert.Throws<InvalidOperationException>(change.Commit);
+        }
+        var recovered = await store.LoadAsync(Server);
+        if (replace) Assert.Equal("remote", Assert.Single(recovered.Drafts).Body); else Assert.Empty(recovered.Drafts);
+        Assert.Empty(Directory.EnumerateFiles(directory, "*.tmp"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscardRejectsAReplacementFromAnotherServerOrNote(bool otherServer)
+    {
+        var store = new AtomicDraftStore(directory); await store.WriteAsync(Input());
+        var replacement = otherServer ? Input() with { Server = "https://other.example/" } : Input() with { Name = "other.md" };
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.PrepareDiscardAsync(Input(), replacement));
+        Assert.Equal(Input(), Assert.Single((await store.LoadAsync(Server)).Drafts));
+        Assert.Empty(Directory.EnumerateFiles(directory, "*.tmp"));
+    }
+
+    private sealed class WindowsFactAttribute : FactAttribute
+    { public WindowsFactAttribute() { if (!OperatingSystem.IsWindows()) Skip = "Windows file replacement requires native sharing checks."; } }
+
+    [WindowsFact]
+    public async Task FailedDiscardCommitKeepsTheCurrentFileAndCleansItsPreparedReplacement()
+    {
+        var store = new AtomicDraftStore(directory); await store.WriteAsync(Input("local"));
+        var path = store.PathFor(Server, "note.md"); var original = await File.ReadAllBytesAsync(path);
+        using (var change = await store.PrepareDiscardAsync(Input("local"), Input("remote")))
+        {
+            using var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+            Assert.Throws<IOException>(change.Commit);
+        }
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+        Assert.Empty(Directory.EnumerateFiles(directory, "*.tmp"));
+        await store.WriteAsync(Input("later")).WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("later", Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+    }
+
     [Fact]
     public async Task AnUnreadableCurrentDraftNeverRecoversAnOlderBackup()
     {

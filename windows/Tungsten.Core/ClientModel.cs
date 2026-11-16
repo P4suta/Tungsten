@@ -189,7 +189,7 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
             await CheckInputAsync();
             var replacement = remote is null ? null : Draft.From(Connected.Origin, remote);
             var replaced = await editor.RetireAsync(
-                () => replacement is null ? store.RemoveAsync(editor.Current) : store.WriteAsync(replacement),
+                () => store.PrepareDiscardAsync(editor.Current, replacement),
                 () => CanLeaveNow() && Body == observed,
                 () =>
                 {
