@@ -108,7 +108,7 @@ Browser tests write screenshots under `target/screenshots`.
 The style gate parses browser style sheet rules and tests rejecting fixtures for each prohibited visual effect.
 The gate checks generated CodeMirror vendor styles through rendered computed styles.
 The authored style sheet remains subject to the palette scanner.
-Icon checks inspect visible controls across note, graph, Trash, and attachment workflows and reject a missing-icon fixture while accepting its labeled counterpart.
+Icon checks inspect visible controls across writing, navigation, Trash, and attachment workflows and reject a missing-icon fixture while accepting its labeled counterpart.
 SVG bounds include half the stroke width, and a clipped-path fixture must fail the check.
 The checker uses the initial values in the CSS drafts for [background images](https://www.w3.org/TR/css-backgrounds-3/#the-background-image) and [text decoration colors](https://www.w3.org/TR/css-text-decor-3/#text-decoration-color-property).
 
@@ -116,7 +116,6 @@ The [Web Content Accessibility Guidelines](https://www.w3.org/TR/WCAG22/) govern
 Browser tests check 320 CSS pixel reflow, 200 percent text enlargement, control labels, and automated accessibility rules.
 They also check text spacing overrides, landscape input, and the notice when JavaScript is off.
 Native controls preserve keyboard and assistive technology semantics.
-The graph provides keyboard movement, stops continuous animation when hidden or settled, and honors reduced-motion preferences.
 Timed tasks and authentication criteria have no matching features in the app.
 Black and white styling, 18 CSS pixel text, and 48 CSS pixel targets are personal preferences.
 Automated results don't establish behavior in an untested assistive technology.
@@ -276,9 +275,8 @@ Run `mise x -- just artifacts` to build Linux amd64 and arm64 candidates under `
 The container build uses the same source and embedded browser assets.
 Candidate builds don't publish a release or an image.
 
-Explore notes checks cover topic exploration, disconnected-note search, node movement, pan, zoom, keyboard access, and linked creation.
-Graph fixtures preserve complete titles, honor reduced motion, and verify that closing stops simulation.
-Pure graph fixtures check bounded neighborhoods and reject edges to missing notes.
+The generated notebook scenario checks bounded search results and opens notes by title.
+Catalog fixtures reject malformed or excessive note and graph responses.
 The sample generator checks counts, repeatability, unique titles, internal destinations, and refusal to replace existing data.
 The scale generator checks random access across a million-page collection without keeping every note in memory.
 Mixed fixtures cover isolated and terminal notes, duplicate titles, and intentional missing destinations.
@@ -287,6 +285,4 @@ Local socket checks reject truncated responses, missing lengths, and streaming r
 The optional `scale-profile` command measures real generated collections with bounded resources.
 Dataset verification and latency gates must both pass.
 The separate `test:demo` browser command exercises a generated collection and ordinary pointer selection.
-Graph labels never intercept pointer input, while native buttons keep their target size and `accessible name`s.
 Internal-link fixtures check relative destinations, escaped Unicode titles, explicit aliases, literal code, recovery records, and stale revisions.
-Graph controls follow native [button keyboard behavior](https://www.w3.org/WAI/ARIA/apg/patterns/button/) and keep fixed target sizes during zoom.
