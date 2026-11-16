@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { notePage } from "../src/catalog.js";
 import { accessibilityViolations } from "../tests/accessibility.js";
+import { openNavigation, showPaper } from "../tests/interface.js";
 
-test("explores and searches the generated notebook", async ({ page, request }, info) => {
+test("searches and follows links in the generated notebook", async ({ page, request }, info) => {
   const response = await request.get("/api/notes?paged=true&titles=true&q=Philosophy");
   expect(response.ok()).toBe(true);
   const collection = notePage(await response.json());
@@ -24,31 +25,33 @@ test("explores and searches the generated notebook", async ({ page, request }, i
   page.on("pageerror", (error) => failures.push(error.message));
   await page.goto(`/?note=${encodeURIComponent(entry.name)}`);
   await expect(page.locator("#body")).toHaveValue(/^# Philosophy\n/);
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
-  const graph = page.getByRole("region", { name: "Note graph", exact: true });
-  await expect(graph.locator(".graph-node").first()).toBeVisible();
-  expect(await graph.locator(".graph-node").count()).toBeLessThanOrEqual(120);
-  expect(await graph.locator(".graph-node").count()).toBeGreaterThan(1);
-  await expect(page.locator("#graph-status")).toContainText("notes");
-  await expect(page.locator("#graph-selection")).toContainText("Philosophy");
-  const ethics = graph.getByRole("button", { name: "Explore Ethics", exact: true });
-  if ((await ethics.count()) === 0)
-    await page.getByLabel("Search notes", { exact: true }).fill("Ethics");
-  await ethics.click();
-  await expect(page.locator("#graph-selection")).toContainText("Ethics");
+  const navigation = await openNavigation(page);
+  await navigation.getByLabel("Search all notes", { exact: true }).fill("Ethics");
+  const rows = navigation.locator("#sidebar-notes a");
+  await expect(rows.first()).toBeVisible();
+  expect(await rows.count()).toBeLessThanOrEqual(50);
+  const ethics = navigation.getByRole("link", { name: "Ethics", exact: true });
+  await expect(ethics).toBeVisible();
   await page.screenshot({
-    path: `../target/screenshots/demo-graph-${info.project.name}.png`,
+    path: `../target/screenshots/demo-notes-${info.project.name}.png`,
     fullPage: true,
   });
   expect(await accessibilityViolations(page)).toEqual([]);
-  await page.getByRole("link", { name: "Open note", exact: true }).click();
+  await ethics.click();
   await expect(page.locator("#body")).toHaveValue(/^# Ethics\n/);
-  await page.getByRole("link", { name: "Explore notes", exact: true }).click();
-  await page.getByLabel("Search notes", { exact: true }).fill("Ethics: A counterexample");
+  const matches = notePage(
+    await (await request.get("/api/notes?paged=true&titles=true&q=Ethics")).json(),
+  );
+  const related = matches.notes.find((note) => note.title.startsWith("Ethics: "));
+  if (!related) throw new Error("Missing related Ethics note.");
+  await openNavigation(page);
+  await page.getByLabel("Search all notes", { exact: true }).fill(related.title);
   await page
-    .locator("#notes")
-    .getByRole("button", { name: "Ethics: A counterexample", exact: true })
+    .locator("#sidebar-notes")
+    .getByRole("link", { name: related.title, exact: true })
     .click();
-  await expect(page.locator("#body")).toHaveValue(/^# Ethics: A counterexample\n/);
+  await expect(page.locator("#body")).toHaveValue(/^# Ethics: /);
+  expect(new URL(page.url()).searchParams.get("note")).toBe(related.name);
+  await showPaper(page);
   expect(failures).toEqual([]);
 });

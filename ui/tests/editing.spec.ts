@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { pressShortcut, selectAllMarkdown } from "./editor.js";
+import { pressShortcut, replaceMarkdown, selectAllMarkdown } from "./editor.js";
 import { newEmptyNote } from "./interface.js";
 
 test("clears the complete Markdown source and restores it through native undo", async ({
@@ -8,7 +8,7 @@ test("clears the complete Markdown source and restores it through native undo", 
   await page.goto("/");
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   const original = "# Whole selection\n\n**Bold words** and `literal text`";
-  await editor.fill(original);
+  await replaceMarkdown(editor, original);
   await expect(page.locator("#save-status")).toHaveText("Saved");
   for (const key of ["Backspace", "Delete"]) {
     await selectAllMarkdown(editor);
@@ -17,6 +17,22 @@ test("clears the complete Markdown source and restores it through native undo", 
     await pressShortcut(editor, "z");
     await expect(page.locator("#body")).toHaveValue(original);
   }
+});
+
+test("replaces the complete source in a virtualized note", async ({ page }, info) => {
+  const name = `source-replacement-${info.project.name}-${info.repeatEachIndex}.md`;
+  const long = `# A stationary page\n\n${"Keep a thought where it belongs. Sidebar controls leave the writing page in place. 日本語でも書き続ける。\n\n".repeat(80)}`;
+  const created = await page.request.post("/api/notes", { data: { name, body: long } });
+  expect(created.ok()).toBe(true);
+  await page.goto(`/?note=${encodeURIComponent(name)}`);
+  const editor = page.getByRole("textbox", { name: "Note", exact: true });
+  await expect(editor).toBeEditable();
+  await expect(page.locator(".cm-gap")).not.toHaveCount(0);
+  const replacement = "# Whole selection\n\n**Bold words** and `literal text`";
+  await replaceMarkdown(editor, replacement);
+  await expect(page.locator("#body")).toHaveValue(replacement);
+  await pressShortcut(editor, "z");
+  await expect(page.locator("#body")).toHaveValue(long);
 });
 
 test("keeps exactly the heading the owner types in an empty note", async ({ page }) => {

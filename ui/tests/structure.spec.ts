@@ -1,4 +1,4 @@
-import { expect, pressShortcut, selectMarkdown, test } from "./editor.js";
+import { expect, pressShortcut, replaceMarkdown, selectMarkdown, test } from "./editor.js";
 import { newEmptyNote, openNavigation } from "./interface.js";
 
 test.beforeEach(async ({ page }) => {
@@ -10,12 +10,12 @@ test("normalizes heading ranks automatically as one undoable edit", async ({ pag
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   const original =
     "### Title\n\n###### First\n\n# Second\n\n##### Third\n\n```md\n# literal\n###### literal\n```";
-  await editor.fill(original);
+  await replaceMarkdown(editor, original);
   const more = await openNavigation(page);
   await expect(page.locator("#body")).toHaveValue(
     "# Title\n\n## First\n\n## Second\n\n### Third\n\n```md\n# literal\n###### literal\n```\n",
   );
-  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
+  await more.getByRole("button", { name: "Close notes", exact: true }).click();
   await expect(editor).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   await expect(editor.getByRole("heading", { level: 2 })).toHaveCount(2);
@@ -29,7 +29,7 @@ test("unwraps matched inline syntax while preserving contents and native undo", 
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   for (const marker of ["*", "**", "_", "__", "~~", "`", "``"]) {
     const original = `# Pairs\n\n${marker}日本語 😀${marker}\n`;
-    await editor.fill(original);
+    await replaceMarkdown(editor, original);
     await expect(editor).toHaveMarkdown(original);
     await selectMarkdown(editor, 9, 9 + marker.length);
     await editor.press("Backspace");
@@ -39,11 +39,15 @@ test("unwraps matched inline syntax while preserving contents and native undo", 
   }
 });
 
-test("removes the matching fence when either fence is deleted", async ({ page }) => {
-  const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  for (const marker of ["```", "~~~", "````"]) {
+for (const [label, marker] of [
+  ["backticks", "```"],
+  ["tildes", "~~~"],
+  ["extended backticks", "````"],
+] as const) {
+  test(`removes the matching ${label} fence when either fence is deleted`, async ({ page }) => {
+    const editor = page.getByRole("textbox", { name: "Note", exact: true });
     const original = `# Fence\n\n${marker}python extra\nimport package\n${marker}\n\nTail`;
-    await editor.fill(original);
+    await replaceMarkdown(editor, original);
     await expect(editor).toHaveMarkdown(original);
     await selectMarkdown(editor, 9 + marker.length);
     await editor.press("Backspace");
@@ -53,14 +57,15 @@ test("removes the matching fence when either fence is deleted", async ({ page })
     await selectMarkdown(editor, original.lastIndexOf(marker));
     await editor.press("Delete");
     await expect(editor).toHaveMarkdown("# Fence\n\nimport package\n\nTail");
-  }
-});
+  });
+}
 
 test("highlights bundled languages and aliases without interpreting literal HTML", async ({
   page,
 }, info) => {
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.fill(
+  await replaceMarkdown(
+    editor,
     "# Code\n\n```js extra\nconst answer = 42;\n```\n\n```python\nimport package\n```\n\n```html\n<script>throw Error('literal')</script>\n```\n\n```hogepiyo lang\nconst literal = '*raw*';\n```\n\nEnd",
   );
   await pressShortcut(editor, "Home");

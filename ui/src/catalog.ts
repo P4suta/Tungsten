@@ -1,4 +1,7 @@
-import type { NoteEdge } from "./graph.js";
+export interface NoteEdge {
+  source: string;
+  target: string;
+}
 
 export interface Summary {
   name: string;

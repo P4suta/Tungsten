@@ -1,4 +1,30 @@
 export function initDialogChrome(): void {
+  for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog")) {
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key !== "Tab" || !dialog.matches(":modal")) return;
+      const targets = [
+        ...dialog.querySelectorAll<HTMLElement>(
+          "button, a[href], input, textarea, select, [tabindex]",
+        ),
+      ].filter(
+        (node) => node.tabIndex >= 0 && node.checkVisibility() && !node.matches(":disabled"),
+      );
+      const first = targets[0];
+      const last = targets.at(-1);
+      if (!first || !last) return;
+      if (
+        event.shiftKey &&
+        (document.activeElement === first ||
+          !targets.some((node) => node === document.activeElement))
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+  }
   for (const close of document.querySelectorAll<HTMLButtonElement>("dialog [data-close]")) {
     close.setAttribute("aria-label", "Close");
     close.title = "Close";

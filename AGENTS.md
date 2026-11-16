@@ -13,3 +13,14 @@ Adopt applicable platform recommendations as personal policy, preserving their o
 Use system appearance, fonts, accent colors, accessibility, and standard symbolic icons instead of shared monochrome styling.
 Keep save decisions independent of GTK, persist drafts before sending, and preserve the existing server contract.
 Run `mise x -- just linux source` on every host and `mise x -- just linux check` on Linux.
+
+# Windows app
+
+Use Windows platform design for the C# and WinUI 3 client under `windows`.
+Follow the [Windows client decision](docs/adr/use-winui-and-durable-drafts-for-the-windows-client.md) and [Windows app guide](docs/windows-apps.md).
+Use standard controls, title bars, system fonts, icons, themes, accent colors, and accessibility behavior.
+Windows recommendations take precedence over shared monochrome styling and other clients' visual designs.
+Keep save decisions independent of WinUI and preserve the existing server contract.
+Develop behavior through failing tests before implementation.
+Run `mise x -- just windows source` on every host, `mise x -- just windows check` on Windows, and `mise x -- just windows contracts` on Linux.
+Run native UI checks with `mise x -- just windows ui` and verify both architecture builds before completion.

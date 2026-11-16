@@ -438,6 +438,7 @@ export function initLibrary(port: LibraryPort): LibraryController {
       });
   }
   function beginForm(value: Workspace | null): void {
+    control("workspace-browser", HTMLDetailsElement).open = true;
     editing = value;
     title.value = value?.title ?? "";
     formHeading.textContent = value ? `Rename ${value.title}` : "New workspace";

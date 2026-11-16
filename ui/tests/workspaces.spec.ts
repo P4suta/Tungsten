@@ -1,7 +1,7 @@
 import { accessibilityViolations } from "./accessibility.js";
 import { expect, test } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
-import { openNavigation } from "./interface.js";
+import { openWorkspaces } from "./interface.js";
 
 test("saves named working sets across reloads without changing note links", async ({
   page,
@@ -17,7 +17,7 @@ test("saves named working sets across reloads without changing note links", asyn
     data: { name: second, body: "# Another working thought\n\nSeparate text.\n" },
   });
   await page.goto(`/?note=${first}`);
-  const sidebar = await openNavigation(page);
+  const sidebar = await openWorkspaces(page);
   const group = `Project A ${info.project.name}`;
   await sidebar.getByRole("button", { name: "New workspace", exact: true }).click();
   await sidebar.getByLabel("Workspace name", { exact: true }).fill(group);
@@ -76,7 +76,7 @@ test("creates a note inside a compact workspace and retries membership without d
 }, info) => {
   await page.setViewportSize({ width: 390, height: 760 });
   await page.goto("/");
-  const sidebar = await openNavigation(page);
+  const sidebar = await openWorkspaces(page);
   const group = `Compact project ${info.project.name}`;
   await sidebar.getByRole("button", { name: "New workspace", exact: true }).click();
   await sidebar.getByLabel("Workspace name", { exact: true }).fill(group);
@@ -94,12 +94,12 @@ test("creates a note inside a compact workspace and retries membership without d
     }
     await route.continue();
   });
-  await sidebar.getByRole("button", { name: "New note", exact: true }).click();
+  await page.getByRole("button", { name: "New note", exact: true }).click();
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await expect(page.getByRole("textbox", { name: "Note", exact: true })).toBeFocused();
   const name = new URL(page.url()).searchParams.get("note");
   expect(name).toBeTruthy();
-  await openNavigation(page);
+  await openWorkspaces(page);
   await expect(sidebar.locator("#library-retry")).toBeVisible();
   reject = false;
   await sidebar.locator("#library-retry").click();
@@ -129,8 +129,8 @@ test("shares collections between tabs while keeping each tab's selection indepen
   const second = await context.newPage();
   await second.setViewportSize({ width: 1440, height: 900 });
   await second.goto(`/?note=${name}`);
-  const sidebar = await openNavigation(page);
-  const other = await openNavigation(second);
+  const sidebar = await openWorkspaces(page);
+  const other = await openWorkspaces(second);
   const group = `Shared project ${info.project.name}`;
   await sidebar.getByRole("button", { name: "New workspace", exact: true }).click();
   await sidebar.getByLabel("Workspace name", { exact: true }).fill(group);
@@ -170,11 +170,9 @@ test("keeps navigation focus when a new note finishes saving in the background",
     await route.continue();
   });
   try {
-    await (await openNavigation(page))
-      .getByRole("button", { name: "New note", exact: true })
-      .click();
+    await page.getByRole("button", { name: "New note", exact: true }).click();
     await requested;
-    const sidebar = await openNavigation(page);
+    const sidebar = await openWorkspaces(page);
     await sidebar.getByRole("button", { name: "New workspace", exact: true }).click();
     const name = sidebar.getByLabel("Workspace name", { exact: true });
     await name.fill("Keep naming the workspace");

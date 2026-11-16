@@ -1,5 +1,5 @@
 import type { FileChooser, Locator, Page } from "@playwright/test";
-import { clearMarkdown, expect, markdownValue, pressShortcut } from "./editor.js";
+import { clearMarkdown, expect, markdownValue, pressShortcut, replaceMarkdown } from "./editor.js";
 
 export async function openNavigation(page: Page): Promise<Locator> {
   await expect
@@ -11,28 +11,34 @@ export async function openNavigation(page: Page): Promise<Locator> {
       ),
     )
     .toBe(true);
-  const sidebar = page.getByRole("complementary", { name: "Navigation", exact: true });
+  const sidebar = page.getByRole("complementary", { name: "Notes", exact: true });
   if (!(await sidebar.isVisible()))
-    await page.getByRole("button", { name: "Navigation", exact: true }).click();
-  await sidebar.getByRole("button", { name: "Close navigation", exact: true }).focus();
+    await page.getByRole("button", { name: "Notes", exact: true }).click();
+  await sidebar.getByRole("button", { name: "Close notes", exact: true }).focus();
   return sidebar;
 }
 
 export async function closeNavigation(page: Page): Promise<void> {
-  const sidebar = page.getByRole("complementary", { name: "Navigation", exact: true });
+  const sidebar = page.getByRole("complementary", { name: "Notes", exact: true });
   if (await sidebar.isVisible())
-    await sidebar.getByRole("button", { name: "Close navigation", exact: true }).click();
+    await sidebar.getByRole("button", { name: "Close notes", exact: true }).click();
 }
 
 export async function newNote(page: Page): Promise<void> {
-  await (await openNavigation(page)).getByRole("button", { name: "New note", exact: true }).click();
+  await page.getByRole("button", { name: "New note", exact: true }).click();
   await expect(page.locator("#paper-scroll")).toBeVisible();
 }
 
 export async function exploreNotes(page: Page): Promise<void> {
-  await (await openNavigation(page))
-    .getByRole("button", { name: "Explore notes", exact: true })
-    .click();
+  await openNavigation(page);
+  await page.getByLabel("Search all notes", { exact: true }).focus();
+}
+
+export async function openWorkspaces(page: Page): Promise<Locator> {
+  const sidebar = await openNavigation(page);
+  const browser = sidebar.locator("#workspace-browser");
+  if ((await browser.getAttribute("open")) === null) await browser.locator("summary").click();
+  return sidebar;
 }
 
 export async function noteAction(page: Page, name: string): Promise<void> {
@@ -52,15 +58,17 @@ export async function openContext(page: Page): Promise<Locator> {
       ),
     )
     .toBe(true);
-  const sidebar = page.getByRole("complementary", { name: "Current note", exact: true });
+  const sidebar = page.getByRole("dialog", { name: "Note details", exact: true });
   if (!(await sidebar.isVisible()))
-    await page.getByRole("button", { name: "Note context", exact: true }).click();
+    await page.getByRole("button", { name: "Note details", exact: true }).click();
   return sidebar;
 }
 
 export async function showPaper(page: Page): Promise<void> {
+  if (await page.locator("#note-sidebar").isVisible())
+    await page.getByRole("button", { name: "Close note details", exact: true }).click();
   if (!(await page.locator("#paper-scroll").isVisible()))
-    await page.getByRole("button", { name: "Write note", exact: true }).click();
+    await page.getByRole("button", { name: "Back to note", exact: true }).click();
   await expect(page.locator("#paper-scroll")).toBeVisible();
 }
 
@@ -68,7 +76,8 @@ export async function nameNote(page: Page, name: string, rename = false): Promis
   if (rename) {
     const body = page.getByLabel("Note", { exact: true });
     const text = await markdownValue(body);
-    await body.fill(
+    await replaceMarkdown(
+      body,
       /^#\s+.+$/m.test(text) ? text.replace(/^#\s+.+$/m, `# ${name}`) : `# ${name}\n\n${text}`,
     );
     return;
@@ -82,8 +91,10 @@ export async function nameNote(page: Page, name: string, rename = false): Promis
 }
 
 export async function openTrash(page: Page): Promise<Locator> {
-  await (await openNavigation(page)).getByRole("button", { name: "Trash", exact: true }).click();
+  const navigation = await openNavigation(page);
   const trash = page.getByRole("region", { name: "Trash", exact: true });
+  if (!(await trash.isVisible()))
+    await navigation.getByRole("button", { name: "Trash", exact: true }).click();
   await expect(trash).toBeVisible();
   return trash;
 }

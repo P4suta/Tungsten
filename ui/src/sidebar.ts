@@ -1,3 +1,4 @@
+import { openDialog } from "./dialogs.js";
 import {
   closeSidebar,
   type SidebarLayout,
@@ -49,7 +50,7 @@ function remember(storage: "localStorage" | "sessionStorage", key: string, value
 
 export function initSidebar(): SidebarController {
   const left = control("sidebar", HTMLElement);
-  const right = control("note-sidebar", HTMLElement);
+  const right = control("note-sidebar", HTMLDialogElement);
   const paper = control("paper-scroll", HTMLDivElement);
   const navigation = control("toggle-sidebar", HTMLButtonElement);
   const context = control("toggle-context", HTMLButtonElement);
@@ -57,7 +58,7 @@ export function initSidebar(): SidebarController {
   const wide = matchMedia("(min-width: 64rem)");
   let layout: SidebarLayout = {
     navigation: read("localStorage", "tungsten.navigation.visible") !== "closed",
-    context: read("localStorage", "tungsten.context.visible") === "open",
+    context: false,
     compact: "note",
   };
   let libraryView: LibraryView =
@@ -66,11 +67,16 @@ export function initSidebar(): SidebarController {
     read("sessionStorage", "tungsten.context.view") === "history" ? "history" : "links";
   const listeners = new Set<() => void>();
   document.addEventListener("focusin", (event) => {
-    if (!wide.matches || !(event.target instanceof Node)) return;
+    if (!(event.target instanceof HTMLElement)) return;
     const target = event.target;
+    if (left.contains(target))
+      queueMicrotask(() => {
+        if (document.activeElement === target && !left.hidden)
+          target.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
+    if (!wide.matches) return;
     if (paper.contains(target)) layout = { ...layout, compact: "note" };
     else if (left.contains(target)) layout = { ...layout, compact: "navigation" };
-    else if (right.contains(target)) layout = { ...layout, compact: "context" };
   });
 
   if (location.pathname === "/trash") {
@@ -83,23 +89,35 @@ export function initSidebar(): SidebarController {
     const visibility = visiblePanes(layout, wide.matches);
     const active = document.activeElement;
     left.hidden = !visibility.navigation;
-    right.hidden = !visibility.context;
+    if (visibility.context && !right.open) {
+      openDialog(right, context);
+      control("details-heading", HTMLHeadingElement).focus();
+    } else if (!visibility.context && right.open) right.close();
     paper.hidden = !visibility.note;
     paper.inert = !visibility.note;
     navigation.setAttribute("aria-expanded", String(visibility.navigation));
-    context.setAttribute("aria-expanded", String(visibility.context));
     write.hidden = visibility.note;
     document.body.dataset.layout = wide.matches ? "wide" : "compact";
     document.body.dataset.navigation = visibility.navigation ? "open" : "closed";
     document.body.dataset.context = visibility.context ? "open" : "closed";
     control("library-pane", HTMLElement).hidden = libraryView !== "notes";
-    control("trash-pane", HTMLElement).hidden = libraryView !== "trash";
+    const trashPane = control("trash-pane", HTMLElement);
+    const trash = control("trash", HTMLButtonElement);
+    const back = control("trash-back", HTMLButtonElement);
+    const locations = document.querySelector<HTMLElement>(".library-locations");
+    if (libraryView === "trash") {
+      trashPane.hidden = false;
+      if (active === trash) back.focus({ preventScroll: true });
+      if (locations) locations.hidden = true;
+      trash.hidden = true;
+    } else {
+      if (locations) locations.hidden = false;
+      trash.hidden = false;
+      if (active === back) trash.focus({ preventScroll: true });
+      trashPane.hidden = true;
+    }
     control("context-links", HTMLElement).hidden = contextView !== "links";
     control("history-panel", HTMLElement).hidden = contextView !== "history";
-    control("library-notes", HTMLButtonElement).setAttribute(
-      "aria-pressed",
-      String(libraryView === "notes"),
-    );
     control("trash", HTMLButtonElement).setAttribute(
       "aria-pressed",
       String(libraryView === "trash"),
@@ -113,13 +131,11 @@ export function initSidebar(): SidebarController {
       String(contextView === "history"),
     );
     if (active && left.hidden && left.contains(active)) navigation.focus({ preventScroll: true });
-    if (active && right.hidden && right.contains(active)) context.focus({ preventScroll: true });
     for (const listener of listeners) listener();
   }
 
   function persist(): void {
     remember("localStorage", "tungsten.navigation.visible", layout.navigation ? "open" : "closed");
-    remember("localStorage", "tungsten.context.visible", layout.context ? "open" : "closed");
     remember("sessionStorage", "tungsten.library.view", libraryView);
     remember("sessionStorage", "tungsten.context.view", contextView);
   }
@@ -128,7 +144,7 @@ export function initSidebar(): SidebarController {
     layout = toggleSidebar(layout, side, wide.matches);
     persist();
     render();
-    if (visiblePanes(layout, wide.matches)[side])
+    if (side === "navigation" && visiblePanes(layout, wide.matches)[side])
       control(side === "navigation" ? "close-sidebar" : "close-context", HTMLButtonElement).focus({
         preventScroll: true,
       });
@@ -150,12 +166,12 @@ export function initSidebar(): SidebarController {
     },
     context(view) {
       if (view) contextView = view;
-      layout = { ...layout, context: true, compact: "context" };
+      layout = { ...layout, context: true };
       persist();
       render();
     },
     writing() {
-      layout = { ...layout, compact: "note" };
+      layout = { ...layout, compact: "note", context: false };
       render();
     },
     libraryView: () => libraryView,
@@ -169,9 +185,10 @@ export function initSidebar(): SidebarController {
   context.addEventListener("click", () => toggle("context"));
   control("close-sidebar", HTMLButtonElement).addEventListener("click", () => close("navigation"));
   control("close-context", HTMLButtonElement).addEventListener("click", () => close("context"));
-  control("library-notes", HTMLButtonElement).addEventListener("click", () =>
-    controller.navigation("notes"),
-  );
+  right.addEventListener("close", () => {
+    layout = { ...layout, context: false };
+    render();
+  });
   control("trash", HTMLButtonElement).addEventListener("click", () =>
     controller.navigation("trash"),
   );
@@ -201,9 +218,6 @@ export function initSidebar(): SidebarController {
     if (!left.hidden && (left.contains(target) || !wide.matches)) {
       event.preventDefault();
       close("navigation");
-    } else if (!right.hidden && (right.contains(target) || !wide.matches)) {
-      event.preventDefault();
-      close("context");
     }
   });
   wide.addEventListener("change", render);

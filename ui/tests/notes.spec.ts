@@ -1,6 +1,6 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
-import { clearMarkdown, expect, pressShortcut, test } from "./editor.js";
+import { clearMarkdown, expect, pressShortcut, replaceMarkdown, test } from "./editor.js";
 import {
   closeNavigation,
   exploreNotes,
@@ -73,17 +73,39 @@ test.beforeEach(async ({ page, request }) => {
   await page.goto("/");
 });
 
+test("reopens a remembered note beyond the first collection page", async ({ page, request }) => {
+  const notes = Object.fromEntries(
+    Array.from({ length: 25 }, (_, index) => [
+      `Remembered-${String(index).padStart(2, "0")}.md`,
+      `# Remembered ${index}\n\nSaved writing.\n`,
+    ]),
+  );
+  await seedNotes(request, notes);
+  const response = await request.get("/api/notes?paged=true&limit=24");
+  const first: { notes: { name: string }[] } = await response.json();
+  const remembered = Object.keys(notes).find(
+    (name) => !first.notes.some((note) => note.name === name),
+  );
+  if (!remembered) throw new Error("The fixture needs a note beyond the first page.");
+  await page.evaluate((name) => localStorage.setItem("tungsten.last", name), remembered);
+  await page.goto("/");
+  await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(notes[remembered] ?? "");
+  await expect(page).toHaveURL(new RegExp(`\\?note=${remembered.replace(".", "\\.")}$`));
+  expect(await page.evaluate(() => localStorage.getItem("tungsten.last"))).toBe(remembered);
+});
+
 test("writes plain text, searches, renames, and deletes a note", async ({ page, request }) => {
   await nameNote(page, "Shopping");
-  await page
-    .getByLabel("Note", { exact: true })
-    .fill("牛乳\n# Just text\n<script>alert('text')</script>");
+  await replaceMarkdown(
+    page.getByLabel("Note", { exact: true }),
+    "牛乳\n# Just text\n<script>alert('text')</script>",
+  );
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const saved = await request.get("/api/notes/Shopping.md");
   expect((await saved.json()).body).toContain("<script>");
   await showNotes(page);
-  await page.getByLabel("Search notes").fill("牛乳");
-  await page.getByRole("button", { name: "Just text", exact: true }).click();
+  await page.getByLabel("Search all notes").fill("牛乳");
+  await page.getByRole("link", { name: "Just text", exact: true }).click();
   await nameNote(page, "Groceries", true);
   await expect(page.locator("#save-status")).toHaveText("Saved");
   expect((await (await request.get("/api/notes/Shopping.md")).json()).body).toContain(
@@ -116,11 +138,7 @@ test("returns to the preceding note after deletion and replaces the deleted addr
   await noteAction(page, "Delete");
   await expect(editor).toHaveMarkdown(/^# Parent\n/);
   await expect(page).toHaveURL(/\?note=Parent.md$/);
-  await expect(
-    (await page.evaluate(() => document.body.dataset.layout === "wide"))
-      ? page.locator("#close-context")
-      : editor,
-  ).toBeFocused();
+  await expect(editor).toBeFocused();
   await expect(page.getByRole("dialog", { name: "More", exact: true })).toHaveCount(0);
   expect((await request.get("/api/notes/Child.md")).status()).toBe(404);
   expect(await accessibilityViolations(page)).toEqual([]);
@@ -154,7 +172,7 @@ test("preserves navigation opened while deletion is pending", async ({ page, req
   try {
     await noteAction(page, "Delete");
     await requested;
-    const menu = page.getByRole("complementary", { name: "Navigation", exact: true });
+    const menu = page.getByRole("complementary", { name: "Notes", exact: true });
     await closeNavigation(page);
     await expect(menu).not.toBeVisible();
     await openNavigation(page);
@@ -162,7 +180,7 @@ test("preserves navigation opened while deletion is pending", async ({ page, req
     release?.();
     await expect(page.locator("#body")).toHaveValue("# Survivor");
     await expect(menu).toBeVisible();
-    await expect(menu.getByRole("button", { name: "Close navigation", exact: true })).toBeFocused();
+    await expect(menu.getByRole("button", { name: "Close notes", exact: true })).toBeFocused();
   } finally {
     release?.();
   }
@@ -178,16 +196,15 @@ test("opens a surviving note after deletion without using the previous search fi
   });
   await page.goto("/?note=Discarded.md");
   await showNotes(page);
-  await page.getByLabel("Search notes", { exact: true }).fill("Discarded");
-  await page.locator("#notes").getByRole("button", { name: "Discarded", exact: true }).click();
+  await page.getByLabel("Search all notes", { exact: true }).fill("Discarded");
+  await page
+    .locator("#sidebar-notes")
+    .getByRole("link", { name: "Discarded", exact: true })
+    .click();
   await noteAction(page, "Delete");
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/^# Survivor\n/);
   await expect(page).toHaveURL(/\?note=Survivor.md$/);
-  await expect(
-    (await page.evaluate(() => document.body.dataset.layout === "wide"))
-      ? page.locator("#close-context")
-      : page.getByLabel("Note", { exact: true }),
-  ).toBeFocused();
+  await expect(page.getByLabel("Note", { exact: true })).toBeFocused();
 });
 
 test("skips a previously visited note that has also moved to trash", async ({ page, request }) => {
@@ -287,7 +304,7 @@ test("does not replace a new draft when loading the note after deletion finishes
   await expect(page).not.toHaveURL(/note=Discarded.md/);
   await newNote(page);
   const editor = page.getByLabel("Note", { exact: true });
-  await editor.fill("# New draft\n\nKeep my latest writing.\n");
+  await replaceMarkdown(editor, "# New draft\n\nKeep my latest writing.\n");
   release();
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await expect(editor).toHaveMarkdown("# New draft\n\nKeep my latest writing.\n");
@@ -389,7 +406,7 @@ test("does not recover a deleted note when the collection refresh fails", async 
   );
   await noteAction(page, "Delete");
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/^# Survivor\n/);
-  await expect(page.locator("#list-status")).toHaveText("The collection is unavailable.");
+  await expect(page.getByLabel("Note", { exact: true })).toBeEditable();
   await page.unroute(collection);
   await page.goto("/");
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown(/^# Survivor\n/);
@@ -418,13 +435,13 @@ test("preserves an unsaved browser draft for a deleted note", async ({ page, req
 });
 
 test("recovers an unsaved draft after a failed save and reload", async ({ page }) => {
-  await page.getByLabel("Note", { exact: true }).fill("saved text");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "saved text");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await page.route("**/api/notes/*", async (route) => {
     if (route.request().method() === "PUT") await route.abort();
     else await route.continue();
   });
-  await page.getByLabel("Note", { exact: true }).fill("draft after failure");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "draft after failure");
   await expect(page.locator("#save-status")).toHaveText("Save failed");
   await page.reload();
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("draft after failure");
@@ -444,7 +461,7 @@ test("reports an unavailable linked note while keeping the blank page editable",
 });
 
 test("keeps edits made while an earlier save response is delayed", async ({ page, request }) => {
-  await page.getByLabel("Note", { exact: true }).fill("initial");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "initial");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   let release: () => void = () => {};
   let arrived: () => void = () => {};
@@ -464,9 +481,9 @@ test("keeps edits made while an earlier save response is delayed", async ({ page
       await route.fulfill({ response });
     } else await route.continue();
   });
-  await page.getByLabel("Note", { exact: true }).fill("first edit");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "first edit");
   await seen;
-  await page.getByLabel("Note", { exact: true }).fill("latest edit");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "latest edit");
   await expect(page.locator("#save-status")).toHaveText("Saving");
   release();
   await expect(page.locator("#save-status")).toHaveText("Saved");
@@ -511,7 +528,7 @@ test("preserves a stale tab's draft and saves a separate copy", async ({
   request,
 }) => {
   await nameNote(page, "Shared");
-  await page.getByLabel("Note", { exact: true }).fill("initial");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "initial");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const other = await context.newPage();
   await other.goto("/");
@@ -530,9 +547,9 @@ test("preserves a stale tab's draft and saves a separate copy", async ({
     await held;
     await route.continue();
   });
-  await other.getByLabel("Note", { exact: true }).fill("second tab draft");
+  await replaceMarkdown(other.getByLabel("Note", { exact: true }), "second tab draft");
   await seen;
-  await page.getByLabel("Note", { exact: true }).fill("first tab wins");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "first tab wins");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   release();
   await expect(other.locator("#save-status")).toHaveText("Conflict");
@@ -563,7 +580,7 @@ test("recovers a cleared draft when creation was not acknowledged", async ({ pag
     await held;
     await route.fulfill({ response });
   });
-  await page.getByLabel("Note", { exact: true }).fill("text to clear");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "text to clear");
   await seen;
   await clearMarkdown(page.getByLabel("Note", { exact: true }));
   await expect(page.getByLabel("Note", { exact: true })).toHaveMarkdown("");
@@ -577,9 +594,10 @@ test("keeps a title containing path punctuation as ordinary note content", async
   page,
   request,
 }) => {
-  await page
-    .getByLabel("Note", { exact: true })
-    .fill("# ../Title / with punctuation\n\nkeep this draft");
+  await replaceMarkdown(
+    page.getByLabel("Note", { exact: true }),
+    "# ../Title / with punctuation\n\nkeep this draft",
+  );
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const notes: { name: string; title: string }[] = await (await request.get("/api/notes")).json();
   expect(notes[0]?.name).toMatch(/^[a-f0-9]{32}\.md$/);
@@ -588,7 +606,7 @@ test("keeps a title containing path punctuation as ordinary note content", async
 
 test("supports narrow layouts, text enlargement, labels, and keyboard access", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
-  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Notes", exact: true })).toBeVisible();
   await expect(page.getByLabel("Note", { exact: true })).toBeVisible();
   await page.evaluate(() => {
     const root = document.documentElement;
@@ -598,11 +616,8 @@ test("supports narrow layouts, text enlargement, labels, and keyboard access", a
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBeTruthy();
   await exploreNotes(page);
-  await expect(page.getByLabel("Search notes")).toBeVisible();
-  await page
-    .getByRole("dialog", { name: "Explore notes", exact: true })
-    .getByRole("button", { name: "Close", exact: true })
-    .click();
+  await expect(page.getByLabel("Search all notes")).toBeVisible();
+  await closeNavigation(page);
   await newNote(page);
   await expect(page.getByLabel("Note", { exact: true })).toBeFocused();
   await page.evaluate(() => {
@@ -618,7 +633,7 @@ test("supports narrow layouts, text enlargement, labels, and keyboard access", a
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBeTruthy();
   await page.setViewportSize({ width: 800, height: 375 });
-  await page.getByLabel("Note", { exact: true }).fill("Spacing and landscape input");
+  await replaceMarkdown(page.getByLabel("Note", { exact: true }), "Spacing and landscape input");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),

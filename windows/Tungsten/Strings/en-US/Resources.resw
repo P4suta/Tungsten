@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <data name="ConnectionHeading.Text" xml:space="preserve"><value>Connect to server</value></data>
+  <data name="ConnectionDescription.Text" xml:space="preserve"><value>Enter the HTTPS address of your Tungsten server.</value></data>
+  <data name="CancelConnection.Content" xml:space="preserve"><value>Cancel</value></data>
+  <data name="SettingsTitle" xml:space="preserve"><value>Settings</value></data>
+  <data name="LocalDraftStatus" xml:space="preserve"><value>Changes saved on this device</value></data>
+  <data name="WorkspaceHeading.Content" xml:space="preserve"><value>Workspaces</value></data>
+  <data name="EmptyEditorHeading.Text" xml:space="preserve"><value>Select a note</value></data>
+  <data name="EmptyEditorDescription.Text" xml:space="preserve"><value>Choose a note from the list or create a note.</value></data>
+  <data name="ServerAddress.Header" xml:space="preserve"><value>Server address</value></data>
+  <data name="ServerAddress.PlaceholderText" xml:space="preserve"><value>https://notes.example</value></data>
+  <data name="ServerAddress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Server address</value></data>
+  <data name="Connect.Content" xml:space="preserve"><value>Connect</value></data>
+  <data name="Problem.Title" xml:space="preserve"><value>Writing needs attention</value></data>
+  <data name="Retry.Content" xml:space="preserve"><value>Retry</value></data>
+  <data name="Collections.PaneTitle" xml:space="preserve"><value>Collections</value></data>
+  <data name="AllNotes.Content" xml:space="preserve"><value>All notes</value></data>
+  <data name="Drafts.Content" xml:space="preserve"><value>Drafts</value></data>
+  <data name="Trash.Content" xml:space="preserve"><value>Trash</value></data>
+  <data name="CreateWorkspace.Content" xml:space="preserve"><value>Create workspace</value></data>
+  <data name="RenameWorkspace.Label" xml:space="preserve"><value>Rename workspace</value></data>
+  <data name="DeleteWorkspace.Label" xml:space="preserve"><value>Delete workspace</value></data>
+  <data name="NewNote.Label" xml:space="preserve"><value>New note</value></data>
+  <data name="Save.Label" xml:space="preserve"><value>Save</value></data>
+  <data name="InsertLink.Label" xml:space="preserve"><value>Insert link</value></data>
+  <data name="AttachFile.Label" xml:space="preserve"><value>Attach file</value></data>
+  <data name="NoteDetails.Label" xml:space="preserve"><value>Note details</value></data>
+  <data name="SaveAsNew.Label" xml:space="preserve"><value>Save as new note</value></data>
+  <data name="DiscardDraft.Label" xml:space="preserve"><value>Discard local changes</value></data>
+  <data name="DeleteNote.Label" xml:space="preserve"><value>Move to Trash</value></data>
+  <data name="ZoomIn.Label" xml:space="preserve"><value>Zoom in</value></data>
+  <data name="ZoomOut.Label" xml:space="preserve"><value>Zoom out</value></data>
+  <data name="ZoomReset.Label" xml:space="preserve"><value>Reset zoom</value></data>
+  <data name="Search.PlaceholderText" xml:space="preserve"><value>Search notes</value></data>
+  <data name="LoadMore.Content" xml:space="preserve"><value>Load more</value></data>
+  <data name="EmptyTrash.Content" xml:space="preserve"><value>Empty Trash</value></data>
+  <data name="ListStatus.Text" xml:space="preserve"><value>Connect to a server to load notes.</value></data>
+  <data name="Bold.Label" xml:space="preserve"><value>Bold</value></data>
+  <data name="Italic.Label" xml:space="preserve"><value>Italic</value></data>
+  <data name="InlineCode.Label" xml:space="preserve"><value>Inline code</value></data>
+  <data name="EditorUndo.Text" xml:space="preserve"><value>Undo</value></data>
+  <data name="EditorRedo.Text" xml:space="preserve"><value>Redo</value></data>
+  <data name="EditorCut.Text" xml:space="preserve"><value>Cut</value></data>
+  <data name="EditorCopy.Text" xml:space="preserve"><value>Copy</value></data>
+  <data name="EditorPaste.Text" xml:space="preserve"><value>Paste</value></data>
+  <data name="EditorSelectAll.Text" xml:space="preserve"><value>Select all</value></data>
+  <data name="ConnectFirst" xml:space="preserve"><value>Connect to a server first.</value></data>
+  <data name="LivePreviewFailure" xml:space="preserve"><value>Live Preview could not be updated: {0}</value></data>
+  <data name="CompositionBeforeServerChange" xml:space="preserve"><value>Finish text composition before changing servers.</value></data>
+  <data name="CompositionBeforeClose" xml:space="preserve"><value>Finish text composition before closing.</value></data>
+  <data name="CompositionBeforeDialog" xml:space="preserve"><value>Finish text composition before opening a dialog.</value></data>
+  <data name="StoreBeforeLeaving" xml:space="preserve"><value>Store the draft before leaving the editor.</value></data>
+  <data name="DamagedDrafts" xml:space="preserve"><value>Some draft files are damaged, and their original bytes remain on this device.</value></data>
+  <data name="EmptyNoteList" xml:space="preserve"><value>No notes are available.</value></data>
+  <data name="DiscardTitle" xml:space="preserve"><value>Discard local changes?</value></data>
+  <data name="DiscardBody" xml:space="preserve"><value>Discard unsent changes and reload the server's text?
+Discarded text won't be available through Undo.</value></data>
+  <data name="ActionDiscard" xml:space="preserve"><value>Discard changes</value></data>
+  <data name="ActionCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="ActionSave" xml:space="preserve"><value>Save</value></data>
+  <data name="ActionDelete" xml:space="preserve"><value>Delete</value></data>
+  <data name="ActionRestore" xml:space="preserve"><value>Restore</value></data>
+  <data name="ActionInsert" xml:space="preserve"><value>Insert</value></data>
+  <data name="ActionContinue" xml:space="preserve"><value>Continue</value></data>
+  <data name="ActionMoveToTrash" xml:space="preserve"><value>Move to Trash</value></data>
+  <data name="ActionDeletePermanently" xml:space="preserve"><value>Delete permanently</value></data>
+  <data name="ActionOpenOriginal" xml:space="preserve"><value>Open original</value></data>
+  <data name="ActionSaveOriginal" xml:space="preserve"><value>Save original</value></data>
+  <data name="WorkspaceNameHeader" xml:space="preserve"><value>Workspace name</value></data>
+  <data name="CreateWorkspaceTitle" xml:space="preserve"><value>Create workspace</value></data>
+  <data name="RenameWorkspaceTitle" xml:space="preserve"><value>Rename workspace</value></data>
+  <data name="DeleteWorkspaceTitle" xml:space="preserve"><value>Delete workspace?</value></data>
+  <data name="DeleteWorkspaceBody" xml:space="preserve"><value>Delete {0} and keep its notes in All Notes?</value></data>
+  <data name="TrashNoteTitle" xml:space="preserve"><value>Move note to Trash?</value></data>
+  <data name="TrashNoteBody" xml:space="preserve"><value>Move {0} to Trash and keep its local draft for recovery?</value></data>
+  <data name="EmptyTrashTitle" xml:space="preserve"><value>Empty Trash permanently?</value></data>
+  <data name="EmptyTrashBody" xml:space="preserve"><value>Permanently delete all notes in Trash?
+Deletion can't be undone.</value></data>
+  <data name="DeletedNoteTitle" xml:space="preserve"><value>Deleted note</value></data>
+  <data name="FindNoteHeader" xml:space="preserve"><value>Find a note</value></data>
+  <data name="LinkChoicesName" xml:space="preserve"><value>Matching notes</value></data>
+  <data name="MoreLinksLabel" xml:space="preserve"><value>Load more</value></data>
+  <data name="InsertLinkTitle" xml:space="preserve"><value>Insert link</value></data>
+  <data name="RestoreVersionTitle" xml:space="preserve"><value>Restore saved version?</value></data>
+  <data name="RestoreVersionBody" xml:space="preserve"><value>Replace the editor text with the selected saved version?</value></data>
+  <data name="AttachmentTitle" xml:space="preserve"><value>Attachment</value></data>
+  <data name="DeleteAttachmentTitle" xml:space="preserve"><value>Delete attachment permanently?</value></data>
+  <data name="DeleteAttachmentBody" xml:space="preserve"><value>Permanently delete {0} and remove access through its existing links?</value></data>
+  <data name="OriginalFileType" xml:space="preserve"><value>Original file</value></data>
+  <data name="DetailsDialog.Title" xml:space="preserve"><value>Note details</value></data>
+  <data name="DetailsDialog.CloseButtonText" xml:space="preserve"><value>Close</value></data>
+  <data name="Links.Header" xml:space="preserve"><value>Links</value></data>
+  <data name="Backlinks.Header" xml:space="preserve"><value>Backlinks</value></data>
+  <data name="Attachments.Header" xml:space="preserve"><value>Attachments</value></data>
+  <data name="History.Header" xml:space="preserve"><value>History</value></data>
+  <data name="DetailWorkspace.Header" xml:space="preserve"><value>Workspace</value></data>
+  <data name="IncludeWorkspace.Content" xml:space="preserve"><value>Add to workspace</value></data>
+  <data name="ExcludeWorkspace.Content" xml:space="preserve"><value>Remove from workspace</value></data>
+  <data name="PasteChanged" xml:space="preserve"><value>The note or selection changed before paste finished. Paste again to insert the clipboard text.</value></data>
+</root>

@@ -2,7 +2,6 @@ import { notePage } from "./catalog.js";
 import { openDialog } from "./dialogs.js";
 import { activeDraftOwners, draftOwner, uncoordinatedDraftOwner } from "./draft-ownership.js";
 import { type FeatureController, initFeatures, type Snapshot, type Summary } from "./features.js";
-import { icon } from "./icons.js";
 import { identifier } from "./identity.js";
 import {
   hasRemoteConflict,
@@ -57,11 +56,8 @@ function element<T extends HTMLElement>(id: string, kind: { new (): T }): T {
 }
 
 const body = element("body", HTMLTextAreaElement);
-const search = element("search", HTMLInputElement);
-const status = element("save-status", HTMLParagraphElement);
+const status = element("save-status", HTMLOutputElement);
 const errorText = element("error", HTMLParagraphElement);
-const listStatus = element("list-status", HTMLParagraphElement);
-const list = element("notes", HTMLUListElement);
 const draftList = element("drafts", HTMLUListElement);
 const draftsPane = element("drafts-pane", HTMLElement);
 const deleteButton = element("delete", HTMLButtonElement);
@@ -71,7 +67,6 @@ const copyButton = element("copy", HTMLButtonElement);
 const prefix = "tungsten.draft.";
 const changeKey = "tungsten.note-change";
 let current: Editor | null = null;
-let listGeneration = 0;
 let openGeneration = 0;
 let recentlyOpened: string[] = [];
 let storageWarning = "";
@@ -270,6 +265,7 @@ function renderDrafts(): void {
   );
   draftList.replaceChildren();
   draftsPane.hidden = entries.length === 0;
+  element("show-drafts", HTMLButtonElement).hidden = entries.length === 0;
   for (const draft of entries) {
     const button = document.createElement("button");
     button.type = "button";
@@ -357,11 +353,6 @@ function show(editor: Editor, focus = false): void {
   renderStatus(editor);
   if (changed) document.dispatchEvent(new Event("tungsten:note"));
   renderDrafts();
-  for (const button of list.querySelectorAll("button")) {
-    if (editor.name !== null && button.dataset.name === editor.name)
-      button.setAttribute("aria-current", "true");
-    else button.removeAttribute("aria-current");
-  }
   if (focus) {
     features?.write();
     focusWriting(body);
@@ -439,78 +430,10 @@ function mayResumeWriting(): boolean {
   return !document.querySelector("dialog[open]") && (compactContext || !navigationHasFocus());
 }
 
-async function refresh(
-  cursor: string | null = null,
-  trail: (string | null)[] = [],
-): Promise<Summary[]> {
-  const generation = ++listGeneration;
-  const query = search.value;
-  try {
-    const value = await api(
-      `/api/notes?paged=true&limit=24&q=${encodeURIComponent(query)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-    );
-    const page = notePage(value);
-    const notes = page.notes;
-    if (generation !== listGeneration || query !== search.value) return notes;
-    list.replaceChildren();
-    const visible = features?.filter(notes) ?? notes;
-    list.hidden = !search.value.trim();
-    for (const note of search.value.trim() ? visible.slice(0, 24) : []) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = note.title || noteTitle(note.snippet);
-      button.dataset.name = note.name;
-      if (current?.name === note.name) button.setAttribute("aria-current", "true");
-      button.addEventListener("click", () => {
-        void features?.open(note.name).catch(() => {});
-      });
-      const item = document.createElement("li");
-      item.append(button);
-      if (search.value && note.snippet) {
-        const snippet = document.createElement("p");
-        snippet.className = "snippet";
-        snippet.textContent = note.snippet;
-        item.append(snippet);
-      }
-      list.append(item);
-    }
-    if (search.value.trim() && (trail.length || page.next)) {
-      const item = document.createElement("li");
-      for (const [label, destination, history] of [
-        ...(trail.length
-          ? [["Previous results", trail.at(-1) ?? null, trail.slice(0, -1)] as const]
-          : []),
-        ...(page.next ? [["More results", page.next, [...trail, cursor]] as const] : []),
-      ]) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.append(
-          icon(label === "More results" ? "expand" : "undo"),
-          document.createTextNode(label),
-        );
-        button.addEventListener("click", () => {
-          void refresh(destination, [...history])
-            .then(() => list.querySelector("button")?.focus())
-            .catch(() => {});
-        });
-        item.append(button);
-      }
-      list.append(item);
-    }
-    listStatus.textContent = !search.value.trim()
-      ? ""
-      : visible.length === 0
-        ? "No notes found."
-        : visible.length + (visible.length === 1 ? " note" : " notes");
-    renderDrafts();
-    features?.searchResults(visible);
-    return notes;
-  } catch (error) {
-    if (generation === listGeneration && query === search.value)
-      listStatus.textContent =
-        error instanceof ApiError ? error.message : "Could not load notes. Try searching again.";
-    throw error;
-  }
+async function refresh(): Promise<Summary[]> {
+  const value = await api("/api/notes?paged=true&limit=24");
+  renderDrafts();
+  return notePage(value).notes;
 }
 
 async function openNote(name: string, propagate = false): Promise<void> {
@@ -570,7 +493,7 @@ async function recover(draft: StoredDraft): Promise<void> {
         if (generation !== openGeneration) return;
         forgetDeleted(editor);
         const replacement = blank();
-        element("notes-dialog", HTMLDialogElement).close();
+        element("drafts-dialog", HTMLDialogElement).close();
         show(replacement, true);
         await openAfterDeletion(replacement);
         return;
@@ -582,7 +505,7 @@ async function recover(draft: StoredDraft): Promise<void> {
   }
   if (generation !== openGeneration) return;
   if (editor.name) remember(editor.name);
-  element("notes-dialog", HTMLDialogElement).close();
+  element("drafts-dialog", HTMLDialogElement).close();
   show(editor, true);
   persist(editor);
   if (dirty(editor) && !editor.blocked) {
@@ -686,7 +609,7 @@ document.addEventListener("compositionend", () => {
   schedule(current);
 });
 function createDraft(title: string, text: string, focus = true, save = true): Editor {
-  element("notes-dialog", HTMLDialogElement).close();
+  element("drafts-dialog", HTMLDialogElement).close();
   ++openGeneration;
   const editor = blank();
   editor.body = text || (title ? `# ${title}\n\n` : editor.body);
@@ -700,16 +623,8 @@ function createDraft(title: string, text: string, focus = true, save = true): Ed
   return editor;
 }
 
-element("show-notes", HTMLButtonElement).addEventListener("click", (event) => {
-  event.preventDefault();
-  openDialog(element("notes-dialog", HTMLDialogElement), element("show-notes", HTMLButtonElement));
-  search.focus();
-  search.value = "";
-  void features?.home();
-  void refresh().catch(() => {});
-});
-search.addEventListener("input", () => {
-  void refresh().catch(() => {});
+element("show-drafts", HTMLButtonElement).addEventListener("click", () => {
+  openDialog(element("drafts-dialog", HTMLDialogElement));
 });
 retryButton.addEventListener("click", () => {
   if (!current) return;
@@ -758,7 +673,8 @@ copyButton.addEventListener("click", () => {
 deleteButton.addEventListener("click", () => {
   const editor = current;
   if (!editor?.name || !confirm("Move this note to trash?")) return;
-  element("close-context", HTMLButtonElement).focus({ preventScroll: true });
+  features?.write();
+  focusWriting(body);
   const generation = openGeneration;
   void (async () => {
     if ((dirty(editor) || editor.pending) && !(await flush(editor))) return;
@@ -968,7 +884,15 @@ async function boot(): Promise<void> {
     } catch {
       warning();
     }
-    const selected = notes.find((note) => note.name === last) ?? notes[0];
+    if (last) {
+      try {
+        await openNote(last, true);
+        return;
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 404) throw error;
+      }
+    }
+    const selected = notes[0];
     if (selected) await openNote(selected.name);
     else show(blank());
   } catch (error) {
@@ -998,7 +922,7 @@ features = initFeatures({
   state: snapshot,
   api,
   open: (name) => {
-    element("notes-dialog", HTMLDialogElement).close();
+    element("drafts-dialog", HTMLDialogElement).close();
     return openNote(name, true);
   },
   blank: createDraft,

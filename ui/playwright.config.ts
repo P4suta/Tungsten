@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
 
+const port = Number(process.env.TUNGSTEN_TEST_PORT ?? 18080);
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  throw new Error("TUNGSTEN_TEST_PORT must be an integer from 1 to 65535");
+}
+const address = `127.0.0.1:${port}`;
+const baseURL = `http://${address}`;
+
 export default defineConfig({
   testDir: "tests",
   testMatch: "**/*.spec.ts",
@@ -10,10 +17,10 @@ export default defineConfig({
   maxFailures: process.env.CI ? 1 : 0,
   reporter: "list",
   timeout: 30000,
-  use: { baseURL: "http://127.0.0.1:18080", trace: "retain-on-failure" },
+  use: { baseURL, trace: "retain-on-failure" },
   webServer: {
-    command: `../target/debug/tungsten --data-dir ../target/browser-notes-${randomUUID()} --listen 127.0.0.1:18080`,
-    url: "http://127.0.0.1:18080/healthz",
+    command: `../target/debug/tungsten --data-dir ../target/browser-notes-${randomUUID()} --listen ${address}`,
+    url: `${baseURL}/healthz`,
     reuseExistingServer: false,
     timeout: 10000,
   },

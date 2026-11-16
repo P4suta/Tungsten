@@ -1,16 +1,30 @@
+mod app_icons;
 mod apple;
+#[cfg(unix)]
 mod container_reports;
+#[cfg(unix)]
 mod demo;
+#[cfg(unix)]
 mod linux;
+#[cfg(unix)]
 mod memory;
+#[cfg(unix)]
 mod mutation;
+#[cfg(unix)]
 mod performance;
+#[cfg(unix)]
 mod proofs;
+#[cfg(unix)]
 mod release_checks;
+#[cfg(unix)]
 mod scale;
+#[cfg(unix)]
 mod secrets;
+#[cfg(unix)]
 mod storage;
+#[cfg(unix)]
 mod stress;
+mod windows;
 
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
@@ -20,6 +34,7 @@ use std::{
     process::{Command, Stdio},
 };
 
+#[cfg(unix)]
 const ADVISORIES: &str = "309392b18f6b17022f82c701f300433126901068";
 
 #[derive(Parser)]
@@ -28,7 +43,16 @@ struct Options {
     task: Task,
 }
 #[derive(Subcommand)]
+#[cfg(unix)]
 enum Task {
+    AppIcons {
+        #[command(subcommand)]
+        action: app_icons::Action,
+    },
+    Windows {
+        #[command(subcommand)]
+        action: windows::Action,
+    },
     Apple {
         #[command(subcommand)]
         action: apple::Action,
@@ -193,9 +217,24 @@ fn run_env(
 
 fn output(directory: &Path, program: &str, args: &[&str]) -> Result<String> {
     let result = verification_command(directory, program, args)?.output()?;
+    command_output(program, result).with_context(|| format!("{program} args={args:?}"))
+}
+
+fn changes_match(root: &Path, base: &str, head: &str, relevant: fn(&str) -> bool) -> Result<bool> {
+    let paths = output(
+        root,
+        "git",
+        &["diff", "--name-only", "-z", base, head, "--"],
+    )?;
+    Ok(paths.split('\0').any(relevant))
+}
+
+fn command_output(program: &str, result: std::process::Output) -> Result<String> {
     ensure!(
         result.status.success(),
-        "{program} failed: {}",
+        "{program} failed: {}; stdout={}; stderr={}",
+        result.status,
+        String::from_utf8_lossy(&result.stdout),
         String::from_utf8_lossy(&result.stderr)
     );
     Ok(String::from_utf8(result.stdout)?.trim().to_owned())
@@ -249,6 +288,7 @@ fn docs(root: &Path) -> Result<()> {
     run(root, "dotfiles", &["repository", "check"])
 }
 
+#[cfg(unix)]
 fn dependencies(root: &Path) -> Result<()> {
     run(root, "cargo", &["fetch", "--locked"])?;
     let cache = root.join("target/advisory-db");
@@ -306,9 +346,11 @@ fn dependencies(root: &Path) -> Result<()> {
     secrets::verify(root)
 }
 
+#[cfg(unix)]
 fn check(root: &Path) -> Result<()> {
     apple::source(root)?;
     linux::source(root)?;
+    windows::source(root)?;
     run(root, "cargo", &["fmt", "--all", "--check"])?;
     run(
         root,
@@ -340,6 +382,7 @@ fn check(root: &Path) -> Result<()> {
         ],
     )?;
     run(root, "just", &["--fmt", "--check", "--unstable"])?;
+    docs(root)?;
     build_ui(root)?;
     npm(root, &["run", "lint"])?;
     npm(root, &["run", "typecheck"])?;
@@ -387,7 +430,12 @@ fn check(root: &Path) -> Result<()> {
     run(
         root,
         "hadolint",
-        &["Dockerfile", "proofs/Dockerfile", "ui/assurance.Dockerfile"],
+        &[
+            "Dockerfile",
+            "proofs/Dockerfile",
+            "ui/assurance.Dockerfile",
+            "windows/contracts.Dockerfile",
+        ],
     )?;
     run_env(
         root,
@@ -408,13 +456,15 @@ fn check(root: &Path) -> Result<()> {
             ".github/workflows",
         ],
     )?;
-    docs(root)?;
     dependencies(root)
 }
 
+#[cfg(unix)]
 fn main() -> Result<()> {
     let root = root()?;
     match Options::parse().task {
+        Task::AppIcons { action } => app_icons::run(&root, action)?,
+        Task::Windows { action } => windows::run(&root, action)?,
         Task::Apple { action } => apple::run(&root, action)?,
         Task::Linux { action } => linux::run(&root, action)?,
         Task::StorageProfile(options) => storage::run(&root, options)?,
@@ -564,9 +614,61 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+#[derive(Subcommand)]
+enum Task {
+    AppIcons {
+        #[command(subcommand)]
+        action: app_icons::Action,
+    },
+    Docs,
+    Check,
+    Apple {
+        #[command(subcommand)]
+        action: apple::Action,
+    },
+    Windows {
+        #[command(subcommand)]
+        action: windows::Action,
+    },
+}
+
+#[cfg(windows)]
+fn main() -> Result<()> {
+    match Options::parse().task {
+        Task::AppIcons { action } => app_icons::run(&root()?, action),
+        Task::Docs => docs(&root()?),
+        Task::Check => windows::run(&root()?, windows::Action::Check { native_only: false }),
+        Task::Apple { action } => apple::run(&root()?, action),
+        Task::Windows { action } => windows::run(&root()?, action),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn existing_git_hook_commands_are_available_on_every_host() {
+        for arguments in [vec!["xtask", "apple", "source"], vec!["xtask", "check"]] {
+            assert!(Options::try_parse_from(arguments).is_ok());
+        }
+    }
+
+    #[test]
+    fn command_errors_preserve_diagnostics_written_to_stdout() {
+        #[cfg(unix)]
+        use std::os::unix::process::ExitStatusExt;
+        #[cfg(windows)]
+        use std::os::windows::process::ExitStatusExt;
+        let result = std::process::Output {
+            status: std::process::ExitStatus::from_raw(1),
+            stdout: br#"{"error":"The app output was not found."}"#.to_vec(),
+            stderr: Vec::new(),
+        };
+        let error = command_output("winapp", result).unwrap_err().to_string();
+        assert!(error.contains("The app output was not found."));
+    }
 
     #[test]
     fn commands_use_the_requested_repository_inside_git_hooks() {
@@ -630,6 +732,6 @@ mod tests {
         let mut paths = Vec::new();
         collect(directory.path(), "md", &mut paths).unwrap();
         assert_eq!(paths.len(), 1);
-        assert!(paths[0].ends_with("adr/decision.md"));
+        assert!(Path::new(&paths[0]).ends_with("adr/decision.md"));
     }
 }

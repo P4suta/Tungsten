@@ -234,7 +234,7 @@ export function initContext(port: ContextPort): ContextController {
           graph.notes.filter((note) => incoming.has(note.name)),
         );
         linkStatus.textContent = graph.truncated
-          ? "Showing a limited selection of nearby links. Explore notes to search the graph."
+          ? "Showing a limited selection of links. Search all notes to find more."
           : "";
       } else {
         versions = savedEntries(value);

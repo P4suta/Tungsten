@@ -209,6 +209,7 @@ fn violations(source: &str) -> Vec<&'static str> {
 }
 
 pub fn source(root: &Path) -> Result<()> {
+    super::app_icons::check(root)?;
     let mut paths = Vec::new();
     super::collect(&root.join("apple/Sources"), "swift", &mut paths)?;
     super::collect(&root.join("apple/App"), "swift", &mut paths)?;
@@ -336,9 +337,16 @@ fn build(root: &Path, platform: Platform, release: bool) -> Result<()> {
 }
 
 fn native_path(path: &str) -> bool {
-    ["apple/", "src/", "tests/", "xtask/", ".github/workflows/"]
-        .iter()
-        .any(|prefix| path.starts_with(prefix))
+    [
+        "apple/",
+        "assets/",
+        "src/",
+        "tests/",
+        "xtask/",
+        ".github/workflows/",
+    ]
+    .iter()
+    .any(|prefix| path.starts_with(prefix))
         || [
             "Cargo.toml",
             "Cargo.lock",
@@ -358,8 +366,7 @@ fn affected(root: &Path, base: &str, head: &str, output: &Path) -> Result<()> {
             "the scope check requires exact commit identities"
         );
     }
-    let paths = super::output(root, "git", &["diff", "--name-only", base, head, "--"])?;
-    let changed = paths.lines().any(native_path);
+    let changed = super::changes_match(root, base, head, native_path)?;
     writeln!(
         fs::OpenOptions::new().append(true).open(output)?,
         "affected={changed}"
@@ -461,12 +468,17 @@ struct TestServer {
 
 impl TestServer {
     fn start(root: &Path) -> Result<Self> {
+        ensure!(
+            cfg!(unix),
+            "the Apple integration server requires a Unix host"
+        );
         if !root.join("ui/dist/app.js").exists() {
             super::build_ui(root)?;
         }
         super::run(root, "cargo", &["build", "--locked", "--bin", "tungsten"])?;
         let directory = tempfile::tempdir()?;
         let data = directory.path().join("notes");
+        #[cfg(unix)]
         {
             let mut store = tungsten::store::Store::open(&data)?;
             let original = store.upload(
@@ -862,6 +874,7 @@ mod tests {
     fn native_scope_includes_service_and_tool_changes() {
         for path in [
             "apple/App/TungstenApp.swift",
+            "assets/app-icon/cube.svg",
             "src/api.rs",
             "xtask/src/apple.rs",
             "Cargo.lock",

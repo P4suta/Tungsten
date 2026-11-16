@@ -1,3 +1,5 @@
+set windows-shell := ["pwsh.exe", "-NoProfile", "-Command"]
+
 default:
     @just --list
 
@@ -10,11 +12,17 @@ build:
 check:
     mise x -- cargo xtask check
 
+app-icons *args:
+    mise x -- cargo xtask app-icons {{ args }}
+
 apple *args:
     mise x -- cargo xtask apple {{ args }}
 
 linux *args:
     mise x -- cargo xtask linux {{ args }}
+
+windows *args:
+    mise x -- cargo xtask windows {{ args }}
 
 format:
     mise x -- cargo xtask format

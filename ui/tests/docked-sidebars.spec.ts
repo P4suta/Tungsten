@@ -2,7 +2,6 @@ import type { Page } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
 import { expect, pressShortcut, test } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
-import { openContext } from "./interface.js";
 
 interface PaperPosition {
   left: number;
@@ -57,95 +56,6 @@ async function centerLastLine(page: Page): Promise<void> {
     .toBeLessThan(2);
 }
 
-test("reserves the paper position before the editor module loads", async ({
-  page,
-  request,
-}, info) => {
-  const name = `Loading-paper-${info.project.name}-${info.repeatEachIndex}.md`;
-  expect((await request.post("/api/notes", { data: { name, body: "" } })).ok()).toBe(true);
-  for (const width of [390, 1024, 1440]) {
-    await page.setViewportSize({ width, height: 900 });
-    let release: () => void = () => {};
-    let arrived: () => void = () => {};
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const requested = new Promise<void>((resolve) => {
-      arrived = resolve;
-    });
-    await page.route("**/assets/app.js", async (route) => {
-      arrived();
-      await held;
-      await route.continue();
-    });
-    try {
-      await page.goto(`/?note=${name}`, { waitUntil: "commit" });
-      await requested;
-      await expect(page.locator("body")).toHaveCSS("position", "fixed");
-      const paper = page.locator("#paper-scroll");
-      await expect(paper).toBeVisible();
-      const before = await paper.boundingBox();
-      if (!before) throw new Error("The paper is unavailable before the editor loads.");
-      if (width === 1440 && info.project.name === "chromium")
-        await page.screenshot({
-          path: `../target/screenshots/loading-paper-${info.project.name}.png`,
-        });
-      release();
-      await expect(page.locator(".cm-content")).toBeEditable();
-      expect(await paper.boundingBox()).toEqual(before);
-      if (width === 1440 && info.project.name === "chromium")
-        await page.screenshot({
-          path: `../target/screenshots/loaded-paper-${info.project.name}.png`,
-        });
-    } finally {
-      release();
-      await page.unroute("**/assets/app.js");
-    }
-  }
-});
-
-test("keeps the paper centered and stationary across every wide sidebar combination", async ({
-  page,
-  request,
-}, info) => {
-  const name = `Stationary-${info.project.name}-${info.repeatEachIndex}.md`;
-  expect((await request.post("/api/notes", { data: { name, body: stationarySource } })).ok()).toBe(
-    true,
-  );
-  for (const width of [1440, 1024, 1280, 1920]) {
-    await page.setViewportSize({ width, height: 900 });
-    await page.goto(`/?note=${name}`);
-    const editor = page.locator(".cm-content");
-    await expect(editor).toBeEditable();
-    const navigation = page.getByRole("button", { name: "Navigation", exact: true });
-    const context = page.getByRole("button", { name: "Note context", exact: true });
-    for (const control of [navigation, context])
-      if ((await control.getAttribute("aria-expanded")) === "true") await control.click();
-    await centerLastLine(page);
-    await expect
-      .poll(() => page.locator("#paper-scroll").evaluate((node) => node.scrollTop))
-      .toBeGreaterThan(500);
-    const positions = [await paperPosition(page)];
-    if (width === 1440)
-      await page.screenshot({
-        path: `../target/screenshots/stationary-paper-${info.project.name}-closed.png`,
-      });
-    for (const control of [navigation, context, navigation, context]) {
-      await control.click();
-      positions.push(await paperPosition(page));
-      if (width === 1440 && positions.length === 2)
-        await page.screenshot({
-          path: `../target/screenshots/stationary-paper-${info.project.name}-navigation.png`,
-        });
-    }
-    for (const position of positions) expect(position).toEqual(positions[0]);
-    const reference = positions[0];
-    if (!reference) throw new Error("Missing paper position.");
-    expect(Math.abs(reference.left + reference.width / 2 - width / 2)).toBeLessThan(1);
-    await expect(page.locator("#body")).toHaveValue(stationarySource);
-  }
-});
-
 test("returns from compact sidebars to the same reading position and selection", async ({
   page,
   request,
@@ -161,9 +71,10 @@ test("returns from compact sidebars to the same reading position and selection",
   const paper = page.locator("#paper-scroll");
   await expect.poll(() => paper.evaluate((node) => node.scrollTop)).toBeGreaterThan(500);
   const position = await paperPosition(page);
-  for (const name of ["Navigation", "Note context"]) {
+  for (const name of ["Notes", "Note details"]) {
     await page.getByRole("button", { name, exact: true }).click();
-    await expect(paper).toBeHidden();
+    if (name === "Notes") await expect(paper).toBeHidden();
+    else await expect(page.locator("#note-sidebar")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(paper).toBeVisible();
     await expect.poll(() => paperPosition(page)).toEqual(position);
@@ -186,7 +97,7 @@ test("keeps navigation beside the paper through creation, note switching, and sc
   ])
     expect((await request.post("/api/notes", { data: { name, body } })).ok()).toBe(true);
   await page.goto(`/?note=${first}`);
-  const sidebar = page.getByRole("complementary", { name: "Navigation", exact: true });
+  const sidebar = page.getByRole("complementary", { name: "Notes", exact: true });
   const paper = page.locator("#paper-scroll");
   await expect(sidebar).toBeVisible();
   await expect(sidebar).not.toHaveAttribute("popover");
@@ -198,88 +109,18 @@ test("keeps navigation beside the paper through creation, note switching, and sc
   await expect(page.getByRole("textbox", { name: "Note", exact: true })).toHaveMarkdown(secondBody);
   await expect(sidebar).toBeVisible();
   expect(await sidebar.boundingBox()).toEqual(bounds);
-  await sidebar.getByRole("button", { name: "New note", exact: true }).click();
+  await page.getByRole("button", { name: "New note", exact: true }).click();
   await expect(sidebar).toBeVisible();
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await pressShortcut(editor, "a");
-  await page.keyboard.insertText(`# A long note\n\n${"A writing line.\n".repeat(100)}`);
+  await page.keyboard.insertText(stationarySource);
   await pressShortcut(editor, "End");
   await expect.poll(() => paper.evaluate((node) => node.scrollTop)).toBeGreaterThan(500);
   expect(await sidebar.boundingBox()).toEqual(bounds);
   expect(await page.evaluate(() => scrollY)).toBe(0);
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
   expect(await accessibilityViolations(page)).toEqual([]);
-});
-
-test("follows the current note in context without letting a delayed history read block writing", async ({
-  page,
-  request,
-}, info) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  const source = `context-source-${info.project.name}.md`;
-  const target = `context-target-${info.project.name}.md`;
-  const incoming = `context-incoming-${info.project.name}.md`;
-  for (const [name, body] of [
-    [source, `# Context source\n\n[Target](${target})\n`],
-    [target, "# Context target\n\nWriting.\n"],
-    [incoming, `# Context incoming\n\n[Source](${source})\n`],
-  ])
-    await request.post("/api/notes", { data: { name, body } });
-  await page.goto(`/?note=${source}`);
-  const context = await openContext(page);
-  await expect(
-    context.locator("#incoming-notes").getByRole("link", { name: "Context incoming", exact: true }),
-  ).toBeVisible();
-  await context
-    .locator("#outgoing-notes")
-    .getByRole("link", { name: "Context target", exact: true })
-    .click();
-  await expect(page.locator("#body")).toHaveValue(/^# Context target/);
-  await expect(
-    context.locator("#incoming-notes").getByRole("link", { name: "Context source", exact: true }),
-  ).toBeVisible();
-  await expect(context.locator("#outgoing-notes a")).toHaveCount(0);
-  let release: () => void = () => {};
-  let arrived: () => void = () => {};
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
+  await page.screenshot({
+    path: `../target/screenshots/writing-navigation-${info.project.name}.png`,
   });
-  const requested = new Promise<void>((resolve) => {
-    arrived = resolve;
-  });
-  await page.route("**/api/history?*", async (route) => {
-    if (new URL(route.request().url()).searchParams.get("name") === target) {
-      arrived();
-      await held;
-    }
-    await route.continue();
-  });
-  await context.getByRole("button", { name: "Version history", exact: true }).click();
-  await requested;
-  try {
-    const editor = page.getByRole("textbox", { name: "Note", exact: true });
-    await expect(editor).toBeEditable();
-    await editor.fill("# Context target\n\nKeep typing while history loads.\n");
-    await expect(page.locator("#save-status")).toHaveText("Saved");
-    await editor.fill(`# Context target\n\n[Return](${source})\n`);
-    await expect(page.locator("#save-status")).toHaveText("Saved");
-    await context.getByRole("button", { name: "Links", exact: true }).click();
-    await expect(
-      context.locator("#outgoing-notes").getByRole("link", { name: "Context source", exact: true }),
-    ).toBeVisible();
-    await expect(context.locator("#outgoing-notes")).not.toContainText("No links yet.");
-    await context
-      .locator("#incoming-notes")
-      .getByRole("link", { name: "Context source", exact: true })
-      .click();
-    await expect(page.locator("#body")).toHaveValue(/^# Context source/);
-  } finally {
-    release();
-  }
-  await context.getByRole("button", { name: "Version history", exact: true }).click();
-  await expect(context.locator("#history-status")).toHaveText(
-    "No recovery points from the past 7 days.",
-  );
-  await expect(context.locator("#history-list button")).toHaveCount(0);
-  await expect(context).toBeVisible();
 });

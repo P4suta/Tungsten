@@ -1,5 +1,5 @@
 export type SidebarSide = "navigation" | "context";
-export type SidebarPane = "note" | SidebarSide;
+export type SidebarPane = "note" | "navigation";
 
 export interface SidebarLayout {
   readonly navigation: boolean;
@@ -18,8 +18,8 @@ export function visiblePanes(state: SidebarLayout, wide: boolean): SidebarVisibi
     ? { navigation: state.navigation, context: state.context, note: true }
     : {
         navigation: state.compact === "navigation",
-        context: state.compact === "context",
-        note: state.compact === "note",
+        context: state.context,
+        note: state.compact !== "navigation",
       };
 }
 
@@ -28,6 +28,7 @@ export function toggleSidebar(
   side: SidebarSide,
   wide: boolean,
 ): SidebarLayout {
+  if (side === "context") return { ...state, context: !state.context };
   return wide
     ? { ...state, [side]: !state[side] }
     : { ...state, compact: state.compact === side ? "note" : side };
@@ -38,5 +39,6 @@ export function closeSidebar(
   side: SidebarSide,
   wide: boolean,
 ): SidebarLayout {
+  if (side === "context") return { ...state, context: false };
   return wide ? { ...state, [side]: false } : { ...state, compact: "note" };
 }

@@ -1,5 +1,14 @@
 # Verify the service
 
+## Windows app
+
+Run `mise x -- just windows source` on every host and `mise x -- just windows check` on Windows.
+The Windows gate checks formatting, strict nullable and analyzer builds, both architectures, unit tests, real-server contracts, dependencies, and documentation.
+Run `mise x -- just windows contracts` on Linux for the actual server API boundary.
+Run `mise x -- just windows ui` in an interactive Windows session for standard control wiring and local recovery.
+Hosted Windows checks separate native verification from the Linux contract and documentation jobs, and all applicable jobs join the required summary.
+The [Windows app guide](windows-apps.md) describes platform sources, keyboard behavior, input and accessibility acceptance, unsigned MSIX candidates, and update retention.
+
 ## Linux app
 
 Run `mise x -- just linux source` on every development host.
@@ -32,6 +41,8 @@ Fixtures verify detection in working files and in earlier commits after a later 
 Dataset fixtures resume interrupted committed batches without replacing saved notes.
 Browser fixtures exercise writing without setup, unavailable IndexedDB, independent profiles, server restarts, and original media.
 Rendered note fixtures select complete Markdown through keyboard commands before clearing, restoring, and continuing input.
+Browser fixtures replace Markdown through the editor's `selectAll` command and keyboard input because [CodeMirror renders only the viewport](https://codemirror.net/docs/guide/#viewport).
+Input assertions check the complete backing source before continuing the workflow.
 Use `mise x -- just scale-profile --counts 1000000` for the bounded database capacity campaign.
 Install the shared `prose` and `dotfiles` commands from the pinned source revision in the workflow when preparing another machine.
 The same commands validate the decision records and generated repository files.
@@ -40,6 +51,7 @@ Update Vale together with the shared checker revision and its required version.
 Hosted checks run the documentation gate before setting up browsers.
 
 The browser suite uses Chromium, Firefox, WebKit, and mobile device profiles.
+Set `TUNGSTEN_TEST_PORT` to a free port when another local service uses the default port 18080.
 Shortcut fixtures choose Control or Meta from the browser's platform and device identity.
 Shifted letter shortcuts send uppercase characters under the [Playwright keyboard contract](https://playwright.dev/docs/api/class-keyboard#keyboard-press).
 CI stops after the first browser failure, names each test, and retains failure traces for seven days.
@@ -47,8 +59,9 @@ Each run uses a separate data directory, and recovery fixtures use separate note
 It checks note operations, draft recovery, delayed responses, stale tabs, and composition events.
 Concurrent editing fixtures cover conditional refresh, active draft ownership, hidden-page suspension, remote deletion, and separate browser profiles.
 Empty page checks reject scrolling and persistent formatting controls at desktop, narrow, landscape, and enlarged text sizes.
-Sidebar checks cover independent visibility, reserved writing space, fixed pane bounds, unavailable storage, keyboard return, and unchanged drafts.
-Every wide-screen sidebar combination preserves the paper's bounds, writing width, scroll position, and source selection at four viewport widths.
+Sidebar checks cover navigation visibility, reclaimed writing space, modal details, unavailable storage, keyboard return, and unchanged drafts.
+Navigation checks populate more than one page of notes and include landscape windows 256 pixels high with twice the authored text size and adjusted [text spacing](https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html).
+Wide-screen navigation keeps its bounds through note creation, switching, and scrolling.
 Compact checks return from navigation and context to the same reading position after centered typing has settled.
 Workspace contracts check current-schema initialization, restart persistence, bounded pagination, concurrent additions, rejected stale metadata, rename cascades, and membership cleanup.
 Catalog contracts reject unsupported format markers and incomplete recovery records or search cursors.
@@ -95,7 +108,7 @@ Browser tests write screenshots under `target/screenshots`.
 The style gate parses browser style sheet rules and tests rejecting fixtures for each prohibited visual effect.
 The gate checks generated CodeMirror vendor styles through rendered computed styles.
 The authored style sheet remains subject to the palette scanner.
-Icon checks inspect visible controls across note, graph, Trash, and attachment workflows and reject a missing-icon fixture while accepting its labeled counterpart.
+Icon checks inspect visible controls across writing, navigation, Trash, and attachment workflows and reject a missing-icon fixture while accepting its labeled counterpart.
 SVG bounds include half the stroke width, and a clipped-path fixture must fail the check.
 The checker uses the initial values in the CSS drafts for [background images](https://www.w3.org/TR/css-backgrounds-3/#the-background-image) and [text decoration colors](https://www.w3.org/TR/css-text-decor-3/#text-decoration-color-property).
 
@@ -103,7 +116,6 @@ The [Web Content Accessibility Guidelines](https://www.w3.org/TR/WCAG22/) govern
 Browser tests check 320 CSS pixel reflow, 200 percent text enlargement, control labels, and automated accessibility rules.
 They also check text spacing overrides, landscape input, and the notice when JavaScript is off.
 Native controls preserve keyboard and assistive technology semantics.
-The graph provides keyboard movement, stops continuous animation when hidden or settled, and honors reduced-motion preferences.
 Timed tasks and authentication criteria have no matching features in the app.
 Black and white styling, 18 CSS pixel text, and 48 CSS pixel targets are personal preferences.
 Automated results don't establish behavior in an untested assistive technology.
@@ -135,7 +147,7 @@ Native HTML and JSON reports remain under a distinct `target/browser-performance
 The candidate release gate runs the same command after mutation testing.
 
 The regular browser suite limits initial decoded JavaScript to 420 KiB and transferred JavaScript to 180 KiB.
-PDF rendering, formatting, syntax highlighting, graph simulation, and version differences load on demand.
+PDF rendering, formatting, syntax highlighting, and version differences load on demand.
 HTTP fixtures verify compression, conditional requests, immutable fingerprinted chunks, and private pages retaining `no-store`.
 Source files and retired settings and export routes remain unavailable.
 Chromium tests load 50 sidebar notes, measure twelve edits under sixfold CPU slowdown, and require the ninety-fifth percentile through the following rendering frame to stay below 200 milliseconds.
@@ -263,9 +275,8 @@ Run `mise x -- just artifacts` to build Linux amd64 and arm64 candidates under `
 The container build uses the same source and embedded browser assets.
 Candidate builds don't publish a release or an image.
 
-Explore notes checks cover topic exploration, disconnected-note search, node movement, pan, zoom, keyboard access, and linked creation.
-Graph fixtures preserve complete titles, honor reduced motion, and verify that closing stops simulation.
-Pure graph fixtures check bounded neighborhoods and reject edges to missing notes.
+The generated notebook scenario checks bounded search results and opens notes by title.
+Catalog fixtures reject malformed or excessive note and graph responses.
 The sample generator checks counts, repeatability, unique titles, internal destinations, and refusal to replace existing data.
 The scale generator checks random access across a million-page collection without keeping every note in memory.
 Mixed fixtures cover isolated and terminal notes, duplicate titles, and intentional missing destinations.
@@ -274,6 +285,4 @@ Local socket checks reject truncated responses, missing lengths, and streaming r
 The optional `scale-profile` command measures real generated collections with bounded resources.
 Dataset verification and latency gates must both pass.
 The separate `test:demo` browser command exercises a generated collection and ordinary pointer selection.
-Graph labels never intercept pointer input, while native buttons keep their target size and `accessible name`s.
 Internal-link fixtures check relative destinations, escaped Unicode titles, explicit aliases, literal code, recovery records, and stale revisions.
-Graph controls follow native [button keyboard behavior](https://www.w3.org/WAI/ARIA/apg/patterns/button/) and keep fixed target sizes during zoom.

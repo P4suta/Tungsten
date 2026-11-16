@@ -42,7 +42,7 @@ fn with_store(store: Store, nonce: String) -> Result<Router, Error> {
     Ok(Router::new()
         .route("/", get(index))
         .route("/trash", get(index))
-        .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
+        .route("/favicon.ico", get(favicon))
         .route("/assets/{*path}", get(browser_asset))
         .route("/healthz", get(|| async { StatusCode::NO_CONTENT }))
         .route("/vendor/pdf/{*path}", get(vendor::pdf))
@@ -68,8 +68,32 @@ async fn index(Extension(nonce): Extension<String>) -> Html<String> {
 static CHUNKS: include_dir::Dir<'_> =
     include_dir::include_dir!("$CARGO_MANIFEST_DIR/ui/dist/chunks");
 
+async fn favicon(headers: HeaderMap) -> Response {
+    browser_asset(UrlPath("favicon.ico".into()), headers).await
+}
+
 async fn browser_asset(UrlPath(path): UrlPath<String>, headers: HeaderMap) -> Response {
     let (bytes, mime) = match path.as_str() {
+        "favicon.ico" => (
+            include_bytes!("../ui/assets/favicon.ico").as_slice(),
+            "image/vnd.microsoft.icon",
+        ),
+        "apple-touch-icon.png" => (
+            include_bytes!("../ui/assets/apple-touch-icon.png").as_slice(),
+            "image/png",
+        ),
+        "icon.svg" => (
+            include_bytes!("../assets/app-icon/cube.svg").as_slice(),
+            "image/svg+xml; charset=utf-8",
+        ),
+        "icon-light.svg" => (
+            include_bytes!("../assets/app-icon/cube-light.svg").as_slice(),
+            "image/svg+xml; charset=utf-8",
+        ),
+        "icon-dark.svg" => (
+            include_bytes!("../assets/app-icon/cube-dark.svg").as_slice(),
+            "image/svg+xml; charset=utf-8",
+        ),
         "style.css" => (
             include_bytes!("../ui/style.css").as_slice(),
             "text/css; charset=utf-8",

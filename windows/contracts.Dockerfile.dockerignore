@@ -1,0 +1,15 @@
+.git
+target
+dist
+**/bin
+**/obj
+**/AppPackages
+ui/node_modules
+ui/assurance/node_modules
+ui/dist
+ui/test-results
+ui/playwright-report
+ui/reports
+apple/.build
+apple/.swiftpm
+apple/Tungsten.xcodeproj

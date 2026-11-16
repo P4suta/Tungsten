@@ -13,6 +13,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY xtask/ xtask/
 COPY linux/ linux/
 COPY src/ src/
+COPY assets/ assets/
 COPY ui/ ui/
 COPY --from=ui /ui/dist/ ui/dist/
 COPY --from=ui /ui/node_modules/pdfjs-dist/ ui/node_modules/pdfjs-dist/

@@ -10,8 +10,8 @@
             { "appearance": "tinted", "value": "system-light" }
           ],
           "glass": true,
-          "image-name": "Note.svg",
-          "name": "Note",
+          "image-name": "Cube.svg",
+          "name": "Tungsten cube",
           "position": { "scale": 1, "translation-in-points": [0, 0] }
         }
       ],

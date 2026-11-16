@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
-import { pressShortcut } from "./editor.js";
+import { pressShortcut, replaceMarkdown } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
 import {
+  closeNavigation,
   exploreNotes,
   newEmptyNote,
   newNote,
@@ -15,7 +16,7 @@ test("keeps an editable dated title and functional note exploration", async ({ p
   await page.goto("/");
   await newNote(page);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Notes", exact: true })).toBeVisible();
   await expect(page.locator("header")).not.toContainText("Tungsten");
   await expect(page.locator(".title-cue,.body-cue")).toHaveCount(0);
   await page.screenshot({
@@ -37,8 +38,8 @@ test("keeps an editable dated title and functional note exploration", async ({ p
     fullPage: true,
   });
   await exploreNotes(page);
-  await expect(page.getByRole("dialog", { name: "Explore notes", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Explore A title", exact: true })).toBeVisible();
+  await expect(page.locator("#sidebar")).toBeVisible();
+  await expect(page.getByRole("link", { name: "A title", exact: true })).toBeVisible();
   await expect(
     page.locator("#folder-filter, #tag-filter, #name-form, #pin, #template"),
   ).toHaveCount(0);
@@ -137,7 +138,7 @@ test("requires icons on controls throughout navigation and rejects missing icons
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
   const more = await openNavigation(page);
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
-  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
+  await more.getByRole("button", { name: "Close notes", exact: true }).click();
   const settings = await openTrash(page);
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
   await settings.getByRole("button", { name: "Back to notes", exact: true }).click();
@@ -212,8 +213,9 @@ test("centers live typing across long paragraphs and wrapping", async ({ page })
             range.setStart(range.endContainer, range.endOffset - 1);
             bounds = range.getBoundingClientRect();
           }
-          const center =
-            (visualViewport?.offsetTop ?? 0) + (visualViewport?.height ?? innerHeight) / 2;
+          const paper = document.getElementById("paper-scroll")?.getBoundingClientRect();
+          if (!paper) throw new Error("Missing writing pane.");
+          const center = (paper.top + paper.bottom) / 2;
           return Math.abs(bounds.top + bounds.height / 2 - center);
         }),
       )
@@ -284,8 +286,8 @@ test("automatically formats after blur and refuses stale formatting results", as
       async () => (await (await request.get(`/api/notes/${encodeURIComponent(name)}`)).json()).body,
     )
     .toContain("- first item");
-  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
-  await editor.fill("# Blur\n\n*   selected");
+  await more.getByRole("button", { name: "Close notes", exact: true }).click();
+  await replaceMarkdown(editor, "# Blur\n\n*   selected");
   await expect(page.locator("#body")).toHaveValue("# Blur\n\n*   selected");
   await editor.evaluate((node) => {
     (node as HTMLElement).blur();
@@ -331,11 +333,8 @@ test("allows browser text enlargement without changing fixed writing behavior or
   await editor.press("Enter");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await exploreNotes(page);
-  await expect(page.locator(".graph-node svg").first()).toHaveAttribute("data-icon", "note");
-  await page
-    .getByRole("dialog", { name: "Explore notes", exact: true })
-    .getByRole("button", { name: "Close", exact: true })
-    .click();
+  await expect(page.locator("#sidebar-notes a svg").first()).toHaveAttribute("data-icon", "note");
+  await closeNavigation(page);
   await showPaper(page);
   await page.evaluate(() => {
     document.documentElement.style.fontSize = "225%";

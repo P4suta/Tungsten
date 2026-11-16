@@ -1,5 +1,5 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, pressShortcut, test } from "./editor.js";
+import { expect, pressShortcut, replaceMarkdown, test } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
 import { newEmptyNote, openNavigation } from "./interface.js";
 
@@ -148,7 +148,7 @@ test("suggests links in the editor without requiring a typing help preference", 
   await page.goto("/");
   await newEmptyNote(page);
   const editor = page.getByLabel("Note", { exact: true });
-  await editor.fill("# Source\n\n");
+  await replaceMarkdown(editor, "# Source\n\n");
   await pressShortcut(editor, "End");
   await editor.pressSequentially(`[${title}`);
   const suggestions = page.getByRole("listbox", { name: "Link to note", exact: true });
@@ -158,8 +158,8 @@ test("suggests links in the editor without requiring a typing help preference", 
   await expect(editor).toHaveMarkdown(`# Source\n\n[${title}](${encodeURIComponent(target)})`);
   const more = await openNavigation(page);
   await expect(more.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
-  await more.getByRole("button", { name: "Close navigation", exact: true }).click();
-  await editor.fill("# Source\n\n");
+  await more.getByRole("button", { name: "Close notes", exact: true }).click();
+  await replaceMarkdown(editor, "# Source\n\n");
   await pressShortcut(editor, "End");
   await editor.pressSequentially(`[${title}`);
   await expect(suggestions).toBeVisible();

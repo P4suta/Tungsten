@@ -6,6 +6,8 @@ pre-commit:
       run: mise x -- npm --prefix ui run lint
     apple:
       run: mise x -- cargo xtask apple source
+    windows:
+      run: mise x -- just windows source
 pre-push:
   commands:
     check:

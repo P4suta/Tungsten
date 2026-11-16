@@ -1,8 +1,52 @@
 import { accessibilityViolations } from "./accessibility.js";
-import { expect, pressShortcut, test } from "./editor.js";
+import { expect, pressShortcut, replaceMarkdown, test } from "./editor.js";
 import { clippedIcons } from "./icon-bounds.js";
 import { missingIcons } from "./icons-check.js";
-import { exploreNotes, openContext, openNavigation, openTrash } from "./interface.js";
+import { openContext, openNavigation, openTrash } from "./interface.js";
+
+test("decodes the app identity with contrasting ink and a transparent T", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator('meta[name="application-name"]')).toHaveAttribute(
+    "content",
+    "Tungsten",
+  );
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    const link = page.locator(`link[rel="icon"][media="(prefers-color-scheme: ${scheme})"]`);
+    const href = await link.getAttribute("href");
+    if (!href) throw new Error("Missing app icon link");
+    const pixels = await page.evaluate(
+      async (source: string): Promise<{ face: number[]; letter: number[] }> => {
+        const image = new Image();
+        image.src = source;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = 48;
+        canvas.height = 48;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Missing canvas context");
+        context.drawImage(image, 0, 0, 48, 48);
+        return {
+          face: Array.from(context.getImageData(10, 28, 1, 1).data),
+          letter: Array.from(context.getImageData(20, 30, 1, 1).data),
+        };
+      },
+      href,
+    );
+    const ink = scheme === "dark" ? 255 : 0;
+    expect(pixels.face).toEqual([ink, ink, ink, 255]);
+    expect(pixels.letter).toEqual([0, 0, 0, 0]);
+  }
+  for (const source of ["/favicon.ico", "/assets/apple-touch-icon.png"]) {
+    const width = await page.evaluate(async (href: string): Promise<number> => {
+      const image = new Image();
+      image.src = href;
+      await image.decode();
+      return image.naturalWidth;
+    }, source);
+    expect(width).toBeGreaterThan(0);
+  }
+});
 
 test("reloads Trash after returning while an earlier request is pending", async ({
   page,
@@ -108,7 +152,7 @@ test("shows the effect of restoring a writing session without interpreting its s
   });
   await page.goto(`/?note=${name}`);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.fill("# Session\n\nRevised text\n");
+  await replaceMarkdown(editor, "# Session\n\nRevised text\n");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const more = await openContext(page);
   await more.getByRole("button", { name: "Version history", exact: true }).click();
@@ -140,57 +184,4 @@ test("keeps icons inside their view boxes and rejects a clipped fixture", async 
   expect(await page.evaluate(clippedIcons, "padded" as const)).toEqual([]);
   await openNavigation(page);
   expect(await page.evaluate(clippedIcons, null)).toEqual([]);
-});
-
-test("keeps complete graph titles and stops simulation after closing or reduced motion", async ({
-  page,
-  request,
-}) => {
-  const title = "A complete title that remains readable after zooming into a connected thought";
-  await request.post("/api/notes", {
-    data: { name: "Long-title.md", body: `# ${title}\n\n[Neighbor](Neighbor.md)\n` },
-  });
-  await request.post("/api/notes", { data: { name: "Neighbor.md", body: "# Neighbor\n" } });
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/?note=Long-title.md");
-  await exploreNotes(page);
-  const graph = page.getByRole("region", { name: "Note graph", exact: true });
-  const node = graph.getByRole("button", { name: `Explore ${title}`, exact: true });
-  await expect(node.locator("span")).toHaveText(title);
-  await expect(node.locator("span")).toHaveCSS("text-overflow", "clip");
-  await expect(page.locator("#graph-selection")).toContainText(title);
-  await expect(graph).toHaveAttribute("data-motion", "idle");
-  const scale = await graph.getAttribute("data-scale");
-  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
-  expect(await graph.getAttribute("data-scale")).not.toBe(scale);
-  for (const key of ["+", "-", "="]) {
-    const accepted = await node.evaluate(
-      (element, key) =>
-        element.dispatchEvent(
-          new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true, cancelable: true }),
-        ),
-      key,
-    );
-    expect(accepted).toBe(true);
-  }
-  for (let index = 0; index < 10; index++)
-    await page.getByRole("button", { name: "Zoom out", exact: true }).click();
-  await expect(graph.locator("button")).toHaveCount(2);
-  const overlapping = await graph.locator("button").evaluateAll((buttons) => {
-    const boxes = buttons.map((button) => button.getBoundingClientRect());
-    return boxes.some((box, index) =>
-      boxes
-        .slice(index + 1)
-        .some(
-          (other) =>
-            box.left < other.right &&
-            box.right > other.left &&
-            box.top < other.bottom &&
-            box.bottom > other.top,
-        ),
-    );
-  });
-  expect(overlapping).toBe(false);
-  await page.getByRole("dialog", { name: "Explore notes", exact: true }).press("Escape");
-  await expect(page.locator("#home-graph")).toHaveAttribute("data-motion", "idle");
 });

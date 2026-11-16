@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { test as base, expect } from "@playwright/test";
 import { accessibilityViolations } from "./accessibility.js";
-import { pressShortcut } from "./editor.js";
+import { pressShortcut, replaceMarkdown } from "./editor.js";
 import { missingIcons } from "./icons-check.js";
 import { attachToNote, noteAction, openTrash } from "./interface.js";
 
@@ -90,7 +90,7 @@ test("opens without setup and reconnects after a server restart", async ({
   await expect(editor).toBeEditable();
   expect(await page.evaluate(missingIcons, null)).toEqual([]);
   expect(await accessibilityViolations(page)).toEqual([]);
-  await editor.fill("# Philosophy\n\n日本語のノートと **important thoughts**");
+  await replaceMarkdown(editor, "# Philosophy\n\n日本語のノートと **important thoughts**");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const address = page.url();
   await service.restart();
@@ -119,7 +119,7 @@ test("protects competing edits and remembers independent browser profiles", asyn
 }) => {
   await page.goto(service.origin);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
-  await editor.fill("# Shared profiles\n\nOriginal text");
+  await replaceMarkdown(editor, "# Shared profiles\n\nOriginal text");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const address = page.url();
   const name = new URL(address).searchParams.get("note");
@@ -136,7 +136,7 @@ test("protects competing edits and remembers independent browser profiles", asyn
     ).toBe(304);
     const peerEditor = peer.getByRole("textbox", { name: "Note", exact: true });
     await expect(peerEditor).toHaveText(/Original text/);
-    await editor.fill("# Shared profiles\n\nFirst device update");
+    await replaceMarkdown(editor, "# Shared profiles\n\nFirst device update");
     await expect(page.locator("#save-status")).toHaveText("Saved");
     await peer.bringToFront();
     await peer.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -156,9 +156,9 @@ test("protects competing edits and remembers independent browser profiles", asyn
       await held;
       await route.continue();
     });
-    await peerEditor.fill("# Shared profiles\n\nKeep the competing draft");
+    await replaceMarkdown(peerEditor, "# Shared profiles\n\nKeep the competing draft");
     await seen;
-    await editor.fill("# Shared profiles\n\nThe acknowledged winner");
+    await replaceMarkdown(editor, "# Shared profiles\n\nThe acknowledged winner");
     await expect(page.locator("#save-status")).toHaveText("Saved");
     release();
     await expect(peer.locator("#save-status")).toHaveText("Conflict");
@@ -170,8 +170,8 @@ test("protects competing edits and remembers independent browser profiles", asyn
     await expect(peer.locator("#save-status")).toHaveText("Saved");
     expect(peer.url()).not.toBe(address);
     await Promise.all([
-      editor.fill("# Shared profiles\n\nIndependent writing on the first device"),
-      peerEditor.fill("# Recovered copy\n\nIndependent writing on the second device"),
+      replaceMarkdown(editor, "# Shared profiles\n\nIndependent writing on the first device"),
+      replaceMarkdown(peerEditor, "# Recovered copy\n\nIndependent writing on the second device"),
     ]);
     await expect(page.locator("#save-status")).toHaveText("Saved");
     await expect(peer.locator("#save-status")).toHaveText("Saved");
@@ -198,9 +198,10 @@ test("opens the saved note after both browser and server processes restart", asy
   try {
     const page = await browser.newPage();
     await page.goto(service.origin);
-    await page
-      .getByRole("textbox", { name: "Note", exact: true })
-      .fill("# Remembered device\n\nOriginal private text");
+    await replaceMarkdown(
+      page.getByRole("textbox", { name: "Note", exact: true }),
+      "# Remembered device\n\nOriginal private text",
+    );
     await expect(page.locator("#save-status")).toHaveText("Saved");
     address = page.url();
   } finally {
@@ -229,7 +230,10 @@ test("writes when IndexedDB is unavailable", async ({ page, service }) => {
     }),
   );
   await page.goto(service.origin);
-  await page.getByRole("textbox", { name: "Note", exact: true }).fill("# Available writing");
+  await replaceMarkdown(
+    page.getByRole("textbox", { name: "Note", exact: true }),
+    "# Available writing",
+  );
   await expect(page.locator("#save-status")).toHaveText("Saved");
 });
 
@@ -240,7 +244,7 @@ test("keeps original files usable after a server restart and Trash restore", asy
   await page.goto(service.origin);
   const editor = page.getByRole("textbox", { name: "Note", exact: true });
   await expect(editor).toBeEditable();
-  await editor.fill("# Original files\n\nPrivate text");
+  await replaceMarkdown(editor, "# Original files\n\nPrivate text");
   await expect(page.locator("#save-status")).toHaveText("Saved");
   const bytes = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j3ioAAAAASUVORK5CYII=",
