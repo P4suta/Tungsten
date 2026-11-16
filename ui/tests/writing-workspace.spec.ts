@@ -96,13 +96,16 @@ test("follows linked notes and dismisses a pending history read before editing",
     await trigger.click();
     await details.getByRole("button", { name: "Version history", exact: true }).click();
     await requested;
+    await expect(page.locator("#history-status")).toHaveText("Loading history");
     await page.keyboard.press("Escape");
     await replaceMarkdown(editor, "# Target\n\nKeep writing while history loads.\n");
     await expect(page.locator("#save-status")).toHaveText("Saved");
   } finally {
     release();
   }
+  await expect(page.locator("#history-status")).toContainText("recovery points");
   await expect(details).toBeHidden();
+  await expect(editor).toHaveMarkdown(/Keep writing while history loads\./);
   expect((await (await request.get(`/api/notes/${source}`)).json()).body).toContain(target);
 });
 
