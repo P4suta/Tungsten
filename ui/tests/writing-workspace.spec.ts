@@ -1,6 +1,18 @@
 import { expect, replaceMarkdown, test } from "./editor.js";
 import { openNavigation } from "./interface.js";
 
+test("keeps keyboard focus when entering and leaving Trash", async ({ page }) => {
+  await page.goto("/");
+  const sidebar = await openNavigation(page);
+  const trash = sidebar.getByRole("button", { name: "Trash", exact: true });
+  const back = sidebar.getByRole("button", { name: "Back to notes", exact: true });
+  await trash.focus();
+  await page.keyboard.press("Enter");
+  await expect(back).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(trash).toBeFocused();
+});
+
 test("keeps editor focus on Escape when compact navigation and details are closed", async ({
   page,
 }) => {

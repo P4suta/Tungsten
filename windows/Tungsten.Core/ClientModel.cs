@@ -110,8 +110,7 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
             if (!await CanLeaveAsync()) throw LeavingError();
             if (Editor?.Current.Name == name) return;
             var client = Client ?? throw new InvalidOperationException("Connect to a server first.");
-            var recovery = await store.LoadAsync(client.Origin);
-            var draft = recovery.Drafts.SingleOrDefault(d => d.Name == name)
+            var draft = await store.FindAsync(client.Origin, name)
                 ?? Draft.From(client.Origin, await client.ReadAsync(name));
             if (!await CanLeaveAsync()) throw LeavingError();
             await SelectAsync(draft);
@@ -122,7 +121,7 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
     {
         if (Editor is not { } editor) return;
         try { await editor.SaveAsync(canLeave); Problem = ""; }
-        catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException or OperationCanceledException)
+        catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException or OperationCanceledException or UnauthorizedAccessException)
         { Problem = error.Message; throw; }
         finally { NotifyEditor(); }
     }

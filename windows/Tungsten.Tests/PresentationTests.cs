@@ -17,6 +17,39 @@ public sealed class PresentationTests : IDisposable
     { Content = new StringContent(JsonSerializer.Serialize(value, new JsonSerializerOptions(JsonSerializerDefaults.Web))) };
     private static NoteClient Client(Uri server) => new(server, new Handler(_ => Task.FromResult(Response(new Note("a.md", "remote", Revision)))));
 
+    private sealed class LookupRepository(Draft draft) : IDraftRepository
+    {
+        public Task<DraftRecovery> LoadAsync(Uri server) => throw new InvalidOperationException("Opening one note must not scan the draft catalog.");
+        public Task<Draft?> FindAsync(Uri server, string name) => Task.FromResult<Draft?>(draft.Server == server.AbsoluteUri && draft.Name == name ? draft : null);
+        public Task WriteAsync(Draft value, CancellationToken cancellation = default) => Task.CompletedTask;
+        public Task RemoveAsync(Draft value) => Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task OpeningOneNoteUsesItsDraftWithoutScanningOtherFiles()
+    {
+        var draft = new Draft(1, Server.AbsoluteUri, "a.md", "local", null, null, null);
+        var model = new ClientModel(new LookupRepository(draft), Client);
+        await model.ConnectAsync(Server); await model.OpenAsync(draft.Name);
+        Assert.Equal("local", model.Body);
+    }
+
+    [Fact]
+    public async Task DeniedPendingStorageBlocksSavingAndAllowsExplicitRetry()
+    {
+        var store = new DelayedRepository(new AtomicDraftStore(directory));
+        var draft = new Draft(1, Server.AbsoluteUri, "a.md", "local", null, null, null); await store.WriteAsync(draft);
+        var model = new ClientModel(store, uri => new(uri, new Handler(request => Task.FromResult(request.Method == HttpMethod.Get
+            ? new HttpResponseMessage(HttpStatusCode.NotFound) : Response(new Note(draft.Name, draft.Body, Revision))))));
+        await model.ConnectAsync(Server); await model.OpenAsync(draft.Name);
+        store.Failure = value => value.Pending is not null ? new UnauthorizedAccessException("Draft access denied.") : null;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => model.SaveAsync());
+        Assert.Equal(SaveBlock.Uncertain, model.Editor!.Block); Assert.NotEmpty(model.Problem); Assert.Equal("local", model.Body);
+        store.Failure = null;
+        await model.Editor.RetryAsync(); await model.SaveAsync();
+        Assert.True(model.Editor.IsSaved); Assert.Empty(model.Problem);
+    }
+
     [Fact]
     public async Task CreatingAndSwitchingConnectionsPersistsEachServersInput()
     {
@@ -261,14 +294,17 @@ public sealed class PresentationTests : IDisposable
     private sealed class DelayedRepository(AtomicDraftStore store) : IDraftRepository
     {
         public Func<Draft, bool>? Pause { get; set; }
+        public Func<Draft, Exception?>? Failure { get; set; }
         public TaskCompletionSource Held { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Released { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public async Task WriteAsync(Draft draft, CancellationToken cancellation = default)
         {
+            if (Failure?.Invoke(draft) is { } error) throw error;
             await store.WriteAsync(draft, cancellation);
             if (Pause?.Invoke(draft) == true) { Pause = null; Held.SetResult(); await Released.Task; }
         }
         public Task<DraftRecovery> LoadAsync(Uri server) => store.LoadAsync(server);
+        public Task<Draft?> FindAsync(Uri server, string name) => store.FindAsync(server, name);
         public Task RemoveAsync(Draft draft) => store.RemoveAsync(draft);
     }
 

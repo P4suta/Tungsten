@@ -9,6 +9,35 @@ public sealed class DraftStoreTests : IDisposable
     private static Draft Input(string body = "writing") => new(1, Server.AbsoluteUri, "note.md", body, null, null, null);
 
     [Fact]
+    public async Task AnUnreadableCurrentDraftNeverRecoversAnOlderBackup()
+    {
+        var store = new AtomicDraftStore(directory); await store.WriteAsync(Input("backup")); await store.WriteAsync(Input("latest"));
+        var path = store.PathFor(Server, "note.md");
+        var latest = await File.ReadAllBytesAsync(path); var backup = await File.ReadAllBytesAsync(path + ".previous");
+        using (var locked = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            await Assert.ThrowsAsync<IOException>(() => store.LoadAsync(Server));
+            await Assert.ThrowsAsync<IOException>(() => store.FindAsync(Server, "note.md"));
+        }
+        Assert.Equal(latest, await File.ReadAllBytesAsync(path)); Assert.Equal(backup, await File.ReadAllBytesAsync(path + ".previous"));
+        Assert.Equal("latest", Assert.Single((await store.LoadAsync(Server)).Drafts).Body);
+    }
+
+    [Fact]
+    public async Task LookingUpOneDraftIgnoresOtherFilesAndChecksItsIdentity()
+    {
+        var store = new AtomicDraftStore(directory); var other = new Uri("https://other.example/");
+        await store.WriteAsync(Input()); await store.WriteAsync(Input("other") with { Server = other.AbsoluteUri });
+        var unrelated = store.PathFor(other, "note.md");
+        using (var locked = new FileStream(unrelated, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Assert.Equal(Input(), await store.FindAsync(Server, "note.md"));
+        var bytes = await File.ReadAllBytesAsync(unrelated);
+        await File.WriteAllBytesAsync(store.PathFor(Server, "note.md"), bytes);
+        Assert.Null(await store.FindAsync(Server, "note.md"));
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(store.PathFor(Server, "note.md")));
+    }
+
+    [Fact]
     public async Task AtomicReplacementRecoversLatestInputAndKeepsPreviousBytes()
     {
         var store = new AtomicDraftStore(directory);
@@ -117,6 +146,7 @@ public sealed class DraftStoreTests : IDisposable
         if (damaged) await File.WriteAllTextAsync(path, "damaged latest bytes"); else File.Delete(path);
         var recovery = await store.LoadAsync(Server);
         var recovered = Assert.Single(recovery.Drafts);
+        Assert.Equal(recovered, await store.FindAsync(Server, "note.md"));
         Assert.Equal("backup", recovered.Body); Assert.Equal(SaveBlock.Uncertain, recovered.Block);
         Assert.False(SavePolicy.CanSend(recovered));
         Assert.True(File.Exists(path + ".previous"));

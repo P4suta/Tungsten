@@ -171,7 +171,9 @@ public sealed class NoteClient(Uri origin, HttpMessageHandler? handler = null, T
         using var scope = CancellationTokenSource.CreateLinkedTokenSource(cancellation, deadline.Token);
         using var request = Request(HttpMethod.Get, [".attachments", attachment.Id]);
         using var response = await SendAsync(request, scope.Token);
-        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        var staging = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        Directory.CreateDirectory(staging);
+        var temporary = Path.Combine(staging, Path.GetFileName(path));
         try
         {
             await using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, FileOptions.Asynchronous))
@@ -180,9 +182,11 @@ public sealed class NoteClient(Uri origin, HttpMessageHandler? handler = null, T
                 if (file.Length != attachment.Bytes) throw new InvalidDataException("Incomplete original attachment.");
                 await file.FlushAsync(scope.Token); file.Flush(true);
             }
+            if (OperatingSystem.IsWindows()) await AttachmentSecurity.CheckAsync(temporary, request.RequestUri!, scope.Token);
+            scope.Token.ThrowIfCancellationRequested();
             File.Move(temporary, path, true);
         }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        finally { Directory.Delete(staging, true); }
     }
     public Task DeleteAttachmentAsync(Attachment attachment) => EmptyAsync(Request(HttpMethod.Delete, ["api", "attachments", CheckAttachment(attachment).Id], revision: attachment.Revision));
     public void Dispose() => http.Dispose();

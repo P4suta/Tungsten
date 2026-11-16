@@ -62,6 +62,34 @@ public sealed class AtomicDraftStore(string directory) : IDraftRepository
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
+    private async Task<Draft?> ReadAsync(string path, string identity, List<string> damaged)
+    {
+        try
+        {
+            await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            if (file.Length > MaxSerializedDraftBytes) throw new InvalidDataException("Oversized draft.");
+            var bytes = new byte[(int)file.Length]; await file.ReadExactlyAsync(bytes);
+            var draft = (JsonSerializer.Deserialize<Draft>(bytes, Json)
+                ?? throw new InvalidDataException("Missing draft.")).Validate();
+            if (identity != PathFor(new(draft.Server), draft.Name)) throw new InvalidDataException("Draft identity differs.");
+            return draft;
+        }
+        catch (FileNotFoundException) { return null; }
+        catch (Exception error) when (error is InvalidDataException or JsonException or ArgumentException)
+        { damaged.Add(path); return null; }
+    }
+    private async Task<Draft?> RecoverAsync(string path, List<string> damaged)
+    {
+        var draft = await ReadAsync(path, path, damaged);
+        if (draft is not null) return draft;
+        var backup = await ReadAsync(path + ".previous", path, damaged);
+        return backup is null ? null : backup with { Block = SaveBlock.Uncertain };
+    }
+    public Task<Draft?> FindAsync(Uri server, string name)
+    {
+        Directory.CreateDirectory(DirectoryPath);
+        return RecoverAsync(PathFor(server, name), []);
+    }
     public async Task<DraftRecovery> LoadAsync(Uri server)
     {
         var drafts = new List<Draft>(); var damaged = new List<string>();
@@ -69,29 +97,9 @@ public sealed class AtomicDraftStore(string directory) : IDraftRepository
         damaged.AddRange(Directory.EnumerateFiles(DirectoryPath, "*.damaged-*"));
         var paths = Directory.EnumerateFiles(DirectoryPath, "*.json")
             .Concat(Directory.EnumerateFiles(DirectoryPath, "*.json.previous").Select(path => path[..^9])).Distinct().ToArray();
-        async Task<Draft?> ReadAsync(string path, string identity)
-        {
-            try
-            {
-                await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
-                if (file.Length > MaxSerializedDraftBytes) throw new InvalidDataException("Oversized draft.");
-                var bytes = new byte[(int)file.Length]; await file.ReadExactlyAsync(bytes);
-                var draft = (JsonSerializer.Deserialize<Draft>(bytes, Json)
-                    ?? throw new InvalidDataException("Missing draft.")).Validate();
-                if (identity != PathFor(new(draft.Server), draft.Name)) throw new InvalidDataException("Draft identity differs.");
-                return draft;
-            }
-            catch (Exception error) when (error is IOException or InvalidDataException or JsonException or ArgumentException)
-            { damaged.Add(path); return null; }
-        }
         foreach (var path in paths)
         {
-            var draft = File.Exists(path) ? await ReadAsync(path, path) : null;
-            if (draft is null && File.Exists(path + ".previous"))
-            {
-                draft = await ReadAsync(path + ".previous", path);
-                if (draft is not null) draft = draft with { Block = SaveBlock.Uncertain };
-            }
+            var draft = await RecoverAsync(path, damaged);
             if (draft?.Server == server.AbsoluteUri) drafts.Add(draft);
         }
         return new(drafts.ToArray(), damaged.ToArray());

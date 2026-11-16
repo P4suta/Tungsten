@@ -33,6 +33,7 @@ Images, tables, and HTML remain readable Markdown source.
 The app never evaluates HTML or loads remote images for rendering.
 The native control supplies text selection and IME composition.
 Clipboard commands copy Markdown source and paste Unicode text through native ranges.
+Copy and Cut call [`Clipboard.Flush`](https://learn.microsoft.com/en-us/uwp/api/windows.applicationmodel.datatransfer.clipboard.flush) so text remains available after the app closes.
 Paste reads clipboard text asynchronously and verifies the editor and selection before insertion, following the [RichEditBox paste event contract](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.richeditbox.paste?view=windows-app-sdk-2.0).
 Bold, Italic, and Inline code insert Markdown syntax through standard CommandBar actions.
 The core keeps bounded source-edit history because native RichEditBox history also records presentation formatting.
@@ -41,6 +42,7 @@ The app suspends sending, remote replacement, navigation, and closing during com
 AutoSuggestBox submits search queries.
 Note details use standard lists for outgoing links, backlinks, original attachments, and saved versions.
 Link and attachment rows display Markdown labels when available and keep their validated targets for navigation.
+Uploads capture a native [insertion range](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.text.itextrange?view=windows-app-sdk-2.0) before the transfer and preserve later text selections.
 History restoration replaces text through the editor selection adapter so Undo remains available.
 
 The operating system provides the title bar, fonts, icons, accent color, Light, Dark, and Contrast themes.
@@ -57,7 +59,8 @@ The core remains independent of WinUI and provides English validation and recove
 [InfoBar](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/infobar) reports save failures and conflicts without dismissing input.
 [ContentDialog](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/dialogs-and-flyouts/dialogs) confirms destructive operations.
 Original files use the Windows App SDK [open picker](https://learn.microsoft.com/en-us/windows/apps/develop/files/using-file-folder-pickers) and [save picker](https://learn.microsoft.com/en-us/windows/apps/develop/files/pickers-save-file), associated with the current AppWindow.
-Opening an original delegates to the registered Windows app.
+Downloads keep their final filename in a staging directory and pass through [Windows attachment services](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-iattachmentexecute-save) with the source URL before replacing the destination.
+Opening an original delegates to the registered Windows app with [TreatAsUntrusted](https://learn.microsoft.com/en-us/uwp/api/windows.system.launcheroptions.treatasuntrusted) enabled.
 
 ## Durable writing
 
@@ -72,6 +75,8 @@ Notes keep the 1 MiB server limit and original attachments keep the 64 MiB limit
 Editor input exceeding the server limit stays in the local draft.
 Validation rejects the excess input before transmission.
 The store accepts local text up to 8 MiB and accounts for JSON escaping in its file size limit.
+Opening a note reads only its matching draft and backup.
+Access and sharing failures stop recovery without replacing either file.
 
 Draft identities include both the canonical server origin and note name.
 Files use a SHA-256-derived name under the package's LocalState directory.

@@ -120,6 +120,7 @@ public interface IDraftStore
 
 public interface IDraftRepository : IDraftStore
 {
+    Task<Draft?> FindAsync(Uri server, string name);
     Task<DraftRecovery> LoadAsync(Uri server);
     Task RemoveAsync(Draft draft);
 }

@@ -75,12 +75,26 @@ public sealed class LiveMarkdownEditor(RichEditBox control)
     }
     public bool ReplaceSelection(string source)
     {
+        var selection = CurrentSelection();
+        return Replace(selection, source, new(selection.Start + source.Length, 0));
+    }
+    public ITextRange CaptureInsertion()
+    {
+        var end = control.Document.Selection.EndPosition;
+        return control.Document.GetRange(end, end);
+    }
+    public bool InsertAt(ITextRange insertion, string source)
+    {
+        var offset = text.ToSource(insertion.StartPosition);
+        return Replace(new(offset, 0), source, CurrentSelection().AfterInsertion(offset, source.Length));
+    }
+    private bool Replace(TextSelection selection, string source, TextSelection afterwards)
+    {
         if (Composing) throw new CompositionInProgressException();
-        var selection = CurrentSelection(); MarkdownSource replacement;
+        MarkdownSource replacement;
         try { replacement = text.WithReplacement(selection, source); }
         catch (InvalidDataException error) { InputRejected?.Invoke(this, error); return false; }
-        var caret = new TextSelection(selection.Start + source.Length, 0);
-        history.BreakGroup(); Display(replacement, caret); history.Record(Source, caret, false);
+        history.BreakGroup(); Display(replacement, afterwards); history.Record(Source, afterwards, false);
         SourceChanged?.Invoke(this, EventArgs.Empty); return true;
     }
     public bool Undo(bool redo = false)
@@ -117,7 +131,7 @@ public sealed class LiveMarkdownEditor(RichEditBox control)
         var selection = control.Document.Selection;
         var start = text.ToSource(selection.StartPosition); var end = text.ToSource(selection.EndPosition);
         if (start == end) return;
-        var data = new DataPackage(); data.SetText(Source[start..end]); Clipboard.SetContent(data);
+        var data = new DataPackage(); data.SetText(Source[start..end]); Clipboard.SetContent(data); Clipboard.Flush();
         if (cut) ReplaceSelection("");
     }
     public async Task PasteAsync()

@@ -138,15 +138,19 @@ public sealed partial class MainPage : Page
 #endif
         );
         var changed = ViewModel.Client?.Origin != origin;
-        if (changed) await ViewModel.ConnectAsync(origin);
+        if (changed)
+        {
+            await ViewModel.ConnectAsync(origin);
+            collection = "all"; detailVisible = false; Search.Text = "";
+            notes.Clear(); deleted.Clear(); cursor = null; collectionProblem = null;
+            UpdateListPresentation(); UpdateWorkspaceNavigation();
+        }
         await AtomicDraftStore.ReplaceAsync(settings, Rules.Utf8.GetBytes(origin.AbsoluteUri));
         ServerAddress.Text = origin.AbsoluteUri;
         connectionVisible = false;
-        if (changed) { collection = "all"; detailVisible = false; Search.Text = ""; }
-        UpdateStatus();
+        UpdateStatus(); UpdateLayoutMode();
         await ViewModel.RefreshWorkspacesAsync(); UpdateWorkspaceNavigation();
         await LoadNotesAsync();
-        UpdateLayoutMode();
     }
     private void UpdateWorkspaceNavigation()
     {
@@ -193,14 +197,20 @@ public sealed partial class MainPage : Page
             collection = target; detailVisible = false; await LoadNotesAsync(); UpdateLayoutMode();
         });
     }
-    private async Task LoadNotesAsync(bool append = false, string? query = null)
+    private void UpdateListPresentation()
     {
-        var submittedQuery = query ?? Search.Text;
         Search.Visibility = collection is "all" or "drafts" ? Visibility.Visible : Visibility.Collapsed;
-        if (!append) { notes.Clear(); deleted.Clear(); cursor = null; collectionProblem = null; }
         NotesList.Visibility = collection == "trash" ? Visibility.Collapsed : Visibility.Visible;
         TrashList.Visibility = collection == "trash" ? Visibility.Visible : Visibility.Collapsed;
         EmptyTrashButton.Visibility = TrashList.Visibility;
+        MoreButton.Visibility = cursor is null ? Visibility.Collapsed : Visibility.Visible;
+        ListStatus.Text = notes.Count + deleted.Count == 0 ? UiText.Get("EmptyNoteList") : "";
+    }
+    private async Task LoadNotesAsync(bool append = false, string? query = null)
+    {
+        var submittedQuery = query ?? Search.Text;
+        if (!append) { notes.Clear(); deleted.Clear(); cursor = null; collectionProblem = null; }
+        UpdateListPresentation();
         if (collection == "trash")
         {
             var page = await Client.TrashAsync(cursor); foreach (var entry in page.Entries) deleted.Add(entry); cursor = page.Next;
@@ -231,8 +241,7 @@ public sealed partial class MainPage : Page
             else
             { var page = await Client.WorkspaceNotesAsync(collection, cursor); MergeNotes(page.Notes); cursor = page.Next; }
         }
-        MoreButton.Visibility = cursor is null ? Visibility.Collapsed : Visibility.Visible;
-        ListStatus.Text = notes.Count + deleted.Count == 0 ? UiText.Get("EmptyNoteList") : "";
+        UpdateListPresentation();
     }
     private void MergeNotes(IEnumerable<Summary> incoming)
     {
@@ -473,11 +482,13 @@ public sealed partial class MainPage : Page
     {
         if (ViewModel.Editor is null || composing) return;
         if (!await ViewModel.CanLeaveAsync()) return;
+        var name = ViewModel.Editor.Current.Name;
+        var insertion = live.CaptureInsertion();
         var picker = new FileOpenPicker(App.Window.AppWindow.Id);
         picker.FileTypeFilter.Add("*");
         var file = await picker.PickSingleFileAsync(); if (file is null) return;
         var attachment = await Client.UploadAsync(file.Path);
-        live.ReplaceSelection(MarkdownLinks.Original(ViewModel.Editor.Current.Name, attachment));
+        live.InsertAt(insertion, MarkdownLinks.Original(name, attachment));
         await ViewModel.CanLeaveAsync(); Editor.Focus(FocusState.Programmatic);
     });
     private async void LinkClicked(object sender, RoutedEventArgs args) => await PerformAsync(async () =>
@@ -579,7 +590,8 @@ public sealed partial class MainPage : Page
         else
         {
             var path = Path.Combine(ApplicationData.Current.TemporaryFolder.Path, attachment.Id);
-            await Client.DownloadAsync(attachment, path); await Launcher.LaunchFileAsync(await StorageFile.GetFileFromPathAsync(path));
+            await Client.DownloadAsync(attachment, path);
+            await Launcher.LaunchFileAsync(await StorageFile.GetFileFromPathAsync(path), new LauncherOptions { TreatAsUntrusted = true });
         }
     }
 }

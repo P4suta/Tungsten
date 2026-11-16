@@ -220,6 +220,15 @@ fn output(directory: &Path, program: &str, args: &[&str]) -> Result<String> {
     command_output(program, result).with_context(|| format!("{program} args={args:?}"))
 }
 
+fn changes_match(root: &Path, base: &str, head: &str, relevant: fn(&str) -> bool) -> Result<bool> {
+    let paths = output(
+        root,
+        "git",
+        &["diff", "--name-only", "-z", base, head, "--"],
+    )?;
+    Ok(paths.split('\0').any(relevant))
+}
+
 fn command_output(program: &str, result: std::process::Output) -> Result<String> {
     ensure!(
         result.status.success(),
@@ -373,6 +382,7 @@ fn check(root: &Path) -> Result<()> {
         ],
     )?;
     run(root, "just", &["--fmt", "--check", "--unstable"])?;
+    docs(root)?;
     build_ui(root)?;
     npm(root, &["run", "lint"])?;
     npm(root, &["run", "typecheck"])?;
@@ -446,7 +456,6 @@ fn check(root: &Path) -> Result<()> {
             ".github/workflows",
         ],
     )?;
-    docs(root)?;
     dependencies(root)
 }
 

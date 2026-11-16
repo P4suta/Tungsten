@@ -4,6 +4,16 @@ namespace Tungsten.Tests;
 
 public sealed class MarkdownHistoryTests
 {
+    [Theory]
+    [InlineData(0, 2, 3, 4, 0, 2)]
+    [InlineData(5, 2, 3, 4, 9, 2)]
+    [InlineData(1, 5, 3, 4, 1, 9)]
+    [InlineData(1, 2, 3, 4, 1, 2)]
+    [InlineData(3, 2, 3, 4, 7, 2)]
+    [InlineData(3, 0, 3, 4, 7, 0)]
+    public void InsertingALinkPreservesTheLaterSelection(int start, int size, int offset, int length, int nextStart, int nextSize)
+        => Assert.Equal(new TextSelection(nextStart, nextSize), new TextSelection(start, size).AfterInsertion(offset, length));
+
     [Fact]
     public void TypingIsOneUndoGroupAndRedoRestoresTextAndSelection()
     {

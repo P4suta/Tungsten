@@ -1,6 +1,16 @@
 namespace Tungsten.Core;
 
-public sealed record TextSelection(int Start, int Length);
+public sealed record TextSelection(int Start, int Length)
+{
+    public TextSelection AfterInsertion(int offset, int length)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset); ArgumentOutOfRangeException.ThrowIfNegative(length);
+        var start = Start >= offset ? Start + length : Start;
+        var end = Start + Length;
+        if (end > offset || Length == 0 && end == offset) end += length;
+        return new(start, end - start);
+    }
+}
 public sealed record MarkdownSnapshot(string Source, TextSelection Selection);
 public sealed class MarkdownHistory(string source)
 {

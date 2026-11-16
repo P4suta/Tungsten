@@ -434,8 +434,7 @@ fn affected(root: &Path, base: &str, head: &str, output: &Path) -> Result<()> {
             "scope requires exact commit identities"
         );
     }
-    let paths = super::output(root, "git", &["diff", "--name-only", base, head, "--"])?;
-    let affected = paths.lines().any(relevant);
+    let affected = super::changes_match(root, base, head, relevant)?;
     writeln!(
         fs::OpenOptions::new().append(true).open(output)?,
         "affected={affected}"

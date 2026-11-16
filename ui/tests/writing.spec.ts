@@ -135,8 +135,10 @@ test("browses Trash beside the current draft and accepts its previous URL", asyn
     return parent !== undefined && bounds.top < parent.top + 16 && bounds.right > parent.right - 16;
   });
   expect(positions).toBe(true);
-  await pressShortcut(page, "Enter");
+  await close.focus();
+  await pressShortcut(page, "s");
   await expect(settings).toBeVisible();
+  await expect(close).toBeFocused();
   await expect(page.locator("#save-status")).toHaveText("Saved");
   await close.click();
   await showPaper(page);

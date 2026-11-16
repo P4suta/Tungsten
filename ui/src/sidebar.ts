@@ -101,10 +101,21 @@ export function initSidebar(): SidebarController {
     document.body.dataset.navigation = visibility.navigation ? "open" : "closed";
     document.body.dataset.context = visibility.context ? "open" : "closed";
     control("library-pane", HTMLElement).hidden = libraryView !== "notes";
-    control("trash-pane", HTMLElement).hidden = libraryView !== "trash";
+    const trashPane = control("trash-pane", HTMLElement);
+    const trash = control("trash", HTMLButtonElement);
+    const back = control("trash-back", HTMLButtonElement);
     const locations = document.querySelector<HTMLElement>(".library-locations");
-    if (locations) locations.hidden = libraryView === "trash";
-    control("trash", HTMLButtonElement).hidden = libraryView === "trash";
+    if (libraryView === "trash") {
+      trashPane.hidden = false;
+      if (active === trash) back.focus({ preventScroll: true });
+      if (locations) locations.hidden = true;
+      trash.hidden = true;
+    } else {
+      if (locations) locations.hidden = false;
+      trash.hidden = false;
+      if (active === back) trash.focus({ preventScroll: true });
+      trashPane.hidden = true;
+    }
     control("context-links", HTMLElement).hidden = contextView !== "links";
     control("history-panel", HTMLElement).hidden = contextView !== "history";
     control("trash", HTMLButtonElement).setAttribute(

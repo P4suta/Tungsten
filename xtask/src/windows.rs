@@ -123,11 +123,11 @@ pub fn run(root: &Path, action: Action) -> Result<()> {
                     "scope requires exact commits"
                 );
             }
-            let paths = super::output(root, "git", &["diff", "--name-only", &base, &head, "--"])?;
+            let affected = super::changes_match(root, &base, &head, relevant)?;
             writeln!(
                 fs::OpenOptions::new().append(true).open(output)?,
                 "affected={}",
-                paths.lines().any(relevant)
+                affected
             )?;
             Ok(())
         }
@@ -859,6 +859,8 @@ fn ui(root: &Path) -> Result<()> {
             "--output",
             capture.to_str().context("narrow capture path")?,
         ])?;
+        execute(&["focus", "Editor"])?;
+        execute(&["send-keys", "ctrl+a ctrl+c", "--via", "send-input"])?;
         execute(&["invoke", "NavigationViewBackButton"])?;
         execute(&[
             "wait-for",
@@ -880,6 +882,19 @@ fn ui(root: &Path) -> Result<()> {
         }
         result?;
         cleanup?;
+        super::run(
+            root,
+            "powershell.exe",
+            &[
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &format!(
+                    "$app = Get-Process -Id {pid} -ErrorAction SilentlyContinue; if ($app -and -not $app.WaitForExit(15000)) {{ throw 'Tungsten did not close' }}; exit 0"
+                ),
+            ],
+        )?;
+        expect_clipboard(root, &live_text)?;
         let redeployed = launch_ui(root)?.to_string();
         let retained = (|| -> Result<()> {
             open_connection_settings(root, &redeployed)?;
@@ -911,7 +926,46 @@ fn ui(root: &Path) -> Result<()> {
                     "3000",
                 ],
             )?;
-            expect_ui_source(root, &redeployed, &live_text)
+            expect_ui_source(root, &redeployed, &live_text)?;
+            open_connection_settings(root, &redeployed)?;
+            ui_execute(
+                root,
+                &redeployed,
+                &["set-value", "ServerAddress", "https://127.0.0.1:2/"],
+            )?;
+            ui_execute(root, &redeployed, &["invoke", "Connect"])?;
+            ui_execute(
+                root,
+                &redeployed,
+                &[
+                    "wait-for",
+                    "Problem",
+                    "-p",
+                    "IsOffscreen",
+                    "--value",
+                    "False",
+                    "-t",
+                    "5000",
+                ],
+            )?;
+            let tree = super::output(
+                root,
+                "winapp",
+                &[
+                    "ui",
+                    "inspect",
+                    "-a",
+                    &redeployed,
+                    "--depth",
+                    "16",
+                    "--json",
+                ],
+            )?;
+            ensure!(
+                draft_item(&tree, &final_title)?.is_none(),
+                "the previous server's draft remains in the note list"
+            );
+            Ok(())
         })();
         let cleanup = ui_execute(root, &redeployed, &["invoke", "Close"]);
         retained?;
@@ -1007,6 +1061,9 @@ fn expect_ui_clipboard(root: &Path, pid: &str, expected: &str) -> Result<()> {
         pid,
         &["send-keys", "ctrl+a ctrl+c", "--via", "send-input"],
     )?;
+    expect_clipboard(root, expected)
+}
+fn expect_clipboard(root: &Path, expected: &str) -> Result<()> {
     let source = super::output(
         root,
         "powershell.exe",
@@ -1459,6 +1516,30 @@ fn bundle_arguments(arch: Architecture) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scope_detects_non_ascii_paths_from_git() {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path();
+        super::super::run(root, "git", &["init", "--quiet"]).unwrap();
+        let base = super::super::output(root, "git", &["write-tree"]).unwrap();
+        fs::create_dir_all(root.join("windows/Tungsten")).unwrap();
+        fs::write(root.join("windows/Tungsten/日本語.cs"), "").unwrap();
+        super::super::run(root, "git", &["add", "--all"]).unwrap();
+        let head = super::super::output(root, "git", &["write-tree"]).unwrap();
+        let output = root.join("output");
+        fs::write(&output, "").unwrap();
+        run(
+            root,
+            Action::Affected {
+                base,
+                head,
+                output: output.clone(),
+            },
+        )
+        .unwrap();
+        assert_eq!(fs::read_to_string(output).unwrap(), "affected=true\n");
+    }
 
     #[test]
     fn native_audit_rejects_the_narrow_navigation_collision() {

@@ -68,7 +68,7 @@ public sealed class EditorSession
                 lock (sync) current = SavePolicy.Acknowledge(current, outgoing, note);
                 await PersistAsync();
             }
-            catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException or OperationCanceledException)
+            catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException or OperationCanceledException or UnauthorizedAccessException)
             {
                 var blocked = error is RemoteException remote ? remote.Status switch
                 {

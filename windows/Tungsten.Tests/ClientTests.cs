@@ -7,6 +7,11 @@ namespace Tungsten.Tests;
 
 public sealed class ClientTests
 {
+    private sealed class WindowsTheoryAttribute : TheoryAttribute
+    {
+        public WindowsTheoryAttribute() { if (!OperatingSystem.IsWindows()) Skip = "Requires Windows attachment services."; }
+    }
+
     private static readonly Uri Server = new("https://notes.example/");
     private static readonly string Revision = "\"" + new string('a', 64) + "\"";
     private static readonly string Id = new('a', 32);
@@ -17,6 +22,29 @@ public sealed class ClientTests
     }
     private static HttpResponseMessage Response(object body) => new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(body, Json), Encoding.UTF8, "application/json") };
     private static NoteClient Client(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) => new(Server, new Handler(respond));
+
+    [WindowsTheory]
+    [InlineData(".txt", false)]
+    [InlineData(".docm", true)]
+    public async Task AttachmentDownloadsPreserveTheirInternetOrigin(string extension, bool replace)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "tungsten-attachment-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "original" + extension);
+        var attachment = new Attachment(Id + extension, "original" + extension, 8, Revision);
+        using var client = Client(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("original") }));
+        try
+        {
+            if (replace) await File.WriteAllTextAsync(path, "previous file");
+            await client.DownloadAsync(attachment, path);
+            Assert.Equal("original", await File.ReadAllTextAsync(path));
+            var provenance = await File.ReadAllTextAsync(path + ":Zone.Identifier");
+            Assert.Contains("ZoneId=3", provenance);
+            Assert.Contains("HostUrl=" + new Uri(Server, ".attachments/" + attachment.Id).AbsoluteUri, provenance);
+            Assert.Equal(path, Assert.Single(Directory.GetFileSystemEntries(directory)));
+        }
+        finally { Directory.Delete(directory, true); }
+    }
 
     private sealed class CheckedBody(byte[] body) : MemoryStream(body)
     {
