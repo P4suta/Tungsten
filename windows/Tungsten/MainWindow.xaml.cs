@@ -6,7 +6,7 @@ namespace Tungsten;
 public sealed partial class MainWindow : Window
 {
     private readonly ThemeSettings themes;
-    private bool closing;
+    private bool closing, checkingClose;
     public MainWindow()
     {
         InitializeComponent();
@@ -20,7 +20,13 @@ public sealed partial class MainWindow : Window
         {
             if (closing) return;
             args.Cancel = true;
-            if (await Page.CanCloseAsync()) { closing = true; Close(); }
+            if (checkingClose) return;
+            checkingClose = true;
+            try
+            {
+                if (await Page.CanCloseAsync() && Page.CanCloseNow()) { closing = true; Close(); }
+            }
+            finally { checkingClose = false; }
         };
         Activated += async (_, args) =>
         {

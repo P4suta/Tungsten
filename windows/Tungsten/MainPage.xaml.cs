@@ -335,6 +335,7 @@ public sealed partial class MainPage : Page
     private void CompositionStarted(RichEditBox sender, TextCompositionStartedEventArgs args) { composing = true; live.Composing = true; }
     private void CompositionEnded(RichEditBox sender, TextCompositionEndedEventArgs args)
     { composing = false; live.Composing = false; compositionProblem = null; UpdateStatus(); QueueRendering(); autosave.Stop(); autosave.Start(); }
+    public bool CanCloseNow() => ViewModel.CanCloseNow();
     public async Task<bool> CanCloseAsync()
     {
         if (composing) { ReportCompositionProblem(UiText.Get("CompositionBeforeClose")); return false; }

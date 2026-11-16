@@ -32,6 +32,7 @@ public sealed class ClientModel(IDraftRepository store, Func<Uri, NoteClient>? f
     public bool HasEditor => Editor is not null;
     public bool HasConnection => Client is not null;
     public bool HasSavedNote => Editor?.Current.Revision is not null;
+    public bool CanCloseNow() => CanLeaveNow() && (Editor?.IsDurable ?? true);
     public EditorSession? Editor { get; private set; }
     public NoteClient? Client { get; private set; }
     public Workspace[] Workspaces { get; private set; } = [];

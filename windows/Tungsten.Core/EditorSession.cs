@@ -45,14 +45,17 @@ public sealed class EditorSession
             if (canSend?.Invoke() == false || !SavePolicy.CanSend(Current)) return;
             await PersistAsync();
             if (canSend?.Invoke() == false) return;
-            Draft outgoing;
+            Draft? outgoing = null;
             lock (sync)
             {
-                if (!SavePolicy.CanSend(current)) return;
-                Rules.Body(current.Body);
-                current = SavePolicy.Begin(current);
-                outgoing = current;
+                if (SavePolicy.CanSend(current))
+                {
+                    Rules.Body(current.Body);
+                    current = SavePolicy.Begin(current);
+                    outgoing = current;
+                }
             }
+            if (outgoing is null) { await PersistAsync(); return; }
             try
             {
                 await PersistAsync();

@@ -142,6 +142,39 @@ public sealed class PresentationTests : IDisposable
         await saving.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.True(model.Editor!.IsSaved); Assert.Equal(SaveBlock.None, model.Editor.Block);
         Assert.Null(model.Editor.Current.Pending);
+        var stored = Assert.Single((await store.LoadAsync(Server)).Drafts);
+        Assert.Equal(acknowledged, stored.Body); Assert.Null(stored.Pending);
+    }
+
+    [Fact]
+    public async Task ClosingRejectsANoteSwitchStartedDuringItsCheckpoint()
+    {
+        var store = new DelayedRepository(new AtomicDraftStore(directory));
+        var model = new ClientModel(store, Client);
+        await model.ConnectAsync(Server); await model.NewAsync(); model.Body = "first note";
+        store.Pause = _ => true;
+        var approval = model.CanLeaveAsync();
+        await store.Held.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var navigation = model.NewAsync();
+        store.Released.TrySetResult();
+        await navigation.WaitAsync(TimeSpan.FromSeconds(2)); await approval.WaitAsync(TimeSpan.FromSeconds(2));
+        model.Body = "input in the selected note";
+        Assert.False(model.CanCloseNow()); Assert.Equal("input in the selected note", model.Body);
+        Assert.True(await model.CanLeaveAsync()); Assert.True(model.CanCloseNow());
+        Assert.Equal(model.Body, (await store.LoadAsync(Server)).Drafts.Single(d => d.Name == model.Editor!.Current.Name).Body);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ClosingRechecksInputAndCompositionAfterAnApprovedCheckpoint(bool compose)
+    {
+        var composing = false;
+        var model = new ClientModel(new AtomicDraftStore(directory), Client, () => !composing);
+        await model.ConnectAsync(Server); await model.NewAsync();
+        Assert.True(await model.CanLeaveAsync()); Assert.True(model.CanCloseNow());
+        if (compose) composing = true; else model.Body = "input after the checkpoint";
+        Assert.False(model.CanCloseNow());
     }
 
     [Fact]
