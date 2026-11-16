@@ -45,10 +45,11 @@ public sealed class EditorSession
             if (canSend?.Invoke() == false || !SavePolicy.CanSend(Current)) return;
             await PersistAsync();
             if (canSend?.Invoke() == false) return;
-            Rules.Body(Current.Body);
             Draft outgoing;
             lock (sync)
             {
+                if (!SavePolicy.CanSend(current)) return;
+                Rules.Body(current.Body);
                 current = SavePolicy.Begin(current);
                 outgoing = current;
             }

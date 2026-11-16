@@ -8,6 +8,7 @@ public sealed class MarkdownSource
     public string NativeText { get; private set; } = "";
     private void Reset(string source)
     {
+        Rules.LocalBody(source);
         Source = source; NativeText = Normalize(source);
         var breaks = new List<int>();
         for (var index = 1; index < source.Length; index++)
@@ -43,6 +44,8 @@ public sealed class MarkdownSource
         var inserted = nativeText[prefix..(nativeText.Length - suffix)].Replace("\r", newline, StringComparison.Ordinal);
         Reset(Join(Join(Source[..ToSource(prefix)], inserted), Source[ToSource(previous.Length - suffix)..]));
     }
+    public MarkdownSource WithReplacement(TextSelection selection, string replacement)
+        => new(Source[..selection.Start] + replacement + Source[(selection.Start + selection.Length)..]);
     private static string Join(string left, string right) => left.EndsWith('\r') && right.StartsWith('\n') ? left + "\r" + right : left + right;
     public static string Normalize(string value) => value.Replace("\r\n", "\r", StringComparison.Ordinal).Replace('\n', '\r');
 }

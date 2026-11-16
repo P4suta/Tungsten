@@ -13,7 +13,11 @@ public static class LiveMarkdown
 {
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UsePreciseSourceLocation().UseEmphasisExtras(EmphasisExtraOptions.Strikethrough).Build();
     private static readonly Regex ListMarker = new(@"\A {0,3}(?:[-+*]|(?<number>[0-9]{1,9})[.)])[ \t]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
-    internal static MarkdownDocument Parse(string source) => Markdown.Parse(source, Pipeline);
+    internal static MarkdownDocument Parse(string source)
+    {
+        try { return Markdown.Parse(source, Pipeline); }
+        catch (ArgumentException) { return new(); }
+    }
     public static MarkdownSpan[] Project(string source, int selectionStart, int selectionEnd)
     {
         var document = Parse(source);

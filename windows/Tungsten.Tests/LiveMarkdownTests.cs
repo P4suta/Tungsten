@@ -160,6 +160,59 @@ public sealed class LiveMarkdownTests
         }
     }
 
+    [Fact]
+    public void ParserDepthLimitsLeaveTheOriginalSourceEditable()
+    {
+        var source = new string('>', 256) + " text";
+        var spans = LiveMarkdown.Project(source, -1, -1);
+        Assert.Empty(spans); Assert.Equal(source, Visible(source, spans));
+    }
+
+    [Theory]
+    [InlineData(" a ", " a ")]
+    [InlineData("  a  ", "  a  ")]
+    [InlineData(" ", " ")]
+    [InlineData("  ", "  ")]
+    [InlineData("`a", "`a")]
+    [InlineData("a`", "a`")]
+    [InlineData(" a", " a")]
+    [InlineData(" \n ", "  ")]
+    [InlineData("\r\na\n", " a")]
+    public void CodeCommandsPreserveRenderedBoundarySpaces(string source, string content)
+    {
+        var insertion = MarkdownFormatting.Wrap(source, 0, source.Length, MarkdownStyle.Code);
+        Assert.Equal("<p><code>" + content + "</code></p>\n", Markdig.Markdown.ToHtml(insertion.Text));
+        Assert.Equal(source, insertion.Text.Substring(insertion.SelectionStart, insertion.SelectionLength));
+    }
+
+    [Theory]
+    [InlineData('a')]
+    [InlineData('語')]
+    public void NativeInputRejectsTheLocalByteLimitBeforeChangingAcceptedSource(char unit)
+    {
+        var limit = 8 * Rules.MaxNoteBytes; var size = Rules.Utf8.GetByteCount(unit.ToString());
+        var source = new string(unit, limit / size) + new string('a', limit % size);
+        var text = new MarkdownSource(source); var native = text.NativeText;
+        Assert.Throws<InvalidDataException>(() => text.Update(native + unit));
+        Assert.Throws<InvalidDataException>(() => text.WithReplacement(new(0, 0), unit.ToString()));
+        Assert.Equal(source, text.Source); Assert.Equal(native, text.NativeText);
+    }
+
+    [Theory]
+    [InlineData("a\r\nb", 0, 4, "a\nc", "a\nc")]
+    [InlineData("a\nb", 0, 3, "a\r\nc", "a\r\nc")]
+    [InlineData("a\r\nb\r\ntail", 3, 1, "first\nsecond", "a\r\nfirst\nsecond\r\ntail")]
+    public void ReplacementPreservesIncomingAndSurroundingSourceLineEndings(string source, int start, int length, string inserted, string expected)
+    {
+        var text = new MarkdownSource(source);
+        var changed = text.WithReplacement(new(start, length), inserted);
+        Assert.Equal(expected, changed.Source); Assert.Equal(MarkdownSource.Normalize(expected), changed.NativeText);
+        Assert.Equal(source, text.Source);
+        var history = new MarkdownHistory(source); history.Select(new(start, length));
+        history.Record(changed.Source, new(start + inserted.Length, 0), false);
+        Assert.Equal(source, history.Undo().Source); Assert.Equal(expected, history.Redo().Source);
+    }
+
     private static string Visible(string source, IEnumerable<MarkdownSpan> spans)
     {
         var hidden = new bool[source.Length];

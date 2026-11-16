@@ -21,7 +21,9 @@ public static class MarkdownFormatting
             MarkdownStyle.Code => CodeDelimiter(selected),
             _ => throw new ArgumentOutOfRangeException(nameof(style))
         };
-        var pad = style == MarkdownStyle.Code && (selected.StartsWith('`') || selected.EndsWith('`')) ? " " : "";
+        var code = selected.Replace("\r\n", " ", StringComparison.Ordinal).Replace('\r', ' ').Replace('\n', ' ');
+        var pad = style == MarkdownStyle.Code && (selected.StartsWith('`') || selected.EndsWith('`')
+            || code.StartsWith(' ') && code.EndsWith(' ') && code.AsSpan().IndexOfAnyExcept(' ') >= 0) ? " " : "";
         return new(selected[..from] + delimiter + pad + selected[from..to] + pad + delimiter + selected[to..],
             from + delimiter.Length + pad.Length, to - from);
     }

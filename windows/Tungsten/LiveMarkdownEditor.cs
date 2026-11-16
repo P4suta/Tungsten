@@ -11,8 +11,9 @@ public sealed class LiveMarkdownEditor(RichEditBox control)
     private MarkdownHistory history = new("");
     private MarkdownSpan[]? rendered;
     private bool updating;
-    private bool composing, atomic;
+    private bool composing;
     public event EventHandler<Exception>? PresentationFailed;
+    public event EventHandler<Exception>? InputRejected;
     public event EventHandler? SourceChanged;
     public string Source => text.Source;
     public bool Composing
@@ -45,7 +46,12 @@ public sealed class LiveMarkdownEditor(RichEditBox control)
         var range = control.Document.GetRange(0, Math.Max(0, control.Document.Selection.StoryLength - 1));
         range.GetText(TextGetOptions.None, out var native);
         if (native == text.NativeText) return false;
-        text.Update(native); history.Record(Source, CurrentSelection(), !atomic); rendered = null;
+        try { text.Update(native); }
+        catch (InvalidDataException error)
+        {
+            Display(text, history.Selection); InputRejected?.Invoke(this, error); return false;
+        }
+        history.Record(Source, CurrentSelection()); rendered = null;
         SourceChanged?.Invoke(this, EventArgs.Empty);
         return true;
     }
@@ -56,19 +62,26 @@ public sealed class LiveMarkdownEditor(RichEditBox control)
         return new(start, end - start);
     }
     public void TrackSelection() { if (!updating) history.Select(CurrentSelection()); }
-    public void ReplaceSelection(string source)
+    private void Display(MarkdownSource content, TextSelection selection)
     {
-        if (Composing) throw new CompositionInProgressException();
-        history.BreakGroup(); atomic = true;
+        updating = true;
         try
         {
-            var selection = control.Document.Selection;
-            selection.SetText(TextSetOptions.None, MarkdownSource.Normalize(source));
-            ReadChanges();
-            var end = selection.EndPosition; selection.SetRange(end, end);
-            history.AmendSelection(CurrentSelection());
+            control.Document.SetText(TextSetOptions.None, content.NativeText); text = content;
+            control.Document.Selection.SetRange(text.ToNative(selection.Start), text.ToNative(selection.Start + selection.Length));
+            rendered = null;
         }
-        finally { atomic = false; history.BreakGroup(); }
+        finally { updating = false; }
+    }
+    public bool ReplaceSelection(string source)
+    {
+        if (Composing) throw new CompositionInProgressException();
+        var selection = CurrentSelection(); MarkdownSource replacement;
+        try { replacement = text.WithReplacement(selection, source); }
+        catch (InvalidDataException error) { InputRejected?.Invoke(this, error); return false; }
+        var caret = new TextSelection(selection.Start + source.Length, 0);
+        history.BreakGroup(); Display(replacement, caret); history.Record(Source, caret, false);
+        SourceChanged?.Invoke(this, EventArgs.Empty); return true;
     }
     public bool Undo(bool redo = false)
     {
@@ -92,7 +105,7 @@ public sealed class LiveMarkdownEditor(RichEditBox control)
         var start = selection.StartPosition; var end = selection.EndPosition;
         var sourceStart = text.ToSource(start); var sourceEnd = text.ToSource(end);
         var insertion = MarkdownFormatting.Wrap(Source, sourceStart, sourceEnd - sourceStart, style);
-        ReplaceSelection(insertion.Text);
+        if (!ReplaceSelection(insertion.Text)) return;
         var selectedStart = start + MarkdownSource.Normalize(insertion.Text[..insertion.SelectionStart]).Length;
         var selectedLength = MarkdownSource.Normalize(insertion.Text.Substring(insertion.SelectionStart, insertion.SelectionLength)).Length;
         selection.SetRange(selectedStart, selectedStart + selectedLength);

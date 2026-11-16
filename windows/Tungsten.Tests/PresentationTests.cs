@@ -129,6 +129,22 @@ public sealed class PresentationTests : IDisposable
     }
 
     [Fact]
+    public async Task UndoDuringASaveCheckpointSkipsTheRedundantWrite()
+    {
+        var store = new DelayedRepository(new AtomicDraftStore(directory));
+        var model = new ClientModel(store, Client);
+        await model.ConnectAsync(Server); await model.OpenAsync("a.md");
+        var acknowledged = model.Body; model.Body = "temporary edit";
+        store.Pause = _ => true;
+        var saving = model.SaveAsync();
+        try { await store.Held.Task.WaitAsync(TimeSpan.FromSeconds(2)); model.Body = acknowledged; }
+        finally { store.Released.TrySetResult(); }
+        await saving.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(model.Editor!.IsSaved); Assert.Equal(SaveBlock.None, model.Editor.Block);
+        Assert.Null(model.Editor.Current.Pending);
+    }
+
+    [Fact]
     public async Task AutosaveDoesNotSendWhenCompositionStartsDuringItsCheckpoint()
     {
         var store = new DelayedRepository(new AtomicDraftStore(directory));

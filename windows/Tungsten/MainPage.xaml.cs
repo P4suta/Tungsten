@@ -29,7 +29,7 @@ public sealed partial class MainPage : Page
     private double defaultFontSize, zoom = 1;
     private readonly LiveMarkdownEditor live;
     private EditorSession? displayedEditor;
-    private string? presentationProblem;
+    private string? presentationProblem, inputProblem;
     private string? operationProblem, collectionProblem, compositionProblem;
     public ClientModel ViewModel { get; }
     private NoteClient Client => ViewModel.Client ?? throw new InvalidOperationException(UiText.Get("ConnectFirst"));
@@ -42,8 +42,10 @@ public sealed partial class MainPage : Page
         ViewModel = new(drafts, canLeave: () => !composing);
         InitializeComponent();
         live = new(Editor);
+        live.InputRejected += (_, error) => { inputProblem = error.Message; UpdateStatus(); };
         live.SourceChanged += (_, _) =>
         {
+            inputProblem = null;
             ViewModel.Body = live.Source;
             if (!composing && ready) { autosave.Stop(); autosave.Start(); }
             QueueRendering();
@@ -54,8 +56,9 @@ public sealed partial class MainPage : Page
             presentationProblem = UiText.Get("LivePreviewFailure", error.Message); UpdateStatus();
         };
         NotesList.ItemsSource = notes; TrashList.ItemsSource = deleted;
-        ViewModel.PropertyChanged += (_, _) =>
+        ViewModel.PropertyChanged += (_, change) =>
         {
+            if (change.PropertyName == nameof(ClientModel.Body) || !ReferenceEquals(displayedEditor, ViewModel.Editor)) inputProblem = null;
             live.Load(ViewModel.Body, !ReferenceEquals(displayedEditor, ViewModel.Editor));
             displayedEditor = ViewModel.Editor;
             UpdateStatus();
@@ -118,7 +121,7 @@ public sealed partial class MainPage : Page
             _ => Workspaces.FirstOrDefault(w => w.Id == collection)?.Title ?? UiText.Get("AllNotes/Content")
         };
         RenameWorkspace.IsEnabled = DeleteWorkspace.IsEnabled = ViewModel.HasConnection && Workspaces.Any(w => w.Id == collection);
-        var message = presentationProblem ?? (composing ? compositionProblem : null) ?? (ViewModel.Problem.Length > 0 ? ViewModel.Problem
+        var message = inputProblem ?? presentationProblem ?? (composing ? compositionProblem : null) ?? (ViewModel.Problem.Length > 0 ? ViewModel.Problem
             : ViewModel.Editor is { Block: not SaveBlock.None } ? ViewModel.Status : collectionProblem ?? operationProblem);
         Problem.Message = message ?? ""; Problem.IsOpen = !string.IsNullOrEmpty(message);
     }

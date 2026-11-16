@@ -730,6 +730,27 @@ fn ui(root: &Path) -> Result<()> {
         expect_ui_source(root, &pid, &format!("{live_text}redone"))?;
         execute(&["send-keys", "ctrl+z", "--via", "send-input"])?;
         expect_ui_source(root, &pid, &live_text)?;
+        for (input, expected) in [("a`r`nb", "a\r\nb"), ("a`nc", "a\nc")] {
+            super::run(
+                root,
+                "powershell.exe",
+                &[
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-STA",
+                    "-Command",
+                    &format!("Set-Clipboard -Value \"{input}\""),
+                ],
+            )?;
+            execute(&["send-keys", "ctrl+a ctrl+v", "--via", "send-input"])?;
+            expect_ui_clipboard(root, &pid, expected)?;
+        }
+        execute(&["send-keys", "ctrl+z", "--via", "send-input"])?;
+        expect_ui_clipboard(root, &pid, "a\r\nb")?;
+        execute(&["send-keys", "ctrl+y", "--via", "send-input"])?;
+        expect_ui_clipboard(root, &pid, "a\nc")?;
+        execute(&["send-keys", "ctrl+z ctrl+z", "--via", "send-input"])?;
+        expect_ui_source(root, &pid, &live_text)?;
         open_connection_settings(root, &pid)?;
         execute(&["focus", "ServerAddress"])?;
         execute(&["send-keys", "f6", "--via", "send-input"])?;
@@ -977,6 +998,29 @@ fn expect_ui_source(root: &Path, pid: &str, expected: &str) -> Result<()> {
     ensure!(
         text.trim_end_matches('\n') == expected,
         "native Markdown source differs: {value}"
+    );
+    Ok(())
+}
+fn expect_ui_clipboard(root: &Path, pid: &str, expected: &str) -> Result<()> {
+    ui_execute(
+        root,
+        pid,
+        &["send-keys", "ctrl+a ctrl+c", "--via", "send-input"],
+    )?;
+    let source = super::output(
+        root,
+        "powershell.exe",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-STA",
+            "-Command",
+            "[Console]::Write((Get-Clipboard -Raw))",
+        ],
+    )?;
+    ensure!(
+        source == expected,
+        "clipboard source changed line endings: {source:?}"
     );
     Ok(())
 }
@@ -1233,34 +1277,49 @@ fn xaml(source: &str) -> Result<()> {
             "use native controls and system resources: {name}"
         );
         for attribute in node.attributes() {
-            let (name, value) = (attribute.name(), attribute.value());
-            ensure!(
-                ![
-                    "FontFamily",
-                    "FontSize",
-                    "Opacity",
-                    "HighContrastAdjustment",
-                    "ControlTemplate"
-                ]
-                .contains(&name),
-                "use system typography and contrast: {name}"
-            );
-            if ["Background", "Foreground", "BorderBrush", "Fill", "Stroke"].contains(&name) {
-                ensure!(
-                    value.starts_with("{ThemeResource "),
-                    "use ThemeResource for {name}"
-                );
-            }
-            ensure!(
-                name != "IsTextScaleFactorEnabled" || value != "False",
-                "system text scaling must remain enabled"
-            );
-            ensure!(
-                name != "RequestedTheme" || value == "Default",
-                "follow the system theme"
-            );
+            xaml_property(attribute.name(), attribute.value())?;
+        }
+        if name == "Setter" {
+            let property = node
+                .attribute("Property")
+                .or_else(|| node.attribute("Target"))
+                .context("setter property")?;
+            xaml_property(property, node.attribute("Value").unwrap_or_default())?;
         }
     }
+    Ok(())
+}
+fn xaml_property(name: &str, value: &str) -> Result<()> {
+    let name = name
+        .rsplit('.')
+        .next()
+        .unwrap_or(name)
+        .trim_matches(['(', ')']);
+    ensure!(
+        ![
+            "FontFamily",
+            "FontSize",
+            "Opacity",
+            "HighContrastAdjustment",
+            "ControlTemplate"
+        ]
+        .contains(&name),
+        "use system typography and contrast: {name}"
+    );
+    if ["Background", "Foreground", "BorderBrush", "Fill", "Stroke"].contains(&name) {
+        ensure!(
+            value.starts_with("{ThemeResource "),
+            "use ThemeResource for {name}"
+        );
+    }
+    ensure!(
+        name != "IsTextScaleFactorEnabled" || value.eq_ignore_ascii_case("true"),
+        "system text scaling must remain enabled"
+    );
+    ensure!(
+        name != "RequestedTheme" || value == "Default",
+        "follow the system theme"
+    );
     Ok(())
 }
 fn csharp(source: &str) -> Result<()> {
@@ -1544,6 +1603,7 @@ mod tests {
     #[test]
     fn standard_controls_and_system_resources_are_admitted() {
         assert!(xaml(r#"<Grid><TextBox Background="{ThemeResource ControlFillColorDefaultBrush}" AcceptsReturn="True"/></Grid>"#).is_ok());
+        assert!(xaml(r#"<Style TargetType="TextBlock"><Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/></Style>"#).is_ok());
         assert!(
             csharp("class Screen { void Zoom() { editor.FontSize = defaultFontSize * zoom; } }")
                 .is_ok()
@@ -1570,6 +1630,11 @@ mod tests {
             "<TextBox IsTextScaleFactorEnabled=\"False\"/>",
             "<Grid><SolidColorBrush Color=\"Red\"/></Grid>",
             "<Grid Opacity=\"0.5\"/>",
+            "<Style TargetType=\"TextBlock\"><Setter Property=\"FontSize\" Value=\"14\"/></Style>",
+            "<Style TargetType=\"TextBlock\"><Setter Property=\"Foreground\" Value=\"Red\"/></Style>",
+            "<Style TargetType=\"TextBlock\"><Setter Property=\"FontSize\"><Setter.Value>14</Setter.Value></Setter></Style>",
+            "<Style TargetType=\"TextBlock\"><Setter Property=\"RequestedTheme\" Value=\"Dark\"/></Style>",
+            "<VisualState><VisualState.Setters><Setter Target=\"editor.IsTextScaleFactorEnabled\" Value=\"false\"/></VisualState.Setters></VisualState>",
         ] {
             assert!(xaml(source).is_err(), "admitted {source}");
         }
