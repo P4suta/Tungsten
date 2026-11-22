@@ -10,7 +10,7 @@
   },
   "overrides": {
     "@stryker-mutator/core": {
-      "minimatch": "11.0.8"
+      "minimatch": "11.0.9"
     },
     "qs": "6.17.1"
   }

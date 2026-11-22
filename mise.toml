@@ -1,6 +1,6 @@
 [tools]
 dotnet = "10.0.404"
-"github:microsoft/winappCli" = { version = "0.7.1", os = [
+"github:microsoft/winappCli" = { version = "0.8.0", os = [
   "windows",
 ], asset_pattern = "winappcli-{{ arch() }}.zip" }
 rust = { version = "1.100.0", profile = "minimal", components = [
@@ -13,8 +13,8 @@ taplo = "0.10.0"
 actionlint = "1.7.12"
 hadolint = "2.15.1"
 vale = "3.25.1"
-"aqua:EmbarkStudios/cargo-deny" = "0.20.2"
+"aqua:EmbarkStudios/cargo-deny" = "0.22.0"
 "aqua:gitleaks/gitleaks" = "8.30.1"
 "aqua:evilmartians/lefthook" = "2.2.2"
 "aqua:zizmorcore/zizmor" = "1.32.0"
-xcodegen = { version = "2.46.0", os = ["macos"] }
+xcodegen = { version = "2.48.0", os = ["macos"] }
