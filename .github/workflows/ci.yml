@@ -10,7 +10,7 @@ concurrency:
 jobs:
   check:
     name: Check source
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     outputs:
       apple: ${{ steps.apple-scope.outputs.affected }}
@@ -97,7 +97,7 @@ jobs:
     name: Check Linux app
     needs: check
     if: needs.check.outputs.linux == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container: registry.fedoraproject.org/fedora:44@sha256:f08613fffc95f5c85c019b2f4ac9e9fb9bb84b9cfd59275671b84169567b157e
     timeout-minutes: 20
     steps:
@@ -122,7 +122,7 @@ jobs:
     name: Check Windows server contracts
     needs: check
     if: needs.check.outputs.windows == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -181,7 +181,7 @@ jobs:
     name: Check applicable targets
     needs: [check, apple, linux, windows-contracts, windows]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 1
     steps:
       - if: needs.check.result != 'success' || (needs.apple.result != 'success' && needs.apple.result != 'skipped') || (needs.linux.result != 'success' && needs.linux.result != 'skipped') || (needs.windows-contracts.result != 'success' && needs.windows-contracts.result != 'skipped') || (needs.windows.result != 'success' && needs.windows.result != 'skipped')

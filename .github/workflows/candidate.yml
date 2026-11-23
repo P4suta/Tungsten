@@ -78,7 +78,7 @@ jobs:
       - run: mise x -- just apple build ios --release
   verify:
     name: Verify release candidate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     env:
       PROSE_SOURCE: ${{ github.workspace }}/target/shared-tools

@@ -1,4 +1,5 @@
-# GitHub's hosted Xcode 27 label is absent from actionlint's pinned runner catalog.
+# The pinned actionlint catalog omits these GitHub-hosted runner labels.
 self-hosted-runner:
   labels:
+    - ubuntu-26.04
     - xcode-27
