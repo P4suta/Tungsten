@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Xml.Linq;
 
 namespace Tungsten.Tests;
@@ -47,7 +48,18 @@ public sealed class InterfaceContractTests
         Assert.Equal("true", Value("SelfContained")); Assert.Equal("true", Value("WindowsAppSDKSelfContained"));
         Assert.Equal("x64;ARM64", Value("Platforms"));
         Assert.Equal("win-x64;win-arm64", Value("RuntimeIdentifiers"));
-        Assert.Equal("2.6.5", project.Descendants("PackageReference").Single(e => (string?)e.Attribute("Include") == "Microsoft.WindowsAppSDK").Attribute("Version")?.Value);
+        const string sdk = "Microsoft.WindowsAppSDK";
+        var sdkVersion = project.Descendants("PackageReference").Single(e => (string?)e.Attribute("Include") == sdk).Attribute("Version")?.Value;
+        Assert.True(Version.TryParse(sdkVersion, out _));
+        foreach (var architecture in new[] { "win-x64", "win-arm64" })
+        {
+            var lockPath = Path.Combine(Root, "windows", "Tungsten", $"packages.{architecture}.lock.json");
+            using var packageLock = JsonDocument.Parse(File.ReadAllBytes(lockPath));
+            var framework = Assert.Single(packageLock.RootElement.GetProperty("dependencies").EnumerateObject(), item => item.Value.TryGetProperty(sdk, out _));
+            var locked = framework.Value.GetProperty(sdk);
+            Assert.Equal("Direct", locked.GetProperty("type").GetString());
+            Assert.Equal(sdkVersion, locked.GetProperty("resolved").GetString());
+        }
         Assert.Contains(project.Descendants("PackageReference"), e => (string?)e.Attribute("Include") == "Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer" && (string?)e.Attribute("PrivateAssets") == "all");
         var manifest = Document("Package.appxmanifest");
         var identity = manifest.Descendants().Single(e => e.Name.LocalName == "Identity");

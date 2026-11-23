@@ -5,6 +5,7 @@
   "testRunner": "command",
   "commandRunner": { "command": "exec node --test --test-isolation=none tests/*.test.ts" },
   "checkers": ["typescript"],
+  "typescriptChecker": { "experimentalNativePreview": true },
   "tsconfigFile": "tsconfig.mutations.json",
   "coverageAnalysis": "off",
   "concurrency": 2,
