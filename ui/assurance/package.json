@@ -5,8 +5,9 @@
   "devDependencies": {
     "@stryker-mutator/core": "10.1.1",
     "@stryker-mutator/typescript-checker": "10.1.1",
+    "@typescript/native": "npm:typescript@7.0.2",
     "lighthouse": "13.6.0",
-    "typescript": "7.0.2"
+    "typescript": "6.0.3"
   },
   "overrides": {
     "@stryker-mutator/core": {
