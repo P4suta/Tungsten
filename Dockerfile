@@ -5,7 +5,7 @@ RUN npm ci --ignore-scripts
 COPY ui/ ./
 RUN npm run build
 
-FROM rust:1.99.1-alpine@sha256:44819b27be4c97b0e4d7203bd2e02c4820f97700211b6a37fb4c246a2de59383 AS build
+FROM rust:1.100.0-alpine@sha256:8d0e82abfdf9a38071e07cabc5afba4ddbe077631a80e4e742a760c38beadc33 AS build
 WORKDIR /app
 ARG TARGETARCH
 ENV CARGO_BUILD_JOBS=2
