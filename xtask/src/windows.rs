@@ -550,7 +550,7 @@ fn ui(root: &Path) -> Result<()> {
     let result = (|| -> Result<()> {
         open_connection_settings(root, &pid)?;
         execute(&["wait-for", "ServerAddress", "-t", "5000"])?;
-        check_single_instance(root, &pid)?;
+        check_single_instance(root, app)?;
         audit_ui(&super::output(
             root,
             "winapp",
@@ -1346,52 +1346,41 @@ fn click_note(root: &Path, pid: &str, title: &str) -> Result<()> {
     ui_execute(root, pid, &["click", &row])
 }
 
-fn check_single_instance(root: &Path, primary: &str) -> Result<()> {
+fn check_single_instance(root: &Path, primary: u32) -> Result<()> {
     let duplicate = launch_pid(&super::output(
         root,
-        "winapp",
+        "powershell.exe",
         &[
-            "run",
-            "windows/Tungsten/Tungsten.csproj",
-            "-c",
-            "Release",
-            "--arch",
-            "x64",
-            "-p",
-            "Platform=x64",
-            "--no-build",
-            "--no-restore",
-            "--args",
-            "--ui-test",
-            "--detach",
-            "--json",
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            "xtask/windows/Activate-Tungsten.ps1",
         ],
-    )?)?
-    .to_string();
-    if duplicate == primary {
-        return Ok(());
-    }
-    let appeared = super::output(
-        root,
-        "winapp",
-        &[
-            "ui",
-            "wait-for",
-            "ServerAddress",
-            "-a",
-            &duplicate,
-            "-t",
-            "3000",
-            "--json",
-        ],
-    );
-    if appeared.is_ok() {
-        let _ = super::run(
+    )?)?;
+    if duplicate != primary {
+        let duplicate = duplicate.to_string();
+        let appeared = super::output(
             root,
             "winapp",
-            &["ui", "invoke", "Close", "-a", &duplicate, "--json"],
+            &[
+                "ui",
+                "wait-for",
+                "ServerAddress",
+                "-a",
+                &duplicate,
+                "-t",
+                "3000",
+                "--json",
+            ],
         );
-        anyhow::bail!("duplicate activation opened another window instead of redirecting");
+        if appeared.is_ok() {
+            let _ = super::run(
+                root,
+                "winapp",
+                &["ui", "invoke", "Close", "-a", &duplicate, "--json"],
+            );
+            anyhow::bail!("duplicate activation opened another window instead of redirecting");
+        }
     }
     let windows = super::output(
         root,
@@ -1399,12 +1388,17 @@ fn check_single_instance(root: &Path, primary: &str) -> Result<()> {
         &["ui", "list-windows", "-a", "Tungsten", "--json"],
     )?;
     ensure!(
-        serde_json::from_str::<serde_json::Value>(&windows)?
-            .as_array()
-            .is_some_and(|v| v.len() == 1),
-        "duplicate activation must preserve one window"
+        only_primary_window(&windows, primary)?,
+        "repeat activation must preserve the primary window"
     );
     Ok(())
+}
+
+fn only_primary_window(windows: &str, primary: u32) -> Result<bool> {
+    let windows: Vec<serde_json::Value> = serde_json::from_str(windows)?;
+    Ok(
+        matches!(windows.as_slice(), [window] if window["processId"].as_u64() == Some(u64::from(primary))),
+    )
 }
 
 fn draft_item(source: &str, title: &str) -> Result<Option<String>> {
@@ -2015,6 +2009,19 @@ mod tests {
             )));
         }
     }
+    #[test]
+    fn repeat_activation_keeps_one_window_in_the_original_process() {
+        assert!(only_primary_window(r#"[{"processId":42}]"#, 42).unwrap());
+        for windows in [
+            "[]",
+            "[{}]",
+            r#"[{"processId":7}]"#,
+            r#"[{"processId":42},{"processId":7}]"#,
+        ] {
+            assert!(!only_primary_window(windows, 42).unwrap());
+        }
+    }
+
     #[test]
     fn ui_workflows_require_a_real_process_and_nonempty_named_native_controls() {
         assert_eq!(launch_pid(r#"{"ProcessId":42}"#).unwrap(), 42);
