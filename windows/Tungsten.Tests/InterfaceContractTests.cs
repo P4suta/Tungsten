@@ -47,7 +47,7 @@ public sealed class InterfaceContractTests
         Assert.Equal("true", Value("SelfContained")); Assert.Equal("true", Value("WindowsAppSDKSelfContained"));
         Assert.Equal("x64;ARM64", Value("Platforms"));
         Assert.Equal("win-x64;win-arm64", Value("RuntimeIdentifiers"));
-        Assert.Equal("2.6.5", project.Descendants("PackageReference").Single(e => (string?)e.Attribute("Include") == "Microsoft.WindowsAppSDK").Attribute("Version")?.Value);
+        Assert.Equal("2.7.0", project.Descendants("PackageReference").Single(e => (string?)e.Attribute("Include") == "Microsoft.WindowsAppSDK").Attribute("Version")?.Value);
         Assert.Contains(project.Descendants("PackageReference"), e => (string?)e.Attribute("Include") == "Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer" && (string?)e.Attribute("PrivateAssets") == "all");
         var manifest = Document("Package.appxmanifest");
         var identity = manifest.Descendants().Single(e => e.Name.LocalName == "Identity");
